@@ -37,6 +37,26 @@ class engine_test(MapTest):
         self.assertEqual(seg["metrics"]["turns"], 2)
         self.assertTrue(rt.closed)
 
+    def test_clear_starts_fresh_and_stays_clear_on_reopen(self):
+        first = FakeRuntime([[say("old answer")]])
+        self.run_async(engine.run("talk", self.map, first, FakeTerminal(["old user message"]), "mac"))
+        cleared = FakeRuntime([[say("fresh answer")]])
+        self.run_async(engine.run("clear", self.map, cleared, FakeTerminal(["new message"]), "mac"))
+        self.assertIsNone(cleared.opened["resume"])
+        self.assertNotIn("old user message", cleared.sent[0])
+        self.assertNotIn("old answer", cleared.sent[0])
+        from engine.conversation import Conversation
+        conv = Conversation(self.map, "mac", "fake")
+        self.assertEqual([r["content"] for r in conv.tail(100)], ["new message", "fresh answer"])
+        self.assertEqual(self.map.value("select count(*) from memory.messages where content='old user message'"), 1)
+        self.assertEqual(self.map.value("select count(*) from memory.memory_jobs"), 2)
+        # Another runtime must not revive a session or seed from before Clear.
+        other = Conversation(self.map, "mac", "other")
+        _, resume, seed = other.resolve("talk")
+        self.assertIsNone(resume)
+        self.assertNotIn("old user message", seed)
+        self.assertIn("new message", seed)
+
     def test_morning_speaks_first_with_the_morning_instructions(self):
         rt = FakeRuntime([[say("Morning. Nothing on the plan yet. What are you doing today?")], [say("Gym it is.")]])
         io = FakeTerminal(["gym at six"])

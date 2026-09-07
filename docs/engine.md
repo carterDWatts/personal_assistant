@@ -65,3 +65,5 @@ The SwiftUI app starts `python -m engine.desktop` as a child process and exchang
 The native voice loop uses Speech and AVFoundation. It sends an utterance after a pause and speaks completed sentences as they stream. It stops listening during playback to avoid hearing its own voice. Stop cancels playback and asks the runtime to interrupt. Microphone permissions and real-room voice quality need to be checked on the user's Mac.
 
 To verify retrieval with a real subscription model, run `python3 -m scripts.check_memory`. This creates a random fact in a rolled-back transaction on the local test map. A fresh ChatGPT session gets no transcript or snapshot and must recover the value through map tools. The check leaves existing chats and facts unchanged.
+
+Clear starts a fresh agent and resets the visible conversation in the selected memory environment. The boundary persists across restarts and model changes. Structured facts and queued extraction remain intact; older messages remain stored for provenance and explicit history searches but are excluded from the conversation seed and pending-message context.

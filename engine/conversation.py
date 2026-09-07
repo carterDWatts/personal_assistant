@@ -21,6 +21,10 @@ class Conversation:
         Returns (segment_id, resume_session_id, seed_text). A morning always starts a fresh
         runtime session. Otherwise the latest session on this device resumes unless something
         was said elsewhere since, in which case a fresh session is seeded with the tail."""
+        if mode == "clear":
+            segment = self.open_segment("talk")
+            self.record(segment, "system", None, {"event": "chat_cleared"})
+            return segment, None, None
         latest = self.latest_segment()
         if mode != "morning" and latest and not self.spoken_elsewhere_since(latest["id"]):
             return latest["id"], latest["runtime_session_id"], None
@@ -30,7 +34,10 @@ class Conversation:
     def latest_segment(self):
         return self.map.row(
             "select id, runtime_session_id from memory.conversations"
-            " where device = %s and runtime = %s and day = current_date and runtime_policy_version = 3 and runtime_session_id is not null order by started_at desc limit 1",
+            " where device = %s and runtime = %s and day = current_date and runtime_policy_version = 3 and runtime_session_id is not null"
+            " and started_at >= coalesce((select c.started_at from memory.messages m join memory.conversations c on c.id=m.conversation_id"
+            " where m.role='system' and m.payload->>'event'='chat_cleared' order by m.id desc limit 1), '-infinity'::timestamptz)"
+            " order by started_at desc limit 1",
             (self.device, self.runtime_name))
 
     def spoken_elsewhere_since(self, segment_id):
@@ -71,11 +78,14 @@ class Conversation:
                 "update memory.conversations set ended_at = now(), ended_by = %s, metrics = %s, summary = coalesce(%s, summary) where id = %s",
                 (ended_by, jsonb(total), summary, segment_id))
 
+    def cutoff(self):
+        return self.map.value("select coalesce(max(id),0) from memory.messages where role='system' and payload->>'event'='chat_cleared'")
+
     def tail(self, n):
         rows = self.map.rows(
             "select m.role, m.content, m.created_at, c.device from memory.messages m"
             " join memory.conversations c on c.id = m.conversation_id"
-            " where m.role in ('user', 'assistant') and m.content is not null order by m.id desc limit %s", (n,))
+            " where m.role in ('user', 'assistant') and m.content is not null and m.id > %s order by m.id desc limit %s", (self.cutoff(), n))
         return list(reversed(rows))
 
     def seed_text(self, messages):

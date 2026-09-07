@@ -43,7 +43,7 @@ final class Chat: NSObject, ObservableObject, AVSpeechSynthesizerDelegate {
 
     override init() { super.init(); speaker.delegate = self }
 
-    func connect() {
+    func connect(clear: Bool = false) {
         disconnect()
         messages = []
         let epoch = generation
@@ -75,8 +75,14 @@ final class Chat: NSObject, ObservableObject, AVSpeechSynthesizerDelegate {
         do {
             try child.run(); process = child; input = stdin.fileHandleForWriting
             busy = true; status = "Connecting…"
-            write(["type": "connect", "runtime": runtime])
+            write(["type": "connect", "runtime": runtime, "clear": clear])
         } catch { status = "Could not start the engine. Rebuild the app." }
+    }
+
+    func clearChat() {
+        draft = ""
+        voice = false
+        connect(clear: true)
     }
 
     func disconnect() {
@@ -295,6 +301,7 @@ struct MessageText: NSViewRepresentable {
                 }
                 VStack(alignment: .leading, spacing: 10) {
                     HStack {
+                        Button("Clear", action: { chat.clearChat() }).disabled(chat.busy || !chat.connected).help("Clear the chat and start fresh. Keep structured memory.")
                         Text(chat.status).font(.caption).foregroundColor(.secondary).lineLimit(2)
                         if !chat.connected && !chat.busy {
                             Button("Retry", action: { chat.connect() })

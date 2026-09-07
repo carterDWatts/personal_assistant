@@ -75,8 +75,9 @@ async def main():
                     runtime = load(name)()
                     map_ = Map()
                     session = Session(map_, runtime, DesktopIO(), config.DEVICE)
-                    emit("history", messages=session.conv.tail(100))
-                    await session.open()
+                    clear = message.get("clear") is True
+                    emit("history", messages=[] if clear else session.conv.tail(100))
+                    await session.open("clear" if clear else "talk")
                     emit("ready")
                     memory_poll = asyncio.create_task(monitor_memory())
                 elif action == "send" and session:
