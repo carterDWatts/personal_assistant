@@ -67,3 +67,39 @@ class integrations_test(unittest.IsolatedAsyncioTestCase):
         payload = {"parts":[part("text/plain","Meeting at noon"),part("text/html","<b>Duplicate</b>"),part("text/plain","Attachment", "notes.txt")]}
         self.assertEqual(google._body(payload), "Meeting at noon")
         self.assertEqual(google._body(part("text/html", "<style>hidden</style><p>Hello</p><script>hidden</script>")), "Hello")
+
+    async def test_calendar_rejects_invalid_times_before_network(self):
+        spec = next(t for t in read_specs() if t.name == 'google_calendar_create_event')
+        for start, end in [('2026-09-07T16:00', '2026-09-07T17:00'),
+                           ('2026-09-07T17:00-07:00', '2026-09-07T16:00-07:00')]:
+            with patch.object(google, '_request') as request:
+                _, error = await run(spec, {'title':'Gym','start':start,'end':end})
+            self.assertTrue(error)
+            request.assert_not_called()
+
+    def test_calendar_creation_preserves_offset_and_reuses_id(self):
+        args = {'title':'Gym','start':'2026-09-07T16:00-07:00','end':'2026-09-07T17:00-07:00'}
+        with patch.object(google, '_request', return_value={'id':'event'}) as request:
+            google._create_event(args)
+            first = request.call_args.kwargs['body']
+            google._create_event(args)
+            self.assertEqual(first, request.call_args.kwargs['body'])
+        self.assertEqual(first['start']['dateTime'], '2026-09-07T16:00:00-07:00')
+        self.assertNotIn('attendees', first)
+        self.assertEqual(request.call_args.args[:2], ('POST','calendar/v3/calendars/primary/events'))
+
+    def test_calendar_old_credentials_require_upgrade(self):
+        credentials = Mock()
+        credentials.has_scopes.return_value = False
+        with patch.object(google, '_credentials', return_value=credentials), patch.object(google, 'AuthorizedSession') as session:
+            with self.assertRaisesRegex(google.ToolError, 'Enable calendar editing'):
+                google._request('POST', 'calendar/v3/calendars/primary/events', body={})
+        session.assert_not_called()
+
+    def test_calendar_retry_returns_existing_event(self):
+        body = {'id':'abc12','summary':'Gym','description':'','start':{'dateTime':'2026-09-07T16:00:00-07:00'},'end':{'dateTime':'2026-09-07T17:00:00-07:00'}}
+        credentials = Mock(valid=True)
+        with patch.object(google, '_credentials', return_value=credentials), patch.object(google, 'AuthorizedSession') as session, patch.object(google, '_get', return_value=body):
+            session.return_value.__enter__.return_value.request.return_value.status_code = 409
+            result = google._request('POST', 'calendar/v3/calendars/primary/events', body=body)
+        self.assertEqual(result['id'], 'abc12')

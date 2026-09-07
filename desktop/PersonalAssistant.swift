@@ -55,6 +55,7 @@ final class Chat: NSObject, ObservableObject {
     @Published var memoryStatus = ""
     @Published var googleConfigured = false
     @Published var googleConnected = false
+    @Published var googleCalendarWrite = false
     @Published var googleConnecting = false
     @Published var connectionError = ""
     @Published var plans: [PlanItem] = []
@@ -165,6 +166,7 @@ final class Chat: NSObject, ObservableObject {
             case "connections":
                 googleConfigured = event["configured"] as? Bool ?? false
                 googleConnected = event["connected"] as? Bool ?? false
+                googleCalendarWrite = event["calendar_write"] as? Bool ?? false
                 googleConnecting = event["connecting"] as? Bool ?? false
                 connectionError = event["error"] as? String ?? event["message"] as? String ?? ""
             case "history":
@@ -503,13 +505,16 @@ struct ConnectionsView: View {
                         HStack { ProgressView().controlSize(.small); Text("Finish connecting in your browser…").font(.callout) }
                     } else if chat.googleConnected {
                         Text("Connected").foregroundStyle(.green)
+                        if !chat.googleCalendarWrite {
+                            Button("Enable calendar editing") { chat.connectGoogle() }.buttonStyle(.borderedProminent)
+                        }
                         Button("Disconnect this device") { chat.disconnectGoogle() }
                     } else if chat.googleConfigured {
                         Button("Connect Google") { chat.connectGoogle() }.buttonStyle(.borderedProminent)
                     } else {
                         Text("Google sign-in isn’t available in this build yet.").font(.callout).foregroundStyle(.secondary)
                     }
-                    Text("Nothing is sent or changed in your Google account.").font(.caption).foregroundStyle(.secondary)
+                    Text("Bunny Man can add calendar events when you ask. Email is read-only.").font(.caption).foregroundStyle(.secondary)
                 }
             }
             if !chat.connectionError.isEmpty { Text(chat.connectionError).font(.callout).foregroundStyle(.secondary) }

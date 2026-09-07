@@ -1,8 +1,9 @@
-"""Google account connection and read-only data access. Tokens stay in the OS keychain."""
+"""Google account connection, calendar scheduling and read-only mail access. Tokens stay in the OS keychain."""
 
 import asyncio
 import base64
 import json
+import hashlib
 import threading
 from html.parser import HTMLParser
 from datetime import datetime, timedelta, timezone
@@ -16,7 +17,8 @@ from google_auth_oauthlib.flow import InstalledAppFlow
 from engine import config
 from engine.tools import ToolError
 
-SCOPES = ["https://www.googleapis.com/auth/calendar.readonly", "https://www.googleapis.com/auth/gmail.readonly"]
+WRITE_SCOPE = "https://www.googleapis.com/auth/calendar.events"
+SCOPES = [WRITE_SCOPE, "https://www.googleapis.com/auth/calendar.readonly", "https://www.googleapis.com/auth/gmail.readonly"]
 SERVICE = "com.carterwatts.personal-assistant.google"
 _LOCK = threading.RLock()
 
@@ -40,7 +42,8 @@ def _credentials():
 def status():
     try:
         credentials = _credentials()
-        return {"configured": _client() is not None, "connected": bool(credentials and credentials.refresh_token)}
+        return {"configured": _client() is not None, "connected": bool(credentials and credentials.refresh_token),
+                "calendar_write": bool(credentials and credentials.has_scopes([WRITE_SCOPE]))}
     except Exception:
         return {"configured": _client() is not None, "connected": False, "message": "Unlock your keychain to connect Google."}
 
@@ -53,7 +56,9 @@ def connect():
     credentials = flow.run_local_server(host="127.0.0.1", port=0, timeout_seconds=180,
         authorization_prompt_message="", success_message="Google is connected. You can return to your assistant.",
         access_type="offline", prompt="consent")
-    if not credentials.refresh_token or not credentials.has_scopes(SCOPES):
+    granted = credentials.granted_scopes
+    if not credentials.refresh_token or not credentials.has_scopes(SCOPES) or (
+            isinstance(granted, (list, tuple, set)) and not set(SCOPES).issubset(granted)):
         raise ToolError("Calendar and Gmail access were not both granted. Try connecting again.")
     with _LOCK:
         keyring.set_password(SERVICE, config.ENV, credentials.to_json())
@@ -70,11 +75,13 @@ def disconnect():
     return status()
 
 
-def _get(path, params=None):
+def _request(method, path, params=None, body=None):
     with _LOCK:
         credentials = _credentials()
         if not credentials:
             raise ToolError("Google is not connected. Open Connections and choose Connect Google.")
+        if method != "GET" and not credentials.has_scopes([WRITE_SCOPE]):
+            raise ToolError("Calendar editing needs permission. Choose Enable calendar editing in Connections.")
         try:
             if not credentials.valid:
                 credentials.refresh(Request())
@@ -82,10 +89,39 @@ def _get(path, params=None):
         except Exception:
             raise ToolError("Google access has expired. Reconnect Google in Connections.") from None
     with AuthorizedSession(credentials) as session:
-        response = session.get("https://www.googleapis.com/" + path, params=params, timeout=10)
+        response = session.request(method, "https://www.googleapis.com/" + path, params=params, json=body, timeout=10)
+        if response.status_code == 409 and method == "POST":
+            existing = _get(path + "/" + body["id"])
+            if all(existing.get(k, "") == body[k] for k in ("summary", "description")) and all(
+                datetime.fromisoformat(existing[k]["dateTime"]) == datetime.fromisoformat(body[k]["dateTime"]) for k in ("start", "end")):
+                return existing
+            raise ToolError("An event with this ID already exists but has changed. Read the calendar before trying again.")
         if not response.ok:
             raise ToolError("Google could not provide that data. Check the connection and try again.")
         return response.json()
+
+
+def _get(path, params=None):
+    return _request("GET", path, params)
+
+
+def _create_event(args):
+    try:
+        start, end = (datetime.fromisoformat(args[k]) for k in ("start", "end"))
+        if start.utcoffset() is None or end.utcoffset() is None or end <= start:
+            raise ValueError()
+    except (ValueError, TypeError):
+        raise ToolError("Provide start and end times with UTC offsets, with end after start.") from None
+    body = {"summary": args["title"], "description": args.get("description", ""),
+            "start": {"dateTime": start.isoformat()}, "end": {"dateTime": end.isoformat()}}
+    # The same event keeps its ID across retries, including a lost HTTP response.
+    body["id"] = hashlib.sha256(json.dumps(body, sort_keys=True).encode()).hexdigest()
+    event = _request("POST", "calendar/v3/calendars/" + quote(args.get("calendar_id", "primary"), safe="") + "/events", body=body)
+    return {k: event[k] for k in ("id", "summary", "start", "end", "htmlLink") if k in event}
+
+
+async def calendar_create_event(args):
+    return await asyncio.to_thread(_create_event, args)
 
 
 def _calendar(args):
@@ -97,7 +133,7 @@ def _calendar(args):
         events = _get("calendar/v3/calendars/" + quote(calendar["id"], safe="") + "/events", {
             "timeMin": now.isoformat(), "timeMax": (now + timedelta(days=args.get("days", 1))).isoformat(),
             "singleEvents": "true", "orderBy": "startTime", "maxResults": 50})
-        output.append({"calendar": calendar.get("summary"), "events": [
+        output.append({"calendar_id": calendar["id"], "calendar": calendar.get("summary"), "access_role": calendar.get("accessRole"), "events": [
             {k: e[k] for k in ("id", "summary", "start", "end", "location", "status", "htmlLink") if k in e}
             for e in events.get("items", [])], "more_available": bool(events.get("nextPageToken"))})
     return {"fetched_at": datetime.now(timezone.utc).isoformat(), "calendars": output,
