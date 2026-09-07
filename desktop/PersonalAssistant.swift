@@ -256,54 +256,51 @@ struct VoicePresence: View {
     }
 }
 
-struct VoiceSpace: View {
-    @Environment(\.colorScheme) private var colorScheme
-    private var captionColor: Color { colorScheme == .dark ? Color(red: 0.62, green: 0.71, blue: 0.9) : voiceInk }
+struct VoicePanel: View {
     let title: String
     let hint: String
     let draft: String
-    let response: String
     let level: Double
     let moving: Bool
+    let end: () -> Void
 
     var body: some View {
-        VStack(spacing: 0) {
-            Spacer(minLength: 20)
-            VoicePresence(level: level, moving: moving)
-            Text(title).font(.system(size: 28, weight: .medium, design: .rounded))
-                .padding(.top, 14).accessibilityAddTraits(.updatesFrequently)
-            Text(hint).font(.system(size: 14)).foregroundStyle(.secondary).padding(.top, 8)
-            ScrollViewReader { proxy in
-                ScrollView {
-                    VStack(spacing: 24) {
-                        if !response.isEmpty {
-                            Text((try? AttributedString(markdown: response, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(response)).font(.system(size: 22, weight: .regular))
-                                .lineSpacing(7).multilineTextAlignment(.center).textSelection(.enabled)
-                                .frame(maxWidth: 540)
-                        }
-                        if !draft.isEmpty {
-                            Text(draft).font(.system(size: 20)).lineSpacing(6)
-                                .foregroundStyle(captionColor).multilineTextAlignment(.center)
-                                .textSelection(.enabled).frame(maxWidth: 500)
-                        }
-                        Color.clear.frame(height: 1).id("voice-caption-end")
-                    }.frame(maxWidth: .infinity).padding(.horizontal, 28).padding(.top, 30)
-                }.frame(maxHeight: 240)
-                    .onChange(of: draft) { _ in proxy.scrollTo("voice-caption-end", anchor: .bottom) }
-                    .onChange(of: response) { _ in
-                        if !draft.isEmpty { proxy.scrollTo("voice-caption-end", anchor: .bottom) }
-                    }
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 12) {
+                VoicePresence(level: level, moving: moving)
+                    .scaleEffect(0.35).frame(width: 48, height: 38)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(title).font(.system(size: 16, weight: .medium, design: .rounded))
+                    Text(hint).font(.caption).foregroundStyle(.secondary)
+                }
+                Spacer()
+                Button(action: end) {
+                    Label("End voice", systemImage: "xmark")
+                        .font(.system(size: 13, weight: .medium))
+                        .padding(.horizontal, 12).padding(.vertical, 9)
+                        .background(Color.primary.opacity(0.07), in: Capsule())
+                }.buttonStyle(.plain)
             }
-            Spacer(minLength: 20)
-        }.frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(voiceInk.opacity(0.035))
+            if !draft.isEmpty {
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 0) {
+                            Text(draft).font(.system(size: 18)).lineSpacing(4)
+                                .textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
+                            Color.clear.frame(height: 1).id("voice-caption-end")
+                        }
+                    }.frame(height: 52)
+                        .onChange(of: draft) { _ in proxy.scrollTo("voice-caption-end", anchor: .bottom) }
+                }
+            }
+        }.padding(16).frame(maxWidth: .infinity, alignment: .leading)
+            .background(voiceInk.opacity(0.07), in: RoundedRectangle(cornerRadius: 18))
     }
 }
 
 @MainActor struct ConversationView: View {
     @StateObject private var chat = Chat()
     @State private var followConversation = true
-    @State private var showVoiceHistory = false
     private var voiceTitle: String {
         if !chat.liveVoice.active { return chat.liveVoice.startupMessage }
         if !chat.spokenDraft.isEmpty { return "Listening" }
@@ -313,10 +310,6 @@ struct VoiceSpace: View {
     private var voiceHint: String {
         if !chat.liveVoice.active { return "Getting ready to talk" }
         return chat.liveVoice.speaking ? "You can interrupt anytime" : chat.busy && chat.spokenDraft.isEmpty ? "Your conversation continues here" : "Take your time. Speak naturally."
-    }
-    private var voiceResponse: String {
-        guard let last = chat.messages.last, last.role == "assistant" else { return "" }
-        return last.text
     }
     var body: some View {
         VStack(spacing: 0) {
@@ -332,11 +325,6 @@ struct VoiceSpace: View {
                     .disabled(chat.busy || !chat.connected).help("Start a fresh chat. Keep memory.")
             }.padding(.horizontal, 28).padding(.top, 22).padding(.bottom, 18)
             Divider().opacity(0.5)
-            if chat.voice && !showVoiceHistory {
-                VoiceSpace(title: voiceTitle, hint: voiceHint, draft: chat.spokenDraft,
-                           response: voiceResponse, level: chat.liveVoice.inputLevel,
-                           moving: chat.liveVoice.speaking || chat.busy)
-            } else {
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 26) {
@@ -383,32 +371,12 @@ struct VoiceSpace: View {
                     }
                 }
             }
-            }
             VStack(alignment: .leading, spacing: 12) {
                 if chat.voice {
-                    if showVoiceHistory {
-                        HStack(spacing: 12) {
-                            Image(systemName: "waveform").foregroundStyle(voiceInk)
-                            Text(chat.spokenDraft.isEmpty ? voiceTitle : chat.spokenDraft)
-                                .font(.system(size: 16)).lineLimit(3).textSelection(.enabled)
-                            Spacer(minLength: 0)
-                        }.padding(16).frame(maxWidth: .infinity, alignment: .leading)
-                            .background(voiceInk.opacity(0.07), in: RoundedRectangle(cornerRadius: 16))
-                    }
-                    HStack(spacing: 16) {
-                        Button { chat.stop() } label: { Label("Back to typing", systemImage: "keyboard") }
-                            .buttonStyle(.borderless).foregroundStyle(.secondary)
-                        Spacer()
-                        Button { showVoiceHistory.toggle() } label: {
-                            Label(showVoiceHistory ? "Voice view" : "Show chat", systemImage: showVoiceHistory ? "waveform" : "text.bubble")
-                        }.buttonStyle(.borderless).foregroundStyle(.secondary)
-                        Button { chat.stop() } label: {
-                            Label("End", systemImage: "xmark").font(.system(size: 14, weight: .medium))
-                                .padding(.horizontal, 18).padding(.vertical, 11)
-                                .background(Color.primary.opacity(0.08), in: Capsule())
-                        }.buttonStyle(.plain).accessibilityLabel("End voice conversation")
-                    }.padding(.vertical, 12)
-                } else {
+                    VoicePanel(title: voiceTitle, hint: voiceHint, draft: chat.spokenDraft,
+                               level: chat.liveVoice.inputLevel, moving: chat.liveVoice.speaking || chat.busy,
+                               end: { chat.stop() })
+                }
                 HStack(alignment: .bottom, spacing: 12) {
                     TextField("Message your assistant", text: $chat.draft, axis: .vertical).lineLimit(1...6).textFieldStyle(.plain).onSubmit { chat.send() }
                         .padding(.vertical, 7)
@@ -421,7 +389,6 @@ struct VoiceSpace: View {
                         .buttonStyle(.plain).foregroundStyle(chat.draft.isEmpty ? Color.secondary : Color.accentColor)
                         .disabled(chat.busy || !chat.connected || chat.draft.isEmpty).keyboardShortcut(.return, modifiers: .command).accessibilityLabel("Send message")
                 }.padding(14).background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 18))
-                }
                 HStack(alignment: .top) {
                     Text(chat.status).lineLimit(2)
                     if !chat.connected && !chat.busy { Button("Retry", action: { chat.connect() }).buttonStyle(.borderless) }
@@ -431,9 +398,14 @@ struct VoiceSpace: View {
             }.padding(.horizontal, 28).padding(.bottom, 20).frame(maxWidth: 780).frame(maxWidth: .infinity)
         }.background(Color(nsColor: .windowBackgroundColor)).frame(minWidth: 660, minHeight: 600)
             .onAppear { if !chat.connected && !chat.busy { chat.connect() } }
-            .onChange(of: chat.voice) { active in if active { showVoiceHistory = false } }
             .onChange(of: chat.runtime) { _ in chat.connect() }
             .onChange(of: chat.test) { _ in chat.connect() }
+            .onReceive(NotificationCenter.default.publisher(for: NSApplication.didResignActiveNotification)) { _ in
+                if chat.voice { chat.stop() }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: NSWindow.didMiniaturizeNotification)) { _ in
+                if chat.voice { chat.stop() }
+            }
             .onDisappear { chat.disconnect() }
     }
 }
