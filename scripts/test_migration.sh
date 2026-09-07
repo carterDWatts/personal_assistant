@@ -4,7 +4,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-NAME=morning-agent-pg-test
+NAME=personal-assistant-pg-test
 IMAGE=pgvector/pgvector:pg17
 
 docker rm -f "$NAME" >/dev/null 2>&1 || true
