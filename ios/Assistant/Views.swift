@@ -245,13 +245,74 @@ struct SettingsView: View {
     }
 }
 
+struct SignInView: View {
+    let palette: Palette
+    @ObservedObject private var account = Account.shared
+    @State private var email = UserDefaults.standard.string(forKey: "email") ?? ""
+    @State private var code = ""
+    @State private var sent = false
+    @State private var working = false
+    @State private var problem = ""
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Spacer()
+            Mark(palette: palette).frame(width: 64, height: 64)
+            Text(AssistantIdentity.name).font(.largeTitle.weight(.semibold)).foregroundStyle(palette.ink)
+            Text(sent ? "Enter the code from the email." : "Sign in with the address on the account. A code will be emailed to you.")
+                .font(.callout).foregroundStyle(palette.muted)
+            if sent {
+                TextField("Code", text: $code).keyboardType(.numberPad).textContentType(.oneTimeCode)
+                    .font(.title3.monospacedDigit()).foregroundStyle(palette.ink).tint(palette.accent)
+                    .padding(12).background(palette.surface).overlay(Rectangle().stroke(palette.line, lineWidth: 1))
+            } else {
+                TextField("Email", text: $email).keyboardType(.emailAddress).textContentType(.emailAddress)
+                    .textInputAutocapitalization(.never).autocorrectionDisabled()
+                    .font(.body).foregroundStyle(palette.ink).tint(palette.accent)
+                    .padding(12).background(palette.surface).overlay(Rectangle().stroke(palette.line, lineWidth: 1))
+            }
+            if !problem.isEmpty { Text(problem).font(.caption).foregroundStyle(Color.orange) }
+            HStack {
+                if sent { Button("Use another address") { sent = false; code = ""; problem = "" }.foregroundStyle(palette.muted) }
+                Spacer()
+                Button { Task { await submit() } } label: { Text(sent ? "Sign in" : "Send code").padding(.horizontal, 10) }
+                    .buttonStyle(SquareButton(palette: palette, prominent: true))
+                    .disabled(working || (sent ? code.count < 6 : !email.contains("@")))
+            }
+            Spacer()
+        }
+        .padding(28)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+        .background(Concrete(palette: palette).ignoresSafeArea())
+        .preferredColorScheme(.light)
+    }
+
+    private func submit() async {
+        working = true; problem = ""
+        defer { working = false }
+        let address = email.trimmingCharacters(in: .whitespaces)
+        do {
+            if sent {
+                try await account.verify(email: address, code: code.trimmingCharacters(in: .whitespaces))
+                UserDefaults.standard.set(address, forKey: "email")
+            } else {
+                try await account.requestCode(email: address)
+                sent = true
+            }
+        } catch {
+            problem = error.localizedDescription
+        }
+    }
+}
+
 struct ConversationView: View {
     @StateObject private var chat = Chat()
+    @ObservedObject private var account = Account.shared
     @State private var follow = true
     @State private var showDay = false
     @State private var showSettings = false
     @Environment(\.scenePhase) private var phase
     private let palette = Palette.concrete
+    private let sample = ProcessInfo.processInfo.arguments.contains("--sample")
 
     var body: some View {
         NavigationStack {
@@ -281,6 +342,7 @@ struct ConversationView: View {
                         Button("Clear", systemImage: "eraser") { chat.draft = ""; chat.connect(clear: true) }.disabled(!chat.connected || chat.busy)
                         Button("Settings", systemImage: "gearshape") { showSettings = true }
                         if !chat.connected && !chat.busy { Button("Reconnect", systemImage: "arrow.clockwise") { chat.connect() } }
+                        if account.signedIn { Button("Sign out", systemImage: "rectangle.portrait.and.arrow.right") { account.signOut() } }
                     } label: { Image(systemName: "ellipsis") }
                 }
             }
@@ -292,8 +354,13 @@ struct ConversationView: View {
             .fullScreenCover(isPresented: Binding(get: { chat.voice }, set: { if !$0 { chat.stop() } })) {
                 VoiceConversation(chat: chat, palette: palette)
             }
+            .fullScreenCover(isPresented: Binding(get: { !account.signedIn && !sample }, set: { _ in })) { SignInView(palette: palette) }
             .onAppear { if !chat.connected && !chat.busy { chat.connect() } }
-            .onChange(of: phase) { _, now in if now != .active && chat.voice { chat.stop() } }
+            .onChange(of: account.signedIn) { _, now in if now { chat.connect() } }
+            .onChange(of: phase) { _, now in
+                if now != .active && chat.voice { chat.stop() }
+                chat.foreground(now == .active)
+            }
         }
         .preferredColorScheme(.light)
     }

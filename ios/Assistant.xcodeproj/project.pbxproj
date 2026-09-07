@@ -11,11 +11,13 @@
 		20CB022D16C16345828B8930 /* Transport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 19166F88EC58DDC6BF56BDD6 /* Transport.swift */; };
 		63B70AB8344C1CEB6A0FEBD4 /* Views.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2CF368B5C1B83543A7E505E0 /* Views.swift */; };
 		74BE8C1B54D60ADD47A77699 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 986D1C1B277AB5299783326C /* Assets.xcassets */; };
+		7E7862DFBFD553244702D495 /* RelayTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = C713842B995B63BEBCE8932C /* RelayTransport.swift */; };
 		AD4ABC8E4D917F041D63CC44 /* Voice.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0497070F1E94B926A14D5A01 /* Voice.swift */; };
 		BC84ECD4FDE1408C3E8735EA /* Look.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE1E7DC00C8E768658B15BA8 /* Look.swift */; };
 		C06F26244FDFA6D006DB7EAD /* identity.json in Resources */ = {isa = PBXBuildFile; fileRef = 09D515221AC492E178022482 /* identity.json */; };
 		CA24510F1F5E93FDAE862DA4 /* App.swift in Sources */ = {isa = PBXBuildFile; fileRef = DAD2018EE3CC52D3D8588EDC /* App.swift */; };
 		DE85CB8159AB83773B5C0DA4 /* Chat.swift in Sources */ = {isa = PBXBuildFile; fileRef = 09916F194DDAA79391C8ABED /* Chat.swift */; };
+		E7822E63E1E8FC23FFFFAC2E /* Account.swift in Sources */ = {isa = PBXBuildFile; fileRef = ED986764FEC8C073175A88FF /* Account.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -27,8 +29,10 @@
 		2CF368B5C1B83543A7E505E0 /* Views.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views.swift; sourceTree = "<group>"; };
 		986D1C1B277AB5299783326C /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		C10CBC59C32F901023B4AB71 /* Assistant.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = Assistant.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		C713842B995B63BEBCE8932C /* RelayTransport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RelayTransport.swift; sourceTree = "<group>"; };
 		C85DAEEEE55F2BFC90BE3CC9 /* VoiceTurn.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceTurn.swift; sourceTree = "<group>"; };
 		DAD2018EE3CC52D3D8588EDC /* App.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App.swift; sourceTree = "<group>"; };
+		ED986764FEC8C073175A88FF /* Account.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Account.swift; sourceTree = "<group>"; };
 		FE1E7DC00C8E768658B15BA8 /* Look.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Look.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -62,11 +66,13 @@
 		D4E597498C9A526660060948 /* Assistant */ = {
 			isa = PBXGroup;
 			children = (
+				ED986764FEC8C073175A88FF /* Account.swift */,
 				DAD2018EE3CC52D3D8588EDC /* App.swift */,
 				986D1C1B277AB5299783326C /* Assets.xcassets */,
 				09916F194DDAA79391C8ABED /* Chat.swift */,
 				0A20A9483B2B64425BF1A36D /* Info.plist */,
 				FE1E7DC00C8E768658B15BA8 /* Look.swift */,
+				C713842B995B63BEBCE8932C /* RelayTransport.swift */,
 				19166F88EC58DDC6BF56BDD6 /* Transport.swift */,
 				2CF368B5C1B83543A7E505E0 /* Views.swift */,
 				0497070F1E94B926A14D5A01 /* Voice.swift */,
@@ -178,9 +184,11 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				E7822E63E1E8FC23FFFFAC2E /* Account.swift in Sources */,
 				CA24510F1F5E93FDAE862DA4 /* App.swift in Sources */,
 				DE85CB8159AB83773B5C0DA4 /* Chat.swift in Sources */,
 				BC84ECD4FDE1408C3E8735EA /* Look.swift in Sources */,
+				7E7862DFBFD553244702D495 /* RelayTransport.swift in Sources */,
 				20CB022D16C16345828B8930 /* Transport.swift in Sources */,
 				63B70AB8344C1CEB6A0FEBD4 /* Views.swift in Sources */,
 				AD4ABC8E4D917F041D63CC44 /* Voice.swift in Sources */,

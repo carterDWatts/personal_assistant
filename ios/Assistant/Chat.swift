@@ -69,7 +69,7 @@ func plain(_ value: Any?) -> String {
     private var streamingID: UUID?
 
     init(transport: Transport? = nil) {
-        let transport = transport ?? MockTransport()
+        let transport = transport ?? (ProcessInfo.processInfo.arguments.contains("--sample") ? MockTransport() : RelayTransport())
         self.transport = transport
         voiceSubscription = liveVoice.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }
         liveVoice.onSpeech = { [weak self] in self?.interruptForSpeech() }
@@ -92,7 +92,7 @@ func plain(_ value: Any?) -> String {
 
     private func receive(_ event: [String: Any]) {
         guard let type = event["type"] as? String else { return }
-        let text = event["text"] as? String ?? ""
+        let text = event["text"] as? String ?? event["message"] as? String ?? ""
         switch type {
         case "history":
             messages = (event["messages"] as? [[String: Any]] ?? []).compactMap { row in
@@ -121,7 +121,12 @@ func plain(_ value: Any?) -> String {
             memoryPending = (event["pending"] as? NSNumber)?.intValue ?? 0
             memoryErrors = (event["errors"] as? NSNumber)?.intValue ?? 0
         case "status": status = text.replacingOccurrences(of: "_", with: " ")
-        case "error": busy = false; status = text; voice = false; liveVoice.stop(); voiceTurn = VoiceTurn()
+        case "error":
+            busy = false; status = text; voice = false; liveVoice.stop(); voiceTurn = VoiceTurn()
+            if let unsent = event["unsent"] as? String {
+                if messages.last?.role == "user" && messages.last?.text == unsent { messages.removeLast() }
+                if draft.isEmpty { draft = unsent }
+            }
         default: break
         }
     }
@@ -160,6 +165,8 @@ func plain(_ value: Any?) -> String {
         liveVoice.stop(); speechBuffer = ""; voice = false; voiceTurn.discardPending()
         if voiceTurn.interrupt(busy: busy) { transport.stop() }
     }
+
+    func foreground(_ active: Bool) { transport.foreground(active) }
 
     func toggleVoice() {
         if voice { stop(); return }

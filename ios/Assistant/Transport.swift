@@ -7,6 +7,7 @@ import Foundation
     func connect(clear: Bool)
     func send(_ text: String, id: UUID)
     func stop()
+    func foreground(_ active: Bool)
     func close()
 }
 
@@ -81,6 +82,7 @@ func isoDate(_ date: Date) -> String {
     }
 
     func stop() { reply?.cancel() }
+    func foreground(_ active: Bool) {}
     func close() { reply?.cancel() }
 
     private func map() -> [String: Any] {
