@@ -9,7 +9,7 @@ from zoneinfo import ZoneInfo
 from engine import config
 
 
-def snapshot(map_, today=None, now=None):
+def snapshot(map_, today=None, now=None, include_pending=True):
     now = now or datetime.now(ZoneInfo(config.TIMEZONE))
     today = today or now.date()
     parts = [f"Map snapshot. Today is {today.strftime('%A')} {today.isoformat()}, {now.strftime('%H:%M')} local."]
@@ -20,6 +20,11 @@ def snapshot(map_, today=None, now=None):
     parts.append(f"Today's plan\n" + plans_block(map_, today))
     parts.append("Open questions, best first\n" + questions_block(map_, today))
     parts.append("Recent changes (last 7 days)\n" + transitions_block(map_, today))
+    if include_pending:
+        pending = map_.rows("select m.content,m.created_at from memory.memory_jobs j join memory.messages m on m.id=j.message_id where j.status <> 'done' order by m.id desc limit 20")
+        if pending:
+            parts.append("Recent user statements awaiting structured memory. Use these directly; do not wait for extraction.\n" +
+                         "\n".join(f"[{m['created_at'].isoformat()}] {m['content']}" for m in reversed(pending)))
     return "\n\n".join(parts)
 
 

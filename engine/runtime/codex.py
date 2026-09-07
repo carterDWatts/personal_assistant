@@ -18,7 +18,9 @@ class CodexRequestError(RuntimeError):
 class CodexRuntime:
     name = "codex"
 
-    def __init__(self, executable=None):
+    def __init__(self, executable=None, model=None, effort=None):
+        self.model = model or os.environ.get("ASSISTANT_OPENAI_MODEL")
+        self.effort = effort or config.EFFORT
         self.executable = executable or os.environ.get("ASSISTANT_CODEX_PATH") or shutil.which("codex") or "/Applications/ChatGPT.app/Contents/Resources/codex"
         self.process = None
         self.session_id = None
@@ -94,8 +96,8 @@ class CodexRuntime:
             raise RuntimeError("Sign in to Codex with your ChatGPT subscription first. API billing is disabled.")
         params = {"baseInstructions": system_prompt, "cwd": str(state), "approvalPolicy": "never", "sandbox": "read-only",
                   "config": {"web_search": "disabled"}, "modelProvider": "openai"}
-        if os.environ.get("ASSISTANT_OPENAI_MODEL"):
-            params["model"] = os.environ["ASSISTANT_OPENAI_MODEL"]
+        if self.model:
+            params["model"] = self.model
         if resume:
             params["threadId"] = resume
             try:
@@ -112,7 +114,7 @@ class CodexRuntime:
         self.session_id = result["thread"]["id"]
 
     async def send(self, text):
-        result = await self.request("turn/start", {"threadId": self.session_id, "input": [{"type": "text", "text": text}], "environments": []})
+        result = await self.request("turn/start", {"threadId": self.session_id, "input": [{"type": "text", "text": text}], "environments": [], "effort": self.effort})
         self.turn_id = result["turn"]["id"]
         started = asyncio.get_running_loop().time()
         while True:

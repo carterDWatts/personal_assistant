@@ -43,7 +43,17 @@ async def main():
     from engine.db import Map
     from engine.engine import Session
     from engine.runtime import load
-    map_, session, active = None, None, None
+    map_, session, active, memory_poll = None, None, None, None
+    async def monitor_memory():
+        while True:
+            try:
+                counts = map_.row("select count(*) filter(where status <> 'done') as pending, count(*) filter(where status='error') as errors from memory.memory_jobs")
+                text = "Memory update paused; chat still works." if counts['errors'] else "Updating memory in the background…" if counts['pending'] else ""
+                emit("memory", text=text)
+            except Exception:
+                emit("memory", text="Memory status is unavailable.")
+            await asyncio.sleep(3)
+
     async def reply(text):
         try:
             await session.send(text)
@@ -68,6 +78,7 @@ async def main():
                     await session.open()
                     emit("history", messages=session.conv.tail(100))
                     emit("ready")
+                    memory_poll = asyncio.create_task(monitor_memory())
                 elif action == "send" and session:
                     if active and not active.done():
                         raise ValueError("Wait for the current reply")
@@ -87,6 +98,9 @@ async def main():
             except Exception:
                 emit("error", text="Could not connect. Check your database setting and subscription login, then reconnect.")
     finally:
+        if memory_poll:
+            memory_poll.cancel()
+            await asyncio.gather(memory_poll, return_exceptions=True)
         if active and not active.done():
             active.cancel()
             await asyncio.gather(active, return_exceptions=True)

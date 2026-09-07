@@ -5,11 +5,10 @@ from tst.helpers import FakeRuntime, FakeTerminal, MapTest, call, say
 
 
 class engine_test(MapTest):
-    def test_talk_mirrors_everything_and_writes_through_tools(self):
+    def test_talk_queues_memory_without_write_tools(self):
         self.map.execute("insert into memory.attributes (name, value_type, cardinality, created_by) values ('parked_at', 'text', 'single', 'test')")
         rt = FakeRuntime([
-            [call("entity_upsert", type="vehicle", name="Porsche"),
-             say("Got it. Where is it?")],
+            [say("Got it. Where is it?")],
             [say("Noted, the garage.")],
         ])
         io = FakeTerminal(["I have a Porsche", "it's in the garage"])
@@ -25,15 +24,12 @@ class engine_test(MapTest):
 
         rows = self.map.rows("select role, content, payload from memory.messages order by id")
         roles = [r["role"] for r in rows]
-        self.assertEqual(roles, ["user", "tool", "assistant", "user", "assistant"])
+        self.assertEqual(roles, ["user", "assistant", "user", "assistant"])
         self.assertEqual(rows[0]["content"], "I have a Porsche")
-        self.assertEqual(rows[1]["payload"]["call"], "entity_upsert")
-        self.assertEqual(rows[2]["content"], "Got it. Where is it?")
-
-        entity = self.map.row("select name, source_observation_id from memory.entities")
-        self.assertEqual(entity["name"], "Porsche")
-        obs = self.map.row("select message_id from memory.observations where id = %s", (entity["source_observation_id"],))
-        self.assertEqual(obs["message_id"], self.map.value("select id from memory.messages where role = 'user' order by id limit 1"))
+        self.assertEqual(rows[1]["content"], "Got it. Where is it?")
+        self.assertNotIn("entity_upsert", rt.tools)
+        self.assertEqual(self.map.value("select count(*) from memory.memory_jobs where status='pending'"), 2)
+        self.assertEqual(self.map.value("select count(*) from memory.entities"), 0)
 
         seg = self.map.row("select runtime_session_id, ended_by, metrics from memory.conversations")
         self.assertEqual(seg["runtime_session_id"], "fake-session-1")

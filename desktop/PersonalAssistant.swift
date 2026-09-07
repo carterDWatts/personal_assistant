@@ -15,6 +15,7 @@ final class Chat: NSObject, ObservableObject, AVSpeechSynthesizerDelegate {
         didSet { UserDefaults.standard.set(draft, forKey: "draft") }
     }
     @Published var status = "Starting…"
+    @Published var memoryStatus = ""
     @Published var busy = false
     @Published var connected = false
     @Published var voice = false
@@ -88,6 +89,7 @@ final class Chat: NSObject, ObservableObject, AVSpeechSynthesizerDelegate {
                 if child.isRunning { child.terminate() }
             }
         }
+        memoryStatus = ""
         process = nil; input = nil; buffer = Data(); connected = false; busy = false; streamingID = nil
     }
 
@@ -118,6 +120,7 @@ final class Chat: NSObject, ObservableObject, AVSpeechSynthesizerDelegate {
             case "replace":
                 if let i = messages.firstIndex(where: { $0.id == streamingID }) { messages[i].text = text }
             case "end": speakSentences(flush: true); streamingID = nil
+            case "memory": memoryStatus = text
             case "status": status = text.replacingOccurrences(of: "_", with: " ")
             case "error": busy = false; status = text; voice = false; stopListening(); speaker.stopSpeaking(at: .immediate)
             default: break
@@ -296,6 +299,7 @@ struct MessageText: NSViewRepresentable {
                             Button("Retry", action: { chat.connect() })
                         }
                     }
+                    if !chat.memoryStatus.isEmpty { Text(chat.memoryStatus).font(.caption).foregroundColor(.secondary) }
                     HStack(alignment: .bottom, spacing: 12) {
                         TextField("Message your assistant", text: $chat.draft, axis: .vertical).lineLimit(1...6).textFieldStyle(.plain).onSubmit { chat.send() }
                         Button(action: { chat.toggleVoice() }) { Image(systemName: chat.voice ? "mic.fill" : "mic") }.disabled(!chat.connected).help("Voice conversation")

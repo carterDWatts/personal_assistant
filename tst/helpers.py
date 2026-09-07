@@ -10,7 +10,7 @@ from engine.runtime import Event, Metrics
 
 TEST_URL = os.environ.get("ASSISTANT_TEST_DATABASE_URL")
 
-TABLES = ("relationship_sources", "revisions", "assertion_sources", "assertions", "relationships", "entity_aliases", "entity_embeddings", "entities",
+TABLES = ("memory_jobs", "relationship_sources", "revisions", "assertion_sources", "assertions", "relationships", "entity_aliases", "entity_embeddings", "entities",
           "plans", "rules", "questions", "connectors", "messages", "conversations", "observations", "attributes", "relations")
 
 

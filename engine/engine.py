@@ -6,6 +6,7 @@ from engine.config import prompt
 from engine.conversation import Conversation
 from engine.tools import Tools
 from engine.runtime import Metrics
+from engine import memory_worker
 
 
 class Session:
@@ -29,11 +30,12 @@ class Session:
         system = prompt("persona")
         if mode == "morning":
             system += "\n\n" + prompt("morning")
-        await self.runtime.open(system, self.tools.specs(), resume=resume)
+        await self.runtime.open(system, self.tools.read_specs(), resume=resume)
         if resume and not getattr(self.runtime, "resumed", True):
             self.seed = self.conv.seed_text(self.conv.tail(30))
         if self.runtime.session_id:
             self.conv.set_runtime_session(self.segment_id, self.runtime.session_id)
+        memory_worker.kick(self.runtime.name)
         if mode == "morning":
             await self.send("Begin the morning session.", role="system")
 
@@ -57,6 +59,8 @@ class Session:
         except BaseException:
             self.ended_by = "error"
             raise
+        finally:
+            memory_worker.kick(self.runtime.name)
 
     async def close(self):
         metrics = getattr(self.runtime, "metrics", Metrics())

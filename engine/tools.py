@@ -27,6 +27,9 @@ class ToolSpec:
     fn: object  # async (args: dict) -> object
 
 
+READ_TOOLS = frozenset({"map_search", "entity_view", "fact_history", "plans_list", "conversation_history"})
+
+
 class ToolError(Exception):
     pass
 
@@ -74,6 +77,7 @@ class Tools:
         self.map = map_
         self.device = device
         self.source = source
+        self.observed_at = None
         self.message_id = None  # the transcript message currently being answered
 
     # --- provenance ------------------------------------------------------------
@@ -82,7 +86,7 @@ class Tools:
         return self.map.call_value(
             "record_observation", p_source=self.source, p_kind=kind, p_content=content,
             p_payload=jsonb(payload) if payload is not None else None, p_source_ref=None,
-            p_agent=self.device, p_occurred_at=datetime.now().astimezone(),
+            p_agent=self.device, p_occurred_at=self.observed_at or datetime.now().astimezone(),
             p_message_id=Int8(self.message_id) if self.message_id is not None else None)
 
     # --- reading ------------------------------------------------------------------
@@ -193,7 +197,7 @@ class Tools:
                            {"entity_id": args["entity_id"], "attribute": args["attribute"], "value": args["value"]})
         return self.map.call(
             "assert_fact", p_entity_id=args["entity_id"], p_attribute=args["attribute"], p_value=jsonb(args["value"]),
-            p_asserted_by=self.device, p_valid_from=_when(args.get("valid_from")) or datetime.now().astimezone(),
+            p_asserted_by=self.device, p_valid_from=_when(args.get("valid_from")) or self.observed_at or datetime.now().astimezone(),
             p_confidence=Float4(float(args.get("confidence", 1.0))), p_level=args.get("level") or "stated",
             p_observation_id=Int8(obs), p_valid_to=_when(args.get("valid_to")))
 
@@ -201,7 +205,7 @@ class Tools:
         """Close a fact that stopped being true with nothing replacing it."""
         obs = self.observe("statement", args.get("statement") or f"retracted {args['assertion_id']}")
         return self.map.call("retract_fact", p_assertion_id=args["assertion_id"], p_asserted_by=self.device,
-                             p_valid_to=_when(args.get("valid_to")) or datetime.now().astimezone(), p_observation_id=Int8(obs))
+                             p_valid_to=_when(args.get("valid_to")) or self.observed_at or datetime.now().astimezone(), p_observation_id=Int8(obs))
 
     async def fact_deprecate(self, args):
         """Mark a fact as having been wrong, not merely outdated. It leaves the current view."""
@@ -221,7 +225,7 @@ class Tools:
         row = self.map.call(
             "assert_relationship", p_subject_id=args["subject_id"], p_relation=args["relation"],
             p_object_id=args["object_id"], p_asserted_by=self.device, p_properties=jsonb(args.get("properties") or {}),
-            p_valid_from=_when(args.get("valid_from")) or datetime.now().astimezone(),
+            p_valid_from=_when(args.get("valid_from")) or self.observed_at or datetime.now().astimezone(),
             p_confidence=Float4(float(args.get("confidence", 1.0))), p_level=args.get("level") or "stated",
             p_observation_id=Int8(obs), p_valid_to=_when(args.get("valid_to")))
         return row
@@ -242,7 +246,7 @@ class Tools:
         return self.map.row(
             "insert into memory.plans (day, item, category, entity_id, status, origin, rationale, source_observation_id, created_by)"
             " values (%s, %s, %s, %s, %s, %s, %s, %s, %s) returning *",
-            (_day(args.get("day")), args["item"], args.get("category"), args.get("entity_id"),
+            (_day(args.get("day"), today=self.observed_at.date() if self.observed_at else None), args["item"], args.get("category"), args.get("entity_id"),
              args.get("status") or ("proposed" if args.get("origin") in ("map", "agent") else "planned"), args.get("origin") or "user", args.get("rationale"), obs, self.device))
 
     async def plan_update(self, args):
@@ -259,7 +263,7 @@ class Tools:
 
     async def plans_list(self, args):
         """The plan for a day with each item's status."""
-        return self.map.rows("select * from memory.plans where day = %s order by id", (_day(args.get("day")),))
+        return self.map.rows("select * from memory.plans where day = %s order by id", (_day(args.get("day"), today=self.observed_at.date() if self.observed_at else None),))
 
     # --- rules and tuning ----------------------------------------------------------------
 
@@ -341,6 +345,9 @@ class Tools:
             (args["name"], args["status"], args.get("needs"), args.get("entity_id")))
 
     # --- the list --------------------------------------------------------------------------
+
+    def read_specs(self):
+        return [spec for spec in self.specs() if spec.name in READ_TOOLS]
 
     def specs(self):
         entity_id = _s("entity id (uuid)")

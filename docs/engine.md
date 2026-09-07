@@ -22,9 +22,17 @@ The SDK implementation locks its MCP configuration to our tool server and loads 
 
 `engine/tools.py` defines the tools once, as plain async functions with JSON schemas, independent of any runtime: search the map, view an entity, read history, register attributes and relations, assert, retract, deprecate and confirm facts, assert and retract relationships, manage plans, rules, tuning, questions and connectors. Tool inputs are validated against their JSON schemas. Each tool runs in a database transaction, so its observation and memory update succeed or roll back together. Fact writes link their source observation to the user message.
 
+## Background memory
+
+The conversational model receives only read tools. A database trigger queues each user message durably; after the reply, a detached worker extracts structured updates using the same subscription provider. ChatGPT extraction defaults to `gpt-5.4-mini`; Claude extraction defaults to `haiku`. `ASSISTANT_MEMORY_OPENAI_MODEL` and `ASSISTANT_MEMORY_CLAUDE_MODEL` override these choices.
+
+The worker submits one batch using the existing memory operations. The batch and queue completion commit in one transaction, so retries cannot partially save or duplicate a completed update. A database advisory lock serializes workers, and messages are processed in order. Mutable properties become assertions, with provenance linked to the source message.
+
+Queued work survives closing the app. Failed work remains queued for a later app launch or turn, with a five-minute retry delay; there is no always-running retry scheduler. Memory progress appears separately from reply progress and never disables the composer. `prompts/memory.md` defines extraction behavior.
+
 ## The snapshot
 
-`engine/context.py` builds fresh context before every turn, including resumed sessions: current facts by entity, current relationships, standing rules, yesterday's and today's plans, the best open questions and the last week's transitions. It is built from the map's views on every device identically. Facts and relationships have retrieval limits; the model can search for more. External connector synchronization and automatic extraction are not implemented yet.
+`engine/context.py` builds fresh context before every turn, including resumed sessions: current facts by entity, current relationships, standing rules, yesterday's and today's plans, the best open questions and the last week's transitions. It is built from the map's views on every device identically. Facts and relationships have retrieval limits; the model can search for more. Recent user statements awaiting extraction are included directly, so replies can use them immediately. External connector synchronization is not implemented yet.
 
 ## Prompts
 

@@ -30,7 +30,7 @@ class Conversation:
     def latest_segment(self):
         return self.map.row(
             "select id, runtime_session_id from memory.conversations"
-            " where device = %s and runtime = %s and day = current_date and runtime_session_id is not null order by started_at desc limit 1",
+            " where device = %s and runtime = %s and day = current_date and runtime_policy_version = 3 and runtime_session_id is not null order by started_at desc limit 1",
             (self.device, self.runtime_name))
 
     def spoken_elsewhere_since(self, segment_id):
@@ -41,7 +41,7 @@ class Conversation:
 
     def open_segment(self, mode):
         return self.map.value(
-            "insert into memory.conversations (agent, device, runtime) values (%s, %s, %s) returning id",
+            "insert into memory.conversations (agent, device, runtime, runtime_policy_version) values (%s, %s, %s, 3) returning id",
             (mode, self.device, self.runtime_name))
 
     def record(self, segment_id, role, content, payload=None):
