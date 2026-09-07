@@ -37,7 +37,7 @@ do $$
 declare
   car uuid := (select id from memory.entities where name = 'Porsche');
   obs bigint;
-  a1 memory.assertions; a2 memory.assertions; a3 memory.assertions; a4 memory.assertions;
+  a1 memory.assertions; a2 memory.assertions; a3 memory.assertions; a4 memory.assertions; a5 memory.assertions;
   n int;
 begin
   obs := memory.record_observation('conversation', 'statement', 'car is on 5th street', null, null, 'test');
@@ -59,21 +59,34 @@ begin
   select count(*) into n from memory.transitions where entity_id = car and from_value = '"5th street"' and to_value = '"garage"';
   if n <> 1 then raise exception 'FAIL transition should be recorded'; end if;
 
-  -- history that predates everything known lands as a closed interval ending where the next value begins
-  a4 := memory.assert_fact(car, 'parked_at', '"airport lot"', 'test', now() - interval '10 days', 0.6, 'inferred', obs);
-  if upper_inf(a4.valid) then raise exception 'FAIL backdated fact must be closed'; end if;
-  if upper(a4.valid) <> lower(a1.valid) then raise exception 'FAIL backdated fact should end where the next known value begins'; end if;
-  -- history that lands inside a known interval is refused, not silently overlapped
+  -- narrating the past is explicit: a closed interval that fits a gap
+  a4 := memory.assert_fact(car, 'parked_at', '"airport lot"', 'test', now() - interval '10 days', 0.6, 'inferred', obs,
+                           lower(a1.valid));
+  if upper_inf(a4.valid) then raise exception 'FAIL explicit history must be closed'; end if;
+  select count(*) into n from memory.current_assertions where entity_id = car and attribute = 'parked_at';
+  if n <> 1 then raise exception 'FAIL history must not change the current value'; end if;
+  -- history that overlaps a known value is refused, not silently overlapped
   begin
-    perform memory.assert_fact(car, 'parked_at', '"somewhere"', 'test', now() - interval '1 day', 0.6, 'inferred', obs);
-    raise exception 'FAIL a start inside a known interval must be refused';
+    perform memory.assert_fact(car, 'parked_at', '"somewhere"', 'test', now() - interval '1 day', 0.6, 'inferred', obs, now());
+    raise exception 'FAIL history over a known interval must be refused';
   exception when others then
-    if position('already covers' in sqlerrm) = 0 then raise; end if;
+    if position('overlaps' in sqlerrm) = 0 then raise; end if;
   end;
+  -- a new current value that started before the current one: the current one was wrong, so it is deprecated
+  a5 := memory.assert_fact(car, 'parked_at', '"driveway"', 'test', now() - interval '1 day', 1.0, 'stated', obs);
+  if not upper_inf(a5.valid) then raise exception 'FAIL the latest assertion must be current'; end if;
+  if (select rank from memory.assertions where id = a3.id) <> 'deprecated' then
+    raise exception 'FAIL a value that started after the new one must be deprecated';
+  end if;
+  if upper((select valid from memory.assertions where id = a1.id)) <> lower(a5.valid) then
+    raise exception 'FAIL a value that started before the new one must end where it begins';
+  end if;
+  select count(*) into n from memory.current_assertions where entity_id = car and attribute = 'parked_at';
+  if n <> 1 then raise exception 'FAIL exactly one current value after a backdated supersede, got %', n; end if;
   select count(*) into n from memory.current_assertions where entity_id = car and attribute = 'parked_at';
   if n <> 1 then raise exception 'FAIL history insert must not change the current value'; end if;
   select count(*) into n from memory.assertion_history where entity_id = car and attribute = 'parked_at';
-  if n <> 3 then raise exception 'FAIL expected three rows of history, got %', n; end if;
+  if n <> 4 then raise exception 'FAIL expected four rows of history, got %', n; end if;
   select count(*) into n from memory.assertion_sources where assertion_id = a1.id;
   if n <> 1 then raise exception 'FAIL provenance should be recorded once per observation'; end if;
 end $$;
@@ -158,7 +171,7 @@ begin
   perform memory.deprecate_fact(cur, 'test');
   select count(*) into n from memory.current_assertions where entity_id = car and attribute = 'parked_at';
   if n <> 0 then raise exception 'FAIL deprecated value must leave the current view'; end if;
-  perform memory.assert_fact(car, 'parked_at', '"driveway"', 'test');
+  perform memory.assert_fact(car, 'parked_at', '"street"', 'test');
   select count(*) into n from memory.current_assertions where entity_id = car and attribute = 'parked_at';
   if n <> 1 then raise exception 'FAIL a new value should be accepted after deprecation'; end if;
 end $$;

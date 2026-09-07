@@ -1,0 +1,110 @@
+"""The Claude Agent SDK as a runtime.
+
+It authenticates through the Claude Code login and draws from the plan's Agent
+SDK credit. The MCP configuration is locked to our tool server so nothing from
+the user's Claude Code environment rides along, and the session has a hard
+dollar cap.
+"""
+
+from claude_agent_sdk import (
+    AssistantMessage, ClaudeAgentOptions, ClaudeSDKClient, ResultMessage, StreamEvent, TextBlock, ToolResultBlock,
+    ToolUseBlock, UserMessage, create_sdk_mcp_server, tool,
+)
+
+from engine import config, tools as tools_mod
+from engine.runtime import Event, Metrics
+
+SERVER = "map"
+
+
+class ClaudeAgentSDKRuntime:
+    name = "claude-agent-sdk"
+
+    def __init__(self, model=None, effort=None, budget_usd=None, cwd=None):
+        self.model = model or config.MODEL
+        self.effort = effort or config.EFFORT
+        self.budget_usd = config.SESSION_BUDGET_USD if budget_usd is None else budget_usd
+        self.cwd = str(cwd or config.ROOT)
+        self.session_id = None
+        self.client = None
+        self.metrics = Metrics()
+
+    async def open(self, system_prompt, tools, resume=None):
+        server = create_sdk_mcp_server(name=SERVER, tools=[_wrap(spec) for spec in tools])
+        options = ClaudeAgentOptions(
+            system_prompt=system_prompt,
+            model=self.model,
+            effort=self.effort,
+            tools=[],                                   # no built-in tools; the map is the only surface
+            mcp_servers={SERVER: server},
+            strict_mcp_config=True,                     # nothing from ~/.claude rides along
+            allowed_tools=[f"mcp__{SERVER}__{spec.name}" for spec in tools],
+            setting_sources=[],
+            include_partial_messages=True,
+            max_budget_usd=self.budget_usd,
+            resume=resume,
+            cwd=self.cwd,
+        )
+        self.client = ClaudeSDKClient(options=options)
+        await self.client.connect()
+
+    async def send(self, text):
+        await self.client.query(text)
+        async for m in self.client.receive_response():
+            if isinstance(m, StreamEvent):
+                ev = m.event or {}
+                if ev.get("type") == "content_block_delta" and ev.get("delta", {}).get("type") == "text_delta":
+                    yield Event("text", text=ev["delta"]["text"])
+            elif isinstance(m, AssistantMessage):
+                for block in m.content:
+                    if isinstance(block, ToolUseBlock):
+                        yield Event("tool_use", name=block.name.replace(f"mcp__{SERVER}__", ""), payload=dict(block.input or {}))
+                    elif isinstance(block, TextBlock) and block.text:
+                        yield Event("assistant_text", text=block.text)
+            elif isinstance(m, UserMessage) and isinstance(m.content, list):
+                for block in m.content:
+                    if isinstance(block, ToolResultBlock):
+                        yield Event("tool_result", name=block.tool_use_id,
+                                    payload={"content": _plain(block.content), "is_error": bool(block.is_error)})
+            elif isinstance(m, ResultMessage):
+                self.session_id = m.session_id
+                turn = _metrics(m)
+                self.metrics.add(turn)
+                yield Event("done", payload=turn.as_dict())
+
+    async def close(self):
+        if self.client is not None:
+            await self.client.disconnect()
+            self.client = None
+        return self.metrics
+
+
+def _wrap(spec):
+    @tool(spec.name, spec.description, spec.schema)
+    async def handler(args):
+        text, is_error = await tools_mod.run(spec, args)
+        out = {"content": [{"type": "text", "text": text}]}
+        if is_error:
+            out["is_error"] = True
+        return out
+    return handler
+
+
+def _plain(content):
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return "\n".join(c.get("text", "") for c in content if isinstance(c, dict))
+    return str(content) if content is not None else ""
+
+
+def _metrics(m):
+    usage = m.usage or {}
+    return Metrics(
+        cost_usd=float(m.total_cost_usd or 0.0),
+        input_tokens=int(usage.get("input_tokens") or 0),
+        output_tokens=int(usage.get("output_tokens") or 0),
+        cache_read_tokens=int(usage.get("cache_read_input_tokens") or 0),
+        cache_write_tokens=int(usage.get("cache_creation_input_tokens") or 0),
+        turns=int(getattr(m, "num_turns", 0) or 1),
+    )

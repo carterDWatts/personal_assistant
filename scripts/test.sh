@@ -1,14 +1,16 @@
 #!/usr/bin/env bash
-# Apply every migration to a throwaway Postgres 17 (with pgvector) in Docker, then run the behavioral checks.
-# Usage: scripts/test_migration.sh
+# The whole test suite against a throwaway Postgres 17 with pgvector in Docker:
+# every migration, the SQL behavioral checks, then the Python tests.
+# Usage: scripts/test.sh
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 NAME=personal-assistant-pg-test
 IMAGE=pgvector/pgvector:pg17
+PORT=55432
 
 docker rm -f "$NAME" >/dev/null 2>&1 || true
-docker run -d --name "$NAME" -e POSTGRES_PASSWORD=test -e POSTGRES_DB=app "$IMAGE" >/dev/null
+docker run -d --name "$NAME" -e POSTGRES_PASSWORD=test -e POSTGRES_DB=app -p "$PORT:5432" "$IMAGE" >/dev/null
 trap 'docker rm -f "$NAME" >/dev/null 2>&1 || true' EXIT
 
 for _ in $(seq 1 30); do
@@ -37,3 +39,7 @@ for f in "$ROOT"/supabase/tests/*.sql; do
   echo "running $(basename "$f")"
   psql < "$f"
 done
+
+echo "running python tests"
+cd "$ROOT"
+ASSISTANT_TEST_DATABASE_URL="postgresql://postgres:test@localhost:$PORT/app" python3 -m pytest -q "$@"

@@ -5,23 +5,38 @@ A personal assistant built around a shared knowledge map. The map is a Postgres 
 ## Layout
 
 ```
+assistant.py           talk, morning, snapshot, status
+engine/                the conversation engine: map access, tools, context, runtimes
+prompts/               the persona and the morning instructions
 supabase/migrations/   the schema, in SQL
 supabase/tests/        behavioral checks for the schema
-scripts/               test_migration.sh runs the checks in a throwaway Postgres container
+eval/                  knowledge-update and abstention cases
+scripts/test.sh        the whole suite in a throwaway Postgres container
 docs/knowledge-map.md  how the map works
+docs/engine.md         how the engine works
 docs/research/         the research the design rests on
 docs/design-v0.1.md    the original design doc
 ```
 
-## The map
-
-`docs/knowledge-map.md` explains the schema. To prove a migration before pushing it:
+## Running it
 
 ```bash
-scripts/test_migration.sh
+pip3 install claude-agent-sdk "psycopg[binary]"
+export ASSISTANT_DATABASE_URL='postgresql://...'   # the project's session pooler URI
+python3 assistant.py talk
 ```
 
-To push it to the project:
+`docs/engine.md` covers the rest.
+
+## The map
+
+`docs/knowledge-map.md` explains the schema. To prove a change before pushing it:
+
+```bash
+scripts/test.sh
+```
+
+To push migrations to the project:
 
 ```bash
 supabase link --project-ref koauvyfxewczcajnlrfp
