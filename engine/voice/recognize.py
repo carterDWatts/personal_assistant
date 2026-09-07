@@ -22,7 +22,7 @@ class Recognizer:
             tokens=str(root/FILES[3]), encoder=str(root/FILES[0]), decoder=str(root/FILES[1]),
             joiner=str(root/FILES[2]), num_threads=2, sample_rate=16000, feature_dim=80,
             decoding_method='greedy_search', enable_endpoint_detection=True,
-            rule1_min_trailing_silence=10, rule2_min_trailing_silence=0.7,
+            rule1_min_trailing_silence=10, rule2_min_trailing_silence=0.35,
             rule3_min_utterance_length=30)
         self.stream = self.decoder.create_stream()
         self.previous = ''
@@ -31,7 +31,7 @@ class Recognizer:
             tokens=str(root/FINAL_FILES[3]), encoder=str(root/FINAL_FILES[0]),
             decoder=str(root/FINAL_FILES[1]), joiner=str(root/FINAL_FILES[2]),
             num_threads=2, decoding_method='greedy_search')
-        self.audio = []
+        self.verified = self.final_decoder.create_stream()
         self.rate = None
 
     def accept(self, rate, samples):
@@ -40,9 +40,11 @@ class Recognizer:
         if self.rate is not None and self.rate != rate:
             self.stream = self.decoder.create_stream()
             self.previous = ''
-            self.audio = []
+            self.verified = self.final_decoder.create_stream()
         self.rate = rate
-        self.audio.append(samples.copy())
+        self.verified.accept_waveform(rate, samples)
+        while self.final_decoder.is_ready(self.verified):
+            self.final_decoder.decode_stream(self.verified)
         self.stream.accept_waveform(rate, samples)
         while self.decoder.is_ready(self.stream):
             self.decoder.decode_stream(self.stream)
@@ -56,8 +58,7 @@ class Recognizer:
             self.previous = text
         if self.decoder.is_endpoint(self.stream):
             if text:
-                verified = self.final_decoder.create_stream()
-                verified.accept_waveform(rate, np.concatenate(self.audio))
+                verified = self.verified
                 verified.accept_waveform(rate, np.zeros(rate*3, dtype=np.float32))
                 verified.input_finished()
                 while self.final_decoder.is_ready(verified):
@@ -65,7 +66,7 @@ class Recognizer:
                 final = self.final_decoder.get_result(verified).strip()
                 events.append({'type':'final', 'text':final or text})
             self.stream = self.decoder.create_stream()
-            self.audio = []
+            self.verified = self.final_decoder.create_stream()
             self.previous = ''
         return events
 
