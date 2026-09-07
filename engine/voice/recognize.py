@@ -3,6 +3,7 @@
 Output is JSON lines: ready, partial, final, error. No database or LLM access.
 """
 import json
+from difflib import SequenceMatcher
 import re
 import struct
 import sys
@@ -11,6 +12,19 @@ import numpy as np
 import sherpa_onnx
 from engine.voice.models import directory, FILES
 from engine.voice.final_models import directory as final_directory, FILES as FINAL_FILES
+
+
+def live_text(fast, verified):
+    """Keep verified words, appending only a fast suffix anchored to that prefix."""
+    if not verified: return fast
+    if not fast: return verified
+    left, right = verified.split(), fast.split()
+    clean = lambda words: [re.sub(r"[^\w']", '', word.lower()) for word in words]
+    matches = SequenceMatcher(None, clean(left), clean(right), autojunk=False).get_matching_blocks()
+    for block in reversed(matches[:-1]):
+        if block.a + block.size == len(left):
+            return ' '.join(left + right[block.b + block.size:])
+    return verified
 
 
 class Recognizer:
@@ -58,6 +72,7 @@ class Recognizer:
         # This model emits capitals without punctuation. Display sentence case while typing.
         if text.isupper():
             text = re.sub(r"\bi\b", "I", text.capitalize())
+        text = live_text(text, self.final_decoder.get_result(self.verified).strip())
         events = []
         if text and text != self.previous:
             events.append({'type':'partial', 'text':text})

@@ -190,11 +190,7 @@ final class Chat: NSObject, ObservableObject {
 
     private func speakSentences(flush: Bool) {
         guard voice else { speechBuffer = ""; return }
-        while let end = speechBuffer.firstIndex(where: { ".!?\n".contains($0) }) {
-            let next = speechBuffer.index(after: end)
-            speak(String(speechBuffer[..<next])); speechBuffer.removeSubrange(..<next)
-        }
-        if flush { speak(speechBuffer); speechBuffer = "" }
+        while let chunk = nextSpeechChunk(&speechBuffer, flush: flush) { speak(chunk) }
     }
     private func speak(_ text: String) { liveVoice.speak(text) }
 
@@ -279,21 +275,21 @@ struct VoicePresence: View {
                     Image(systemName: "xmark").font(.system(size: 13, weight: .semibold))
                         .frame(width: 30, height: 30).background(Color.primary.opacity(0.07), in: Circle())
                 }.buttonStyle(.plain).accessibilityLabel("End voice conversation")
-            }.padding(22)
+            }.padding(16)
             ScrollViewReader { proxy in
                 ScrollView {
-                    VStack(alignment: .leading, spacing: 22) {
+                    VStack(alignment: .leading, spacing: 16) {
                         if messages.isEmpty {
                             VStack(spacing: 6) {
                                 VoicePresence(level: chat.liveVoice.inputLevel, moving: false).scaleEffect(0.5).frame(height: 72)
                                 Text("What’s on your mind?").font(.system(size: 22, design: .serif))
-                            }.frame(maxWidth: .infinity).padding(.top, 38)
+                            }.frame(maxWidth: .infinity).padding(.top, 8)
                         }
                         ForEach(messages) { message in
                             HStack {
                                 if message.role == "user" { Spacer(minLength: 46) }
                                 Text(message.text.isEmpty ? AttributedString("Thinking…") : (try? AttributedString(markdown: message.text, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(message.text))
-                                    .font(.system(size: message.role == "user" ? 16 : 20, design: message.role == "user" ? .default : .serif))
+                                    .font(.system(size: message.role == "user" ? 16 : 18, design: message.role == "user" ? .default : .serif))
                                     .lineSpacing(5).textSelection(.enabled)
                                     .padding(message.role == "user" ? 12 : 0)
                                     .background(message.role == "user" ? Color.primary.opacity(0.055) : .clear, in: RoundedRectangle(cornerRadius: 16))
@@ -314,7 +310,7 @@ struct VoicePresence: View {
                                 .multilineTextAlignment(.center).textSelection(.enabled).frame(maxWidth: .infinity)
                             Color.clear.frame(height: 1).id("live-words")
                         }
-                    }.frame(height: 62)
+                    }.frame(height: 44)
                         .onChange(of: chat.spokenDraft) { _ in proxy.scrollTo("live-words", anchor: .bottom) }
                 }
                 HStack(spacing: 10) {
@@ -324,9 +320,9 @@ struct VoicePresence: View {
                     Spacer()
                     Button("Done") { chat.stop() }.buttonStyle(.bordered).controlSize(.large)
                 }
-            }.padding(.horizontal, 26).padding(.top, 14).padding(.bottom, 24)
+            }.padding(.horizontal, 26).padding(.top, 14).padding(.bottom, 14)
                 .background(LinearGradient(colors: [.clear, voiceInk.opacity(chat.liveVoice.speaking ? 0.12 : 0.2)], startPoint: .top, endPoint: .bottom))
-        }.frame(width: 460, height: 520).background(Color(nsColor: .windowBackgroundColor))
+        }.frame(width: 360, height: 350).background(Color(nsColor: .windowBackgroundColor))
     }
 }
 
@@ -417,8 +413,14 @@ struct VoicePresence: View {
             .onAppear { if !chat.connected && !chat.busy { chat.connect() } }
             .onChange(of: chat.runtime) { _ in chat.connect() }
             .onChange(of: chat.test) { _ in chat.connect() }
-            .sheet(isPresented: $chat.voice, onDismiss: { chat.stop() }) {
-                VoiceConversation(chat: chat)
+            .overlay(alignment: .bottomTrailing) {
+                if chat.voice {
+                    VoiceConversation(chat: chat)
+                        .clipShape(RoundedRectangle(cornerRadius: 22))
+                        .overlay(RoundedRectangle(cornerRadius: 22).stroke(Color.primary.opacity(0.1), lineWidth: 1))
+                        .shadow(color: .black.opacity(0.16), radius: 18, y: 6)
+                        .padding(.trailing, 22).padding(.bottom, 104)
+                }
             }
             .onReceive(NotificationCenter.default.publisher(for: NSApplication.didResignActiveNotification)) { _ in
                 if chat.voice { chat.stop() }

@@ -168,7 +168,7 @@ final class LiveVoice: ObservableObject {
     }
 
     func speak(_ text: String) {
-        guard active, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        guard active, text.rangeOfCharacter(from: .alphanumerics) != nil else { return }
         speechQueue.append(text)
         renderNext()
     }

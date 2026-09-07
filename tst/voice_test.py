@@ -1,7 +1,7 @@
 import io
 import unittest
 import numpy as np
-from engine.voice.recognize import Recognizer, read_exact
+from engine.voice.recognize import Recognizer, read_exact, live_text
 
 
 class voice_test(unittest.TestCase):
@@ -16,3 +16,8 @@ class voice_test(unittest.TestCase):
         recognizer=object.__new__(Recognizer)
         for rate,samples in [(0,np.zeros(100)),(999999,np.zeros(100)),(16000,np.array([float('nan')]))]:
             with self.assertRaises(ValueError): recognizer.accept(rate,samples)
+
+    def test_live_corrections_keep_new_words_without_restoring_mistakes(self):
+        self.assertEqual(live_text('Pe does this take input now', 'How quickly does this take input?'), 'How quickly does this take input? now')
+        self.assertEqual(live_text('How quickly does this take in put', 'How quickly does this take input?'), 'How quickly does this take input?')
+        self.assertEqual(live_text('How quickly', ''), 'How quickly')

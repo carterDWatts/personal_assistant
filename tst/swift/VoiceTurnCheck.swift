@@ -27,6 +27,17 @@ import Foundation
         precondition(turn.interrupt(busy: true))
         precondition(!turn.interrupt(busy: true))
         precondition(turn.ready() == "What is the bicycle name?")
+        var incomplete = "This is still"
+        precondition(nextSpeechChunk(&incomplete, flush: false) == nil)
+        precondition(incomplete == "This is still")
+        let original = String(repeating: "A longer spoken reply has several words ", count: 8) + "."
+        var buffer = original
+        var chunks: [String] = []
+        while let chunk = nextSpeechChunk(&buffer, flush: true) { chunks.append(chunk) }
+        precondition(chunks.first!.count <= 100)
+        precondition(chunks.joined() == original)
+        precondition(nextSpeechChunk(&incomplete, flush: true) == "This is still")
+        precondition(incomplete.isEmpty)
         print("Voice interruption preserves speech and cancels each turn once.")
     }
 }

@@ -28,3 +28,19 @@ struct VoiceTurn {
         return pending
     }
 }
+
+// Bound synthesis work before the first audio without cutting words apart.
+func nextSpeechChunk(_ buffer: inout String, flush: Bool) -> String? {
+    let prefix = buffer.prefix(100)
+    let punctuation = buffer.firstIndex(where: { ".!?\n".contains($0) })
+    let clause = prefix.count >= 40 ? prefix.firstIndex(where: { ",;:".contains($0) }) : nil
+    let limit = prefix.count == 100 ? prefix.lastIndex(where: { $0.isWhitespace }) : nil
+    if let end = [punctuation, clause, limit].compactMap({ $0 }).min() {
+        let next = buffer.index(after: end)
+        let chunk = String(buffer[..<next]); buffer.removeSubrange(..<next)
+        return chunk
+    }
+    guard flush, !buffer.isEmpty else { return nil }
+    let chunk = buffer; buffer = ""
+    return chunk
+}
