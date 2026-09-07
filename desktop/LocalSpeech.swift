@@ -13,6 +13,14 @@ final class SpeechInput: @unchecked Sendable {
     init(_ handle: FileHandle) { self.handle = handle }
     func stats() -> (Float,UInt64) { lock.lock(); defer { lock.unlock() }; return (level,frames) }
     func stop() { lock.lock(); stopped = true; lock.unlock() }
+    func reset() {
+        queue.async { [self] in
+            lock.lock(); let write = !stopped; level = 0; frames = 0; lock.unlock()
+            guard write else { return }
+            do { try handle.write(contentsOf: Data(repeating: 0, count: 8)) }
+            catch { stop(); onFailure?() }
+        }
+    }
     func append(_ buffer: AVAudioPCMBuffer) {
         guard let samples = buffer.floatChannelData?[0], buffer.frameLength > 0 else { return }
         let count = Int(buffer.frameLength)
@@ -103,6 +111,8 @@ final class LocalSpeech {
             }
         } catch { onError?("Could not start local speech.") }
     }
+
+    func reset() { input?.reset() }
 
     func stop() {
         generation = UUID(); watchdog?.cancel(); output?.cancel(); output = nil

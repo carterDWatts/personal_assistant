@@ -20,7 +20,7 @@ def generate(voice, text, current=lambda: True):
     # Michael is speaker 16 in the pinned multilingual Kokoro v1.0 model.
     for sentence in re.split(r'(?<=[.!?])\s+', text.strip()):
         if not current(): return
-        result = voice.generate(sentence, sid=16, speed=1.0,
+        result = voice.generate(sentence, sid=16, speed=1.1,
                                 callback=lambda samples, progress: int(current()))
         if current():
             yield SimpleNamespace(audio=result.samples)

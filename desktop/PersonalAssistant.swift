@@ -47,6 +47,7 @@ final class Chat: NSObject, ObservableObject {
         liveVoice.onSpeech = { [weak self] in self?.interruptForSpeech() }
         liveVoice.onUtterance = { [weak self] text in self?.sendVoice(text) }
         liveVoice.onError = { [weak self] text in self?.voice = false; self?.status = text }
+        liveVoice.prepare()
     }
 
     func connect(clear: Bool = false) {

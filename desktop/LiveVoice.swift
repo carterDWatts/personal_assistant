@@ -14,6 +14,10 @@ final class LiveVoice: ObservableObject {
     private let engine = AVAudioEngine()
     private let player = AVAudioPlayerNode()
     private let synth = LocalVoice()
+    private var starting = false
+    private var captureRequested = false
+    private var prepared = false
+    var isPrepared: Bool { recognitionReady && voiceReady }
     private var recognitionReady = false
     private var voiceReady = false
     private let speech = LocalSpeech()
@@ -35,13 +39,13 @@ final class LiveVoice: ObservableObject {
     init() {
         speech.onReady = { [weak self] in
             guard let self else { return }; self.recognitionReady = true
-            if self.voiceReady { self.begin() }
+            if self.isPrepared { self.begin() }
         }
         synth.onReady = { [weak self] in
             guard let self else { return }; self.voiceReady = true
-            if self.recognitionReady { self.begin() }
+            if self.isPrepared { self.begin() }
         }
-        synth.onError = { [weak self] text in self?.stop(); self?.onError?(text) }
+        synth.onError = { [weak self] text in self?.failed(text) }
         speech.onPartial = { [weak self] text in
             guard let self, self.active else { return }
             let first = self.transcript.isEmpty
@@ -53,7 +57,7 @@ final class LiveVoice: ObservableObject {
             self.transcript = ""
             self.onUtterance?(text)
         }
-        speech.onError = { [weak self] text in self?.stop(); self?.onError?(text) }
+        speech.onError = { [weak self] text in self?.failed(text) }
         engine.attach(player)
         engine.connect(player, to: engine.mainMixerNode, format: playbackFormat)
         configurationObserver = NotificationCenter.default.addObserver(forName: .AVAudioEngineConfigurationChange, object: engine, queue: .main) { [weak self] _ in
@@ -64,22 +68,38 @@ final class LiveVoice: ObservableObject {
         }
     }
 
+    func prepare() {
+        guard !prepared else { return }
+        prepared = true
+        speech.start(); synth.start()
+    }
+
+    private func failed(_ text: String) {
+        let requested = starting || captureRequested || active
+        stop()
+        speech.stop(); synth.stop()
+        prepared = false; recognitionReady = false; voiceReady = false
+        if requested { onError?(text) }
+    }
+
     func start() {
+        starting = true
         let token = UUID(); permission = token
+        prepare()
         startupMessage = "Allow microphone access if macOS asks"
         AVCaptureDevice.requestAccess(for: .audio) { [weak self] allowed in
             Task { @MainActor [weak self] in
                 guard let self, self.permission == token else { return }
-                guard allowed else { self.onError?("Allow Microphone in System Settings."); return }
-                self.startupMessage = "Loading local speech"
-                self.recognitionReady = false; self.voiceReady = false
-                self.speech.start(); self.synth.start()
+                guard allowed else { self.starting = false; self.onError?("Allow Microphone in System Settings."); return }
+                self.captureRequested = true
+                self.startupMessage = self.isPrepared ? "Starting microphone" : "Preparing voice"
+                if self.isPrepared { self.begin() }
             }
         }
     }
 
     private func begin() {
-        guard !active else { return }
+        guard captureRequested, isPrepared, !active else { return }
         let node = engine.inputNode
         do {
             // Speech playback goes through this engine too, providing the echo reference.
@@ -91,7 +111,7 @@ final class LiveVoice: ObservableObject {
             node.installTap(onBus: 0, bufferSize: 1024, format: format) { buffer, _ in feed.append(buffer) }
             tapInstalled = true
             do { try engine.start() } catch { node.removeTap(onBus: 0); tapInstalled = false; throw error }
-            active = true
+            starting = false; active = true
             log.info("Audio capture started")
             meter?.cancel()
             meter = Task { @MainActor [weak self] in
@@ -137,12 +157,14 @@ final class LiveVoice: ObservableObject {
     func stop() {
         meter?.cancel(); meter = nil; inputLevel = 0
         recovery?.cancel(); recovery = nil
-        permission = UUID(); active = false
-        speech.stop()
-        synth.stop(); recognitionReady = false; voiceReady = false
+        permission = UUID(); starting = false; captureRequested = false; active = false
         engine.stop()
         if tapInstalled { engine.inputNode.removeTap(onBus: 0); tapInstalled = false }
         silencePlayback(); transcript = ""
+        if recognitionReady {
+            recognitionReady = false
+            speech.reset()
+        }
     }
 
     func speak(_ text: String) {

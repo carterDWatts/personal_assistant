@@ -34,6 +34,12 @@ class Recognizer:
         self.verified = self.final_decoder.create_stream()
         self.rate = None
 
+    def reset(self):
+        self.stream = self.decoder.create_stream()
+        self.verified = self.final_decoder.create_stream()
+        self.previous = ''
+        self.rate = None
+
     def accept(self, rate, samples):
         if not 8000 <= rate <= 192000 or not np.isfinite(samples).all():
             raise ValueError('Invalid audio frame')
@@ -93,6 +99,10 @@ def main():
         emit({'type':'ready'})
         while header := read_exact(sys.stdin.buffer, 8):
             rate, count = struct.unpack('<II', header)
+            if rate == 0 and count == 0:
+                recognizer.reset()
+                emit({'type':'ready'})
+                continue
             if not 1 <= count <= 192000:
                 raise ValueError('Invalid audio frame size')
             data = read_exact(sys.stdin.buffer, count*4)

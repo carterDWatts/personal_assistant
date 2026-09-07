@@ -70,6 +70,11 @@ def main():
     try:
         _, ready = events.get(timeout=20)
         assert ready['type']=='ready', ready
+        # Resetting a warm recognizer acknowledges readiness without restarting it.
+        for _ in range(2):
+            process.stdin.write(struct.pack('<II',0,0)); process.stdin.flush()
+            _, ready = events.get(timeout=2)
+            assert ready['type']=='ready', ready
         # Silence must not turn into a fabricated utterance.
         for _ in range(100):
             send(16000,np.zeros(320,dtype=np.float32))
