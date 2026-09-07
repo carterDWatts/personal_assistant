@@ -53,6 +53,9 @@ class Runtime(Protocol):
 
 
 def load(name):
+    if name == "codex":
+        from engine.runtime.codex import CodexRuntime
+        return CodexRuntime
     if name == "claude-agent-sdk":
         from engine.runtime.claude_agent_sdk import ClaudeAgentSDKRuntime
         return ClaudeAgentSDKRuntime

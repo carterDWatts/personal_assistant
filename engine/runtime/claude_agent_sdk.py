@@ -69,7 +69,7 @@ class ClaudeAgentSDKRuntime:
             elif isinstance(m, ResultMessage):
                 self.session_id = m.session_id
                 if m.is_error or m.subtype != "success":
-                    raise RuntimeError("Claude stopped: " + m.subtype)
+                    raise RuntimeError((m.result or "Claude stopped: " + m.subtype)[:600])
                 turn = _metrics(m)
                 self.metrics.add(turn)
                 yield Event("done", payload=turn.as_dict())

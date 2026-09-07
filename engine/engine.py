@@ -30,6 +30,8 @@ class Session:
         if mode == "morning":
             system += "\n\n" + prompt("morning")
         await self.runtime.open(system, self.tools.specs(), resume=resume)
+        if resume and not getattr(self.runtime, "resumed", True):
+            self.seed = self.conv.seed_text(self.conv.tail(30))
         if self.runtime.session_id:
             self.conv.set_runtime_session(self.segment_id, self.runtime.session_id)
         if mode == "morning":

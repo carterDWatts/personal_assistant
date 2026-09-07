@@ -100,3 +100,21 @@ class invariants_test(MapTest):
             obs=self.map.call_value('record_observation',p_source='test',p_kind='statement',p_content=text)
             row=self.map.call('assert_relationship',p_subject_id=self.entity,p_relation='knows',p_object_id=other,p_asserted_by='test',p_observation_id=Int8(obs))
         self.assertEqual(self.map.value('select count(*) from memory.relationship_sources where relationship_id=%s',(row['id'],)),2)
+
+    def test_missing_runtime_thread_restores_shared_history(self):
+        from engine.conversation import Conversation
+        from tst.helpers import say
+        conversation=Conversation(self.map,'mac','fake')
+        segment=conversation.open_segment('talk')
+        conversation.record(segment,'user','Earlier context worth keeping')
+        conversation.set_runtime_session(segment,'missing-runtime-thread')
+        class Recreated(FakeRuntime):
+            resumed=False
+        async def exercise():
+            runtime=Recreated([[say('Restored')]])
+            session=Session(self.map,runtime,FakeTerminal([]),'mac')
+            await session.open()
+            try:await session.send('Continue')
+            finally:await session.close()
+            self.assertIn('Earlier context worth keeping',runtime.sent[0])
+        self.run_async(exercise())

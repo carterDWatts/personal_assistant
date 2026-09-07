@@ -51,7 +51,7 @@ def main(argv):
                       f"${m.get('cost_usd', 0):.3f} {m.get('turns', 0)} turns")
             return 0
         from engine import engine, io, runtime
-        rt = runtime.load("claude-agent-sdk")()
+        rt = runtime.load(config.RUNTIME)()
         asyncio.run(engine.run(argv[0], map_, rt, io.Terminal(), config.DEVICE))
         return 0
     finally:
