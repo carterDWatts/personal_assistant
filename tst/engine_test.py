@@ -1,6 +1,6 @@
 import unittest
 
-from engine import engine
+from engine import config, engine
 from tst.helpers import FakeRuntime, FakeTerminal, MapTest, call, say
 
 
@@ -14,7 +14,7 @@ class engine_test(MapTest):
         io = FakeTerminal(["I have a Porsche", "it's in the garage"])
         self.run_async(engine.run("talk", self.map, rt, io, "mac"))
 
-        self.assertIn("Carter's assistant", rt.opened["system_prompt"])
+        self.assertIn(f"You are {config.ASSISTANT_NAME},", rt.opened["system_prompt"])
         self.assertNotIn("morning session", rt.opened["system_prompt"])
         self.assertIsNone(rt.opened["resume"])
         self.assertIn("Map snapshot.", rt.sent[0])
@@ -80,3 +80,13 @@ class engine_test(MapTest):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class identity_test(unittest.TestCase):
+    def test_persona_uses_the_configured_name(self):
+        from unittest.mock import patch
+        with patch.object(config, "ASSISTANT_NAME", "Another name"):
+            persona = config.prompt("persona")
+        self.assertIn("You are Another name,", persona)
+        self.assertNotIn("{{assistant_name}}", persona)
+        self.assertNotIn(config.ASSISTANT_NAME, persona)

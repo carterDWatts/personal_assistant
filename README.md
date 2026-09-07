@@ -77,3 +77,5 @@ For terminal ChatGPT conversations:
 ```bash
 ASSISTANT_RUNTIME=codex python3 assistant.py talk
 ```
+
+The assistant’s name lives in `identity.json`. Both model adapters use it through the shared persona in `prompts/persona.md`, and the Mac build copies it into the app. To rename the character, edit that one value and rebuild the app; storage paths and conversation history do not change.

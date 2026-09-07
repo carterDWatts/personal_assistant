@@ -3,12 +3,14 @@
 Secrets come from the environment only. The connection string never lives in the repo.
 """
 
+import json
 import os
 import socket
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 PROMPTS = ROOT / "prompts"
+ASSISTANT_NAME = json.loads((ROOT / "identity.json").read_text())["name"]
 
 # ASSISTANT_ENV=test points everything at the test map so the real one only ever holds real life.
 ENV = os.environ.get("ASSISTANT_ENV", "prod")
@@ -37,6 +39,6 @@ TIMEZONE = os.environ.get("ASSISTANT_TIMEZONE") or _local_timezone()
 
 
 def prompt(name):
-    return (PROMPTS / f"{name}.md").read_text()
+    return (PROMPTS / f"{name}.md").read_text().replace("{{assistant_name}}", ASSISTANT_NAME)
 
 RUNTIME = os.environ.get("ASSISTANT_RUNTIME", "claude-agent-sdk")

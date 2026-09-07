@@ -3,6 +3,18 @@ import Darwin
 import AVFoundation
 import Combine
 
+enum AssistantIdentity {
+    static let name: String = {
+        guard let url = Bundle.main.url(forResource: "identity", withExtension: "json"),
+              let data = try? Data(contentsOf: url),
+              let identity = try? JSONDecoder().decode(Identity.self, from: data) else {
+            return "Assistant"
+        }
+        return identity.name
+    }()
+    private struct Identity: Decodable { let name: String }
+}
+
 struct ChatMessage: Identifiable {
     let id = UUID()
     let role: String
@@ -445,7 +457,7 @@ struct MessageRow: View {
             }
         } else {
             HStack(alignment: .top, spacing: 12) {
-                Mark(palette: palette).frame(width: 24, height: 24).padding(.top, 4)
+                Mark(palette: palette).frame(width: 24, height: 24).padding(.top, 4).help(AssistantIdentity.name)
                 VStack(alignment: .leading, spacing: 4) {
                 if message.text.isEmpty {
                     ThinkingDots(color: palette.accent)
@@ -576,7 +588,7 @@ struct SettingsPopover: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack {
-                Text("Voice").font(.headline).foregroundStyle(palette.ink)
+                Text(AssistantIdentity.name).font(.headline).foregroundStyle(palette.ink)
                 Spacer()
                 Button { chat.stop() } label: { Image(systemName: "xmark") }.buttonStyle(.borderless).accessibilityLabel("End voice conversation")
             }.padding(14)
@@ -650,7 +662,7 @@ struct SettingsPopover: View {
         }
         .background(Concrete(palette: palette))
         .frame(minWidth: 860, minHeight: 580)
-        .navigationTitle("Assistant")
+        .navigationTitle(AssistantIdentity.name)
         .toolbar {
             ToolbarItem(placement: .navigation) {
                 HStack(spacing: 8) {
@@ -699,7 +711,7 @@ struct SettingsPopover: View {
                     LazyVStack(alignment: .leading, spacing: 22) {
                         if chat.messages.isEmpty {
                             VStack(alignment: .leading, spacing: 8) {
-                                Text("Say anything.").font(.title2).foregroundStyle(palette.ink)
+                                Text("I’m \(AssistantIdentity.name). What’s on your mind?").font(.title2).foregroundStyle(palette.ink)
                                 Text("It keeps what matters, on every device, and picks the thread back up wherever you are.")
                                     .font(.callout).foregroundStyle(palette.muted).frame(maxWidth: 420, alignment: .leading)
                             }.padding(.top, 80)
