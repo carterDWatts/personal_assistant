@@ -10,7 +10,7 @@ IMAGE=pgvector/pgvector:pg17
 PORT=55432
 
 docker rm -f "$NAME" >/dev/null 2>&1 || true
-docker run -d --name "$NAME" -e POSTGRES_PASSWORD=test -e POSTGRES_DB=app -p "$PORT:5432" "$IMAGE" >/dev/null
+docker run -d --name "$NAME" -e POSTGRES_PASSWORD=test -e POSTGRES_DB=app -p "127.0.0.1:$PORT:5432" "$IMAGE" >/dev/null
 trap 'docker rm -f "$NAME" >/dev/null 2>&1 || true' EXIT
 
 for _ in $(seq 1 30); do
@@ -42,4 +42,4 @@ done
 
 echo "running python tests"
 cd "$ROOT"
-ASSISTANT_TEST_DATABASE_URL="postgresql://postgres:test@localhost:$PORT/app" python3 -m pytest -q "$@"
+ASSISTANT_TEST_DATABASE_URL="postgresql://postgres:test@localhost:$PORT/app" "${PYTHON:-python3}" -m pytest -q "$@"

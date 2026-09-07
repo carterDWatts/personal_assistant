@@ -20,15 +20,15 @@ class engine_test(MapTest):
         self.assertIsNone(rt.opened["resume"])
         self.assertIn("Map snapshot.", rt.sent[0])
         self.assertTrue(rt.sent[0].endswith("The user says:\nI have a Porsche"))
-        self.assertEqual(rt.sent[1], "it's in the garage")
+        self.assertTrue(rt.sent[1].endswith("it's in the garage"))
         self.assertEqual("".join(io.out), "Got it. Where is it?Noted, the garage.")
 
         rows = self.map.rows("select role, content, payload from memory.messages order by id")
         roles = [r["role"] for r in rows]
-        self.assertEqual(roles, ["system", "user", "tool", "assistant", "user", "assistant"])
-        self.assertEqual(rows[1]["content"], "I have a Porsche")
-        self.assertEqual(rows[2]["payload"]["call"], "entity_upsert")
-        self.assertEqual(rows[3]["content"], "Got it. Where is it?")
+        self.assertEqual(roles, ["user", "tool", "assistant", "user", "assistant"])
+        self.assertEqual(rows[0]["content"], "I have a Porsche")
+        self.assertEqual(rows[1]["payload"]["call"], "entity_upsert")
+        self.assertEqual(rows[2]["content"], "Got it. Where is it?")
 
         entity = self.map.row("select name, source_observation_id from memory.entities")
         self.assertEqual(entity["name"], "Porsche")
@@ -48,17 +48,18 @@ class engine_test(MapTest):
         self.assertIn("morning session", rt.opened["system_prompt"])
         self.assertTrue(rt.sent[0].startswith("Map snapshot."))
         self.assertTrue(rt.sent[0].endswith("Begin the morning session."))
-        self.assertEqual(rt.sent[1], "gym at six")
+        self.assertTrue(rt.sent[1].endswith("gym at six"))
         roles = [r["role"] for r in self.map.rows("select role from memory.messages order by id")]
-        self.assertEqual(roles, ["system", "system", "assistant", "user", "assistant"])
+        self.assertEqual(roles, ["system", "assistant", "user", "assistant"])
 
-    def test_resumed_session_gets_no_snapshot(self):
+    def test_resumed_session_gets_fresh_snapshot(self):
         first = FakeRuntime([[say("hi")]])
         self.run_async(engine.run("talk", self.map, first, FakeTerminal(["hello"]), "mac"))
         second = FakeRuntime([[say("still here")]])
         self.run_async(engine.run("talk", self.map, second, FakeTerminal(["you there?"]), "mac"))
         self.assertEqual(second.opened["resume"], "fake-session-1")
-        self.assertEqual(second.sent[0], "you there?")
+        self.assertIn("Map snapshot.", second.sent[0])
+        self.assertTrue(second.sent[0].endswith("you there?"))
 
 
 if __name__ == "__main__":

@@ -1,80 +1,102 @@
-"""The engine: joins the conversation, runs turns, mirrors everything to the map."""
+"""Conversation lifecycle shared by terminal and desktop clients."""
 
+import inspect
 from engine import context
 from engine.config import prompt
 from engine.conversation import Conversation
 from engine.tools import Tools
 
 
-async def run(mode, map_, runtime, io, device):
-    conv = Conversation(map_, device, runtime.name)
-    tools = Tools(map_, device)
-    segment_id, resume, seed = conv.resolve(mode)
+class Session:
+    def __init__(self, map_, runtime, io, device):
+        self.map, self.runtime, self.io = map_, runtime, io
+        self.conv = Conversation(map_, device, runtime.name)
+        self.tools = Tools(map_, device)
+        self.segment_id = None
+        self.seed = None
+        self.ended_by = "user"
 
-    system = prompt("persona")
-    if mode == "morning":
-        system += "\n\n" + prompt("morning")
-    await runtime.open(system, tools.specs(), resume=resume)
-
-    opening = None
-    if resume is None:
-        opening = context.snapshot(map_)
-        if seed:
-            opening += "\n\n" + seed
-        conv.record(segment_id, "system", opening, {"kind": "opening"})
-
-    ended_by = "user"
-    try:
+    async def open(self, mode="talk"):
+        self.segment_id, resume, self.seed = self.conv.resolve(mode)
+        system = prompt("persona")
         if mode == "morning":
-            mid = conv.record(segment_id, "system", "Begin the morning session.", {"kind": "morning"})
-            await turn(runtime, conv, tools, io, segment_id, mid, f"{opening}\n\nBegin the morning session.")
-            opening = None
+            system += "\n\n" + prompt("morning")
+        await self.runtime.open(system, self.tools.specs(), resume=resume)
+        if self.runtime.session_id:
+            self.conv.set_runtime_session(self.segment_id, self.runtime.session_id)
+        if mode == "morning":
+            await self.send("Begin the morning session.", role="system")
+
+    async def send(self, text, role="user"):
+        # Refresh on every turn, including resumed sessions. Model context is a cache.
+        opening = context.snapshot(self.map)
+        if self.seed:
+            opening += "\n\n" + self.seed
+            self.seed = None
+        mid = self.conv.record(self.segment_id, role, text)
+        try:
+            await turn(self.runtime, self.conv, self.tools, self.io, self.segment_id, mid,
+                       f"{opening}\n\nThe user says:\n{text}")
+        except BaseException:
+            self.ended_by = "error"
+            raise
+
+    async def close(self):
+        try:
+            metrics = await self.runtime.close()
+        finally:
+            self.io.close()
+        if self.segment_id:
+            if self.runtime.session_id:
+                self.conv.set_runtime_session(self.segment_id, self.runtime.session_id)
+            self.conv.close_segment(self.segment_id, self.ended_by, metrics.as_dict())
+
+
+async def run(mode, map_, runtime, io, device):
+    session = Session(map_, runtime, io, device)
+    try:
+        await session.open(mode)
         while True:
             text = io.read()
+            if inspect.isawaitable(text):
+                text = await text
             if text is None:
                 break
-            if not text.strip():
-                continue
-            mid = conv.record(segment_id, "user", text)
-            sent = f"{opening}\n\nThe user says:\n{text}" if opening else text
-            opening = None
-            await turn(runtime, conv, tools, io, segment_id, mid, sent)
-    except KeyboardInterrupt:
-        io.end_turn()
+            if text.strip():
+                await session.send(text)
+    except BaseException:
+        session.ended_by = "error"
+        raise
     finally:
-        metrics = await runtime.close()
-        if runtime.session_id:
-            conv.set_runtime_session(segment_id, runtime.session_id)
-        conv.close_segment(segment_id, ended_by, metrics.as_dict())
-        io.note(f"this session: ${metrics.cost_usd:.3f}, {metrics.turns} turns, "
-                f"{metrics.cache_read_tokens} cached in, {metrics.cache_write_tokens} written, {metrics.output_tokens} out")
-        io.close()
+        await session.close()
 
 
 async def turn(runtime, conv, tools, io, segment_id, message_id, text):
     tools.message_id = message_id
-    streamed = False
-    texts = []
+    completed, pending = [], ""
+    failed = True
     io.start_turn()
-    async for ev in runtime.send(text):
-        if ev.kind == "text":
-            streamed = True
-            io.delta(ev.text)
-        elif ev.kind == "assistant_text":
-            texts.append(ev.text)
-            if not streamed:
+    try:
+        async for ev in runtime.send(text):
+            if ev.kind == "text":
+                pending += ev.text
                 io.delta(ev.text)
-            streamed = False
-        elif ev.kind == "tool_use":
-            io.note(ev.name)
-            conv.record(segment_id, "tool", None, {"call": ev.name, "input": ev.payload})
-        elif ev.kind == "tool_result":
-            conv.record(segment_id, "tool", None, {"result_for": ev.name, **(ev.payload or {})})
-        elif ev.kind == "done":
-            io.end_turn()
-            if ev.payload:
-                io.note(f"${ev.payload['cost_usd']:.3f}")
-    if texts:
-        conv.record(segment_id, "assistant", "\n\n".join(texts))
-    if runtime.session_id:
-        conv.set_runtime_session(segment_id, runtime.session_id)
+            elif ev.kind == "assistant_text":
+                completed.append(ev.text)
+                if not pending:
+                    io.delta(ev.text)
+                pending = ""
+            elif ev.kind == "tool_use":
+                io.note(ev.name)
+                conv.record(segment_id, "tool", None, {"call": ev.name, "input": ev.payload})
+            elif ev.kind == "tool_result":
+                conv.record(segment_id, "tool", None, {"result_for": ev.name, **(ev.payload or {})})
+        failed = False
+    finally:
+        if pending:
+            completed.append(pending)
+        if completed:
+            conv.record(segment_id, "assistant", "\n\n".join(completed), {"interrupted": failed})
+        if runtime.session_id:
+            conv.set_runtime_session(segment_id, runtime.session_id)
+        io.end_turn()

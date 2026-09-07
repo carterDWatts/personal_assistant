@@ -30,11 +30,11 @@ class Conversation:
     def latest_segment(self):
         return self.map.row(
             "select id, runtime_session_id from memory.conversations"
-            " where device = %s and runtime = %s and runtime_session_id is not null order by started_at desc limit 1",
+            " where device = %s and runtime = %s and day = current_date and runtime_session_id is not null order by started_at desc limit 1",
             (self.device, self.runtime_name))
 
     def spoken_elsewhere_since(self, segment_id):
-        last = self.map.value("select coalesce(max(id), 0) from memory.messages where conversation_id = %s", (segment_id,))
+        last = self.map.value("select coalesce(min(id), 0) from memory.messages where conversation_id = %s", (segment_id,))
         return bool(self.map.value(
             "select exists (select 1 from memory.messages where id > %s and conversation_id <> %s and role in ('user', 'assistant'))",
             (last, segment_id)))
@@ -46,10 +46,12 @@ class Conversation:
 
     def record(self, segment_id, role, content, payload=None):
         from engine.db import jsonb
-        return self.map.value(
-            "insert into memory.messages (conversation_id, seq, role, content, payload)"
-            " values (%s, (select coalesce(max(seq), 0) + 1 from memory.messages where conversation_id = %s), %s, %s, %s) returning id",
-            (segment_id, segment_id, role, content, jsonb(payload) if payload is not None else None))
+        with self.map.conn.transaction():
+            self.map.execute("select id from memory.conversations where id = %s for update", (segment_id,))
+            return self.map.value(
+                "insert into memory.messages (conversation_id, seq, role, content, payload)"
+                " values (%s, (select coalesce(max(seq), 0) + 1 from memory.messages where conversation_id = %s), %s, %s, %s) returning id",
+                (segment_id, segment_id, role, content, jsonb(payload) if payload is not None else None))
 
     def set_runtime_session(self, segment_id, session_id):
         self.map.execute("update memory.conversations set runtime_session_id = %s where id = %s", (session_id, segment_id))
@@ -57,16 +59,17 @@ class Conversation:
     def close_segment(self, segment_id, ended_by, metrics=None, summary=None):
         """Close a segment. A resumed segment closes more than once, so numeric metrics add up."""
         from engine.db import jsonb
-        current = self.map.value("select metrics from memory.conversations where id = %s", (segment_id,)) or {}
-        total = dict(current)
-        for key, value in (metrics or {}).items():
-            if isinstance(value, (int, float)) and isinstance(total.get(key), (int, float)):
-                total[key] = round(total[key] + value, 4)
-            else:
-                total[key] = value
-        self.map.execute(
-            "update memory.conversations set ended_at = now(), ended_by = %s, metrics = %s, summary = coalesce(%s, summary) where id = %s",
-            (ended_by, jsonb(total), summary, segment_id))
+        with self.map.conn.transaction():
+            current = self.map.value("select metrics from memory.conversations where id = %s for update", (segment_id,)) or {}
+            total = dict(current)
+            for key, value in (metrics or {}).items():
+                if isinstance(value, (int, float)) and isinstance(total.get(key), (int, float)):
+                    total[key] = round(total[key] + value, 4)
+                else:
+                    total[key] = value
+            self.map.execute(
+                "update memory.conversations set ended_at = now(), ended_by = %s, metrics = %s, summary = coalesce(%s, summary) where id = %s",
+                (ended_by, jsonb(total), summary, segment_id))
 
     def tail(self, n):
         rows = self.map.rows(

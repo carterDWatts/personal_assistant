@@ -7,8 +7,12 @@ message being answered, so each fact can be traced back to the words.
 """
 
 import json
+from contextlib import nullcontext
+from jsonschema import validate, ValidationError
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
+from zoneinfo import ZoneInfo
+from engine import config
 
 from psycopg.types.numeric import Float4, Int8
 
@@ -52,7 +56,7 @@ def _when(value):
 
 
 def _day(value, today=None):
-    today = today or date.today()
+    today = today or datetime.now(ZoneInfo(config.TIMEZONE)).date()
     v = str(value or "today").strip().lower()
     if v == "today":
         return today
@@ -135,6 +139,16 @@ class Tools:
             f"select id, attribute, value, valid_from, valid_to, rank, confidence, level, recorded_at, superseded_by"
             f" from memory.assertion_history where {where} order by attribute, valid_from", params)
 
+    async def conversation_history(self, args):
+        """Read or search the shared transcript, including older conversations on other devices.
+        Results are newest first; pass before_id from the oldest returned message to read further back."""
+        return self.map.rows(
+            "select id, conversation_id, role, content, created_at from memory.messages"
+            " where role in ('user','assistant') and content is not null"
+            " and (%s::bigint is null or id < %s::bigint) and content ilike %s"
+            " order by id desc limit %s",
+            (args.get("before_id"), args.get("before_id"), "%" + args.get("query", "") + "%", args.get("limit", 30)))
+
     # --- entities and registries --------------------------------------------------
 
     async def entity_upsert(self, args):
@@ -180,7 +194,7 @@ class Tools:
         return self.map.call(
             "assert_fact", p_entity_id=args["entity_id"], p_attribute=args["attribute"], p_value=jsonb(args["value"]),
             p_asserted_by=self.device, p_valid_from=_when(args.get("valid_from")) or datetime.now().astimezone(),
-            p_confidence=Float4(float(args.get("confidence") or 1.0)), p_level=args.get("level") or "stated",
+            p_confidence=Float4(float(args.get("confidence", 1.0))), p_level=args.get("level") or "stated",
             p_observation_id=Int8(obs), p_valid_to=_when(args.get("valid_to")))
 
     async def fact_retract(self, args):
@@ -208,7 +222,7 @@ class Tools:
             "assert_relationship", p_subject_id=args["subject_id"], p_relation=args["relation"],
             p_object_id=args["object_id"], p_asserted_by=self.device, p_properties=jsonb(args.get("properties") or {}),
             p_valid_from=_when(args.get("valid_from")) or datetime.now().astimezone(),
-            p_confidence=Float4(float(args.get("confidence") or 1.0)), p_level=args.get("level") or "stated",
+            p_confidence=Float4(float(args.get("confidence", 1.0))), p_level=args.get("level") or "stated",
             p_observation_id=Int8(obs), p_valid_to=_when(args.get("valid_to")))
 
     async def relationship_retract(self, args):
@@ -228,7 +242,7 @@ class Tools:
             "insert into memory.plans (day, item, category, entity_id, status, origin, rationale, source_observation_id, created_by)"
             " values (%s, %s, %s, %s, %s, %s, %s, %s, %s) returning *",
             (_day(args.get("day")), args["item"], args.get("category"), args.get("entity_id"),
-             args.get("status") or "planned", args.get("origin") or "user", args.get("rationale"), obs, self.device))
+             args.get("status") or ("proposed" if args.get("origin") in ("map", "agent") else "planned"), args.get("origin") or "user", args.get("rationale"), obs, self.device))
 
     async def plan_update(self, args):
         """Set what happened to a plan: planned (accepting a proposal), done, partial, skipped or dropped."""
@@ -236,7 +250,7 @@ class Tools:
         self.observe("outcome", args.get("note") or f"plan {args['plan_id']} {status}")
         resolved = datetime.now().astimezone() if status in ("done", "partial", "skipped", "dropped") else None
         row = self.map.row(
-            "update memory.plans set status = %s, outcome_note = coalesce(%s, outcome_note), resolved_at = coalesce(%s, resolved_at)"
+            "update memory.plans set status = %s, outcome_note = coalesce(%s, outcome_note), resolved_at = %s"
             " where id = %s returning *", (status, args.get("note"), resolved, args["plan_id"]))
         if not row:
             raise ToolError(f"no plan {args['plan_id']}")
@@ -261,7 +275,7 @@ class Tools:
         """Resolve a rule: active to keep it, retired to drop it."""
         self.observe("rule", f"rule {args['rule_id']} {args['status']}")
         row = self.map.row(
-            "update memory.rules set status = %s, updated_at = now(), retired_at = case when %s = 'retired' then now() else retired_at end"
+            "update memory.rules set status = %s, updated_at = now(), retired_at = case when %s = 'retired' then now() else null end"
             " where id = %s returning *", (args["status"], args["status"], args["rule_id"]))
         if not row:
             raise ToolError(f"no rule {args['rule_id']}")
@@ -270,6 +284,7 @@ class Tools:
     async def tuning_set(self, args):
         """Set a tuning parameter the user asked for, like question_budget when they say fewer questions."""
         key = args["key"].strip().lower().replace(" ", "_")
+        self.map.execute("select pg_advisory_xact_lock(hashtextextended(%s, 0))", ("tuning:" + key,))
         obs = self.observe("rule", args.get("statement") or f"{key} = {json.dumps(args['value'])}")
         self.map.execute("update memory.rules set status = 'retired', retired_at = now(), updated_at = now()"
                          " where kind = 'tuning' and key = %s and status = 'active'", (key,))
@@ -316,6 +331,8 @@ class Tools:
     async def connector_update(self, args):
         """Record a source the assistant could sync: what it is, whether it is enabled, and what the user must
         provide to enable it."""
+        if args["status"] == "enabled":
+            raise ToolError("A working connector must be configured and verified before it can be enabled.")
         return self.map.row(
             "insert into memory.connectors (name, status, needs, entity_id) values (%s, %s, %s, %s)"
             " on conflict (name) do update set status = excluded.status, needs = coalesce(excluded.needs, memory.connectors.needs),"
@@ -327,6 +344,7 @@ class Tools:
     def specs(self):
         entity_id = _s("entity id (uuid)")
         return [
+            ToolSpec("conversation_history", _doc(self.conversation_history), _obj({"query": _s("optional text search"), "before_id": _i("page before this message id"), "limit": _i("page size", minimum=1, maximum=100)}, []), self.conversation_history),
             ToolSpec("map_search", _doc(self.map_search), _obj({"query": _s("word or phrase")}, ["query"]), self.map_search),
             ToolSpec("entity_view", _doc(self.entity_view), _obj({"entity_id": entity_id}, ["entity_id"]), self.entity_view),
             ToolSpec("fact_history", _doc(self.fact_history),
@@ -411,9 +429,15 @@ def _doc(fn):
 async def run(spec, args):
     """Run a tool and return (text, is_error). Errors go back to the model, never up the stack."""
     try:
-        result = await spec.fn(args or {})
+        validate(args or {}, spec.schema)
+        owner = getattr(spec.fn, "__self__", None)
+        transaction = owner.map.conn.transaction() if isinstance(owner, Tools) else nullcontext()
+        with transaction:
+            result = await spec.fn(args or {})
+    except ValidationError as e:
+        return "Invalid tool arguments: " + e.message, True
     except ToolError as e:
         return str(e), True
     except Exception as e:  # noqa: BLE001 - database errors are the model's problem to react to
-        return f"{type(e).__name__}: {e}", True
+        return f"{type(e).__name__}: operation failed; no changes were saved.", True
     return dumps(result), False

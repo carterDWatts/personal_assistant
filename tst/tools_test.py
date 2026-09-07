@@ -63,11 +63,11 @@ class tools_test(MapTest):
 
     def test_errors_come_back_as_text(self):
         result = self.call("fact_assert", entity_id="00000000-0000-0000-0000-000000000000", attribute="nope", value="x")
-        self.assertIn("not registered", result["error"])
+        self.assertIn("no changes were saved", result["error"])
         result = self.call("plan_update", plan_id=999, status="done")
         self.assertIn("no plan 999", result["error"])
         result = self.call("question_update", question_id=1, action="fly")
-        self.assertIn("unknown action", result["error"])
+        self.assertIn("Invalid tool arguments", result["error"])
 
     def test_retract_deprecate_confirm(self):
         self.call("attribute_register", name="hobby", value_type="text", cardinality="multi")
@@ -122,7 +122,7 @@ class tools_test(MapTest):
         c = self.call("connector_update", name="gmail", status="needs_setup", needs="grant read access")
         self.assertEqual(c["status"], "needs_setup")
         c = self.call("connector_update", name="gmail", status="enabled")
-        self.assertEqual((c["status"], c["needs"]), ("enabled", "grant read access"))
+        self.assertIn("verified", c["error"])
 
 
 if __name__ == "__main__":

@@ -3,3 +3,10 @@ __pycache__/
 .pytest_cache/
 .env
 supabase/.temp/
+
+.env.*
+!.env.example
+.venv/
+build/
+.DS_Store
+*.egg-info/

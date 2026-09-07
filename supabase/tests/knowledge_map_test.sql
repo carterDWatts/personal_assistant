@@ -187,13 +187,14 @@ declare
 begin
   r1 := memory.assert_relationship(me, 'employed_by', acme, 'test', '{"title": "engineer"}');
   r2 := memory.assert_relationship(me, 'employed_by', acme, 'test', '{"team": "infra"}');
-  if r1.id <> r2.id then raise exception 'FAIL same relationship should re-confirm'; end if;
+  if r1.id = r2.id then raise exception 'FAIL changed properties need a new revision'; end if;
+  if (select properties from memory.relationships where id = r1.id) <> '{"title": "engineer"}'::jsonb then raise exception 'FAIL old properties were overwritten'; end if;
   if r2.properties <> '{"title": "engineer", "team": "infra"}'::jsonb then raise exception 'FAIL properties should merge'; end if;
   perform memory.assert_relationship(me, 'friends_with', sam, 'test');
   perform memory.assert_relationship(me, 'friends_with', acme, 'test');
   select count(*) into n from memory.current_relationships where subject_id = me and relation = 'friends_with';
   if n <> 2 then raise exception 'FAIL multi relation should allow two objects'; end if;
-  perform memory.retract_relationship(r1.id, 'test');
+  perform memory.retract_relationship(r2.id, 'test');
   select count(*) into n from memory.current_relationships where subject_id = me and relation = 'employed_by';
   if n <> 0 then raise exception 'FAIL retracted relationship should not be current'; end if;
 end $$;

@@ -5,14 +5,16 @@ on every device. The richer preload and the per-turn delta belong to the hooks.
 """
 
 from datetime import date, datetime, timedelta
+from zoneinfo import ZoneInfo
+from engine import config
 
 
 def snapshot(map_, today=None, now=None):
-    today = today or date.today()
-    now = now or datetime.now().astimezone()
+    now = now or datetime.now(ZoneInfo(config.TIMEZONE))
+    today = today or now.date()
     parts = [f"Map snapshot. Today is {today.strftime('%A')} {today.isoformat()}, {now.strftime('%H:%M')} local."]
-    parts.append("Facts (current)\n" + facts_block(map_))
-    parts.append("Relationships (current)\n" + relationships_block(map_))
+    parts.append("Facts (current, up to 150; use map_search for more)\n" + facts_block(map_))
+    parts.append("Relationships (current, up to 100)\n" + relationships_block(map_))
     parts.append("Standing rules\n" + rules_block(map_))
     parts.append(f"Yesterday's plan ({(today - timedelta(days=1)).isoformat()})\n" + plans_block(map_, today - timedelta(days=1)))
     parts.append(f"Today's plan\n" + plans_block(map_, today))
@@ -24,7 +26,7 @@ def snapshot(map_, today=None, now=None):
 def facts_block(map_):
     rows = map_.rows(
         "select entity_id, entity_type, entity_name, attribute, value, confidence, level, stale, last_confirmed_at, id"
-        " from memory.current_assertions order by entity_type, entity_name, attribute")
+        " from memory.current_assertions order by importance desc, entity_type, entity_name, attribute limit 150")
     if not rows:
         return "Nothing recorded yet. Learn the basics gently, a little each conversation."
     lines, key = [], None
@@ -47,7 +49,7 @@ def facts_block(map_):
 
 def relationships_block(map_):
     rows = map_.rows(
-        "select id, subject_name, relation, object_name, properties from memory.current_relationships order by subject_name, relation")
+        "select id, subject_name, relation, object_name, properties from memory.current_relationships order by subject_name, relation limit 100")
     if not rows:
         return "None yet."
     return "\n".join(

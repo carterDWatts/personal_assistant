@@ -3,13 +3,14 @@
 import asyncio
 import os
 import unittest
+from urllib.parse import urlsplit
 
 from engine.db import Map
 from engine.runtime import Event, Metrics
 
 TEST_URL = os.environ.get("ASSISTANT_TEST_DATABASE_URL")
 
-TABLES = ("assertion_sources", "assertions", "relationships", "entity_aliases", "entity_embeddings", "entities",
+TABLES = ("revisions", "assertion_sources", "assertions", "relationships", "entity_aliases", "entity_embeddings", "entities",
           "plans", "rules", "questions", "connectors", "messages", "conversations", "observations", "attributes", "relations")
 
 
@@ -19,6 +20,9 @@ class MapTest(unittest.TestCase):
     def setUp(self):
         if not TEST_URL:
             self.skipTest("ASSISTANT_TEST_DATABASE_URL is not set; run scripts/test.sh")
+        target = urlsplit(TEST_URL)
+        if target.hostname not in ("localhost", "127.0.0.1", "::1") or target.port not in (55432, 55433):
+            raise RuntimeError("Destructive tests require the local test database on port 55432 or 55433")
         self.map = Map(TEST_URL)
         self.map.execute("truncate " + ", ".join(f"memory.{t}" for t in TABLES) + " restart identity cascade")
 

@@ -1,11 +1,7 @@
-"""The Claude Agent SDK as a runtime.
+"""Claude adapter using the existing local login, with no API-key fallback."""
 
-It authenticates through the Claude Code login and draws from the plan's Agent
-SDK credit. The MCP configuration is locked to our tool server so nothing from
-the user's Claude Code environment rides along, and the session has a hard
-dollar cap.
-"""
-
+import os
+from pathlib import Path
 from claude_agent_sdk import (
     AssistantMessage, ClaudeAgentOptions, ClaudeSDKClient, ResultMessage, StreamEvent, TextBlock, ToolResultBlock,
     ToolUseBlock, UserMessage, create_sdk_mcp_server, tool,
@@ -24,12 +20,16 @@ class ClaudeAgentSDKRuntime:
         self.model = model or config.MODEL
         self.effort = effort or config.EFFORT
         self.budget_usd = config.SESSION_BUDGET_USD if budget_usd is None else budget_usd
-        self.cwd = str(cwd or config.ROOT)
+        state = Path.home() / "Library/Application Support/Personal Assistant" / config.ENV / "claude"
+        state.mkdir(parents=True, exist_ok=True, mode=0o700)
+        self.cwd = str(cwd or state)
         self.session_id = None
         self.client = None
         self.metrics = Metrics()
 
     async def open(self, system_prompt, tools, resume=None):
+        if any(os.environ.get(k) for k in ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX")):
+            raise RuntimeError("Remove API billing credentials before using the subscription runtime.")
         server = create_sdk_mcp_server(name=SERVER, tools=[_wrap(spec) for spec in tools])
         options = ClaudeAgentOptions(
             system_prompt=system_prompt,
@@ -68,6 +68,8 @@ class ClaudeAgentSDKRuntime:
                                     payload={"content": _plain(block.content), "is_error": bool(block.is_error)})
             elif isinstance(m, ResultMessage):
                 self.session_id = m.session_id
+                if m.is_error or m.subtype != "success":
+                    raise RuntimeError("Claude stopped: " + m.subtype)
                 turn = _metrics(m)
                 self.metrics.add(turn)
                 yield Event("done", payload=turn.as_dict())

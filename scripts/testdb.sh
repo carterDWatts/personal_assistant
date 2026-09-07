@@ -41,7 +41,7 @@ case "${1:-}" in
       if docker ps -a --format '{{.Names}}' | grep -qx "$NAME"; then
         docker start "$NAME" >/dev/null
       else
-        docker run -d --name "$NAME" -e POSTGRES_PASSWORD=test -e POSTGRES_DB=app -p "$PORT:5432" \
+        docker run -d --name "$NAME" -e POSTGRES_PASSWORD=test -e POSTGRES_DB=app -p "127.0.0.1:$PORT:5432" \
           -v "$NAME-data:/var/lib/postgresql/data" "$IMAGE" >/dev/null
       fi
     fi
