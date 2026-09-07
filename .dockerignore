@@ -1,0 +1,14 @@
+**
+!Dockerfile
+!requirements-host.txt
+!identity.json
+!deploy/
+!deploy/supabase-ca.crt
+!engine/
+!engine/**
+!prompts/
+!prompts/**
+!scripts/
+!scripts/host-entry.py
+**/__pycache__
+**/*.pyc

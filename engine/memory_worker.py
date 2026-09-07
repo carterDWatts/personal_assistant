@@ -131,7 +131,7 @@ class Worker:
                 metrics = await runtime.close()
                 self.map.execute('update memory.memory_jobs set metrics=%s where message_id=%s', (jsonb(metrics.as_dict()),job['message_id']))
 
-    async def drain(self):
+    async def drain(self, on_processed=None):
         while not self.map.value('select pg_try_advisory_lock(hashtextextended(%s,0))', (LOCK,)):
             if not self.oldest():
                 return
@@ -141,6 +141,8 @@ class Worker:
                 if not self.map.value('select %s <= now()', (job['available_at'],)):
                     return
                 await self.process(job)
+                if on_processed:
+                    await on_processed()
         finally:
             self.map.execute('select pg_advisory_unlock(hashtextextended(%s,0))', (LOCK,))
 

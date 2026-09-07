@@ -25,7 +25,7 @@ psql <<'SQL'
 create schema if not exists extensions;
 do $$ begin
   if not exists (select 1 from pg_roles where rolname = 'service_role') then
-    create role service_role nologin;
+    create role service_role nologin bypassrls;
   end if;
 end $$;
 SQL

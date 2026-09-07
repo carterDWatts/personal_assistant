@@ -20,9 +20,10 @@ migrate() {
 create schema if not exists extensions;
 do $$ begin
   if not exists (select 1 from pg_roles where rolname = 'service_role') then
-    create role service_role nologin;
+    create role service_role nologin bypassrls;
   end if;
 end $$;
+alter role service_role bypassrls;
 create table if not exists public.applied_migrations (name text primary key, applied_at timestamptz not null default now());
 SQL
   for f in "$ROOT"/supabase/migrations/*.sql; do

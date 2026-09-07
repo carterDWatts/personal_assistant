@@ -1,10 +1,10 @@
 # Client contract
 
-Status: backend proposal, not deployed. Fable's review is pending. This contract covers Carter's personal assistant across authenticated devices. It does not establish support for customer subscription billing.
+Status: initial relay implemented; client integration is next. This contract covers Carter's personal assistant across authenticated devices. It does not establish support for customer subscription billing.
 
 ## Responsibilities
 
-Supabase handles identity, durable commands, conversation events, memory and private change notifications. A separately provisioned worker runs the subscription runtime and connects outward to Supabase. The phone does not require an inbound connection to the worker. A Mac can run the worker during development; a separate always-on host is required for Mac-off operation. Hardware is not selected.
+Supabase handles identity, durable commands, conversation events, memory and private change notifications. A separately provisioned worker runs the subscription runtime and connects outward to Supabase. The phone does not require an inbound connection to the worker. A Mac can run the worker during development; a separate always-on host is required for Mac-off operation. The cloud worker runs on Railway with a persistent volume.
 
 Clients handle presentation and local speech. Model credentials stay on the worker. No database administrator credentials reach a client. No paid model fallback is permitted.
 
@@ -12,11 +12,11 @@ Clients handle presentation and local speech. Model credentials stay on the work
 
 Use Supabase Auth, initially restricted to the owner's account. Each registered device belongs to an authenticated user. Server operations derive user identity from verified authentication, never from submitted user IDs. Check device revocation and ownership on each operation. Database policies and cross-owner references must enforce isolation before client access is enabled.
 
-Worker credentials are separately provisioned and owner-scoped. Owning a client session does not grant worker privileges. Exact sign-in and worker provisioning flows remain implementation decisions; no custom permanent device bearer token is assumed.
+Worker credentials are separately provisioned. This deployment has exactly one allowlisted owner; its worker has access to that owner's whole database. This is not a multi-tenant authorization scheme. Owning a client session does not grant worker privileges. Exact sign-in and worker provisioning flows remain implementation decisions; no custom permanent device bearer token is assumed.
 
 ## Client operations
 
-These are logical method names, not existing endpoints. Exact RPC names, schemas and fixtures must be committed before live client integration.
+These are logical method names; see the concrete transport below. The currently implemented operations below use the authenticated Edge Function; the remaining operations are follow-up work.
 
 | Operation | Behavior |
 | --- | --- |
@@ -44,17 +44,17 @@ Cursors are assigned in conversation commit order under serialization. A global 
 
 ## Reconnect and interruption
 
-Private Realtime is a wake-up signal, not the only record. Subscribe and wait for readiness, then replay from the last applied cursor. Fetch again on notifications and after reconnect; deduplicate already applied events. Paginate until caught up. Cursor expiry requires a fresh history snapshot and explicit reset response.
+Private Realtime is the intended wake-up transport, not the only record. The first gateway supports HTTP replay; Realtime authorization and broadcasts are not deployed yet. Until then, poll while foregrounded (250 ms during a reply; back off when idle) and stop polling in the background. When Realtime is enabled, subscribe and wait for readiness, then replay from the last applied cursor. Re-authorize the channel when the JWT refreshes. Fetch again on notifications and after reconnect; deduplicate already applied events. Paginate until caught up. Cursor expiry requires a fresh history snapshot and explicit reset response.
 
 Backgrounding may close the iOS connection. On foreground, refresh authentication, subscribe and catch up. Replayed text must not automatically speak old replies. Store the cursor and pending drafts with platform data protection; tokens belong in Keychain.
 
 On interruption, stop local playback immediately and cancel by turn ID. Late events can update durable history but must not restart playback for that turn. Capture the next utterance locally while waiting for the prior turn to stop. A cancellation acknowledgment does not undo an external action already completed.
 
-Workers use a lease and fencing generation to prevent stale workers from publishing results. A restart after an uncertain external action requires reconciliation using action receipts, not blind replay. Host availability is explicit; offline workers cannot process requests simply because Supabase is reachable.
+Workers use a 60-second lease and a unique worker ID to prevent stale workers from publishing results. A restart after an uncertain external action requires reconciliation using action receipts, not blind replay. Host availability is explicit; offline workers cannot process requests simply because Supabase is reachable.
 
 ## Connections
 
-A missing permission produces an in-chat connection action. The client opens the supplied authorization URL in a system browser session. Google requires a registered host web OAuth flow; the existing desktop localhost callback is not a phone callback.
+A missing permission produces an in-chat connection action. Host Google authorization is not implemented yet; connecting Google on the Mac does not automatically authorize the cloud worker. The phone must not claim otherwise. The client opens the supplied authorization URL in a system browser session. Google requires a registered host web OAuth flow; the existing desktop localhost callback is not a phone callback.
 
 Authorization intents are short-lived, single-use and bound to the owner and initiating device. Validate state and PKCE. Verify completion from the authenticated service rather than trusting a deep link. Token exchange and encrypted credential storage are server-owned. A callback returns no Google token to the phone. Device sign-out and disconnecting the shared Google account are separate operations.
 
@@ -79,3 +79,34 @@ A background socket is not reminder delivery. Already synchronized reminders may
 Supabase hosted Edge Functions have 256 MB memory and bounded execution lifetimes, so this design places the native subscription harness on a separate worker: https://supabase.com/docs/guides/functions/limits .
 
 Anthropic's current pause notice says SDK usage still draws from subscription limits: https://support.claude.com/en/articles/15036540-use-the-claude-agent-sdk-with-your-claude-plan . Headless subscription token authentication is documented at https://code.claude.com/docs/en/authentication . This is not a promise that those policies will remain unchanged.
+
+## Initial HTTP transport
+
+POST `https://koauvyfxewczcajnlrfp.supabase.co/functions/v1/assistant` with `Authorization: Bearer <Supabase user access token>`, the project's public `apikey`, and JSON:
+
+```json
+{"action":"submit","device_id":"<device UUID>","args":{"client_message_id":"<message UUID>","text":"Hello"}}
+```
+
+The gateway verifies the user with Supabase Auth. Never call `assistant_client` from a client: that RPC is restricted to the gateway's service role. Never put the service key or a database URL in a client.
+
+| action | args | result |
+| --- | --- | --- |
+| register | name | device_id |
+| bootstrap | none | conversation_id, history, cursor, replay_after, host {online, seen_at}, active_turn, day, identity |
+| submit | client_message_id, text | turn_id, status |
+| events | after (cursor, initially 0) | events, has_more |
+| cancel | turn_id | status (cancellation_requested is not completion) |
+| revoke | device_id | revoked |
+
+On bootstrap, show history and replay from `replay_after`, which may be earlier than `cursor` when a reply is in progress. This reconstructs the active reply's prefix. Subsequent polls use the last applied cursor. Replies have one stable conversation_id across runtime restarts. Persisted `delta` uses `text`; `replace` also uses `text`. Timestamps use `created_at`.
+
+A successful submit can be queued while the host is offline. Preserve the draft until its UUID is accepted. HTTP 409 returns conversation_busy or idempotency_conflict; 403 returns account_denied or device_denied; 401 requires sign-in. 503 is a temporary service failure and reveals no internal error.
+
+The owner account is provisioned by an operator, and email verification occurs during sign-in. New accounts cannot claim the existing map. Host presence expires after 60 seconds, renewed every 20 seconds. A terminal failed event after restart requires checking external action results before retrying.
+
+The `day` object has day, learned, plans, questions, pending and errors. The worker publishes `map` and `memory` events after extraction changes and at day rollover. `identity` comes from root identity.json.
+
+Clear, paginated older history, reminder delivery, host Google authorization and Realtime subscriptions are not implemented in this transport yet. The existing Mac bridge remains usable independently.
+
+`tst/fixtures/relay.jsonl` contains event envelopes for a completed and cancelled turn and a separate HTTP busy response. Speech is not exercised by this fixture.

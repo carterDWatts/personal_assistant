@@ -19,6 +19,13 @@ from engine.tools import ToolError, ConnectionRequired
 
 WRITE_SCOPE = "https://www.googleapis.com/auth/calendar.events"
 SCOPES = [WRITE_SCOPE, "https://www.googleapis.com/auth/calendar.readonly", "https://www.googleapis.com/auth/gmail.readonly"]
+CONNECTIONS = {
+    "google_connect": ("Calendar and Gmail", SCOPES),
+    "google_tasks": ("Google Tasks", ["https://www.googleapis.com/auth/tasks.readonly"]),
+    "google_drive": ("Drive, Docs and Sheets", ["https://www.googleapis.com/auth/drive.readonly"]),
+    "google_contacts": ("Google Contacts", ["https://www.googleapis.com/auth/contacts.readonly"]),
+}
+CONNECTION_ACTIONS = {*CONNECTIONS, "google_calendar_write"}
 SERVICE = "com.carterwatts.personal-assistant.google"
 _LOCK = threading.RLock()
 
@@ -34,42 +41,60 @@ def _client():
         "auth_uri": "https://accounts.google.com/o/oauth2/auth", "token_uri": "https://oauth2.googleapis.com/token"}}
 
 
-def _credentials():
-    raw = keyring.get_password(SERVICE, config.ENV)
+def _account(action="google_connect"):
+    return config.ENV if action == "google_connect" else f"{config.ENV}:{action}"
+
+
+def _credentials(action="google_connect"):
+    try:
+        raw = keyring.get_password(SERVICE, _account(action))
+    except keyring.errors.KeyringError:
+        return None
     return Credentials.from_authorized_user_info(json.loads(raw)) if raw else None
 
 
 def status():
     try:
         credentials = _credentials()
+        capabilities = {}
+        for action, (label, scopes) in CONNECTIONS.items():
+            token = credentials if action == "google_connect" else _credentials(action)
+            capabilities[action] = {"label": label, "connected": bool(token and token.refresh_token and token.has_scopes(scopes))}
         return {"configured": _client() is not None, "connected": bool(credentials and credentials.refresh_token),
-                "calendar_write": bool(credentials and credentials.has_scopes([WRITE_SCOPE]))}
+                "calendar_write": bool(credentials and credentials.has_scopes([WRITE_SCOPE])), "capabilities": capabilities}
     except Exception:
         return {"configured": _client() is not None, "connected": False, "message": "Unlock your keychain to connect Google."}
 
 
-def connect():
+def connect(action="google_connect"):
+    if action == "google_calendar_write":
+        action = "google_connect"
+    if action not in CONNECTIONS:
+        raise ToolError("Unknown connection.")
+    label, scopes = CONNECTIONS[action]
     client = _client()
     if not client:
         raise ToolError("Google sign-in is not available in this build yet.")
-    flow = InstalledAppFlow.from_client_config(client, scopes=SCOPES, autogenerate_code_verifier=True)
+    flow = InstalledAppFlow.from_client_config(client, scopes=scopes, autogenerate_code_verifier=True)
     credentials = flow.run_local_server(host="127.0.0.1", port=0, timeout_seconds=180,
         authorization_prompt_message="", success_message="Google is connected. You can return to your assistant.",
         access_type="offline", prompt="consent")
     granted = credentials.granted_scopes
-    if not credentials.refresh_token or not credentials.has_scopes(SCOPES) or (
-            isinstance(granted, (list, tuple, set)) and not set(SCOPES).issubset(granted)):
-        raise ToolError("Calendar and Gmail access were not both granted. Try connecting again.")
+    if not credentials.refresh_token or not credentials.has_scopes(scopes) or (
+            isinstance(granted, (list, tuple, set)) and not set(scopes).issubset(granted)):
+        raise ToolError(f"{label} access was not granted. Try connecting again.")
     with _LOCK:
-        keyring.set_password(SERVICE, config.ENV, credentials.to_json())
+        keyring.set_password(SERVICE, _account(action), credentials.to_json())
     return status()
 
 
-def disconnect():
+def disconnect(action="google_connect"):
     # Remove local access without revoking other devices connected to the same Google app.
+    if action not in CONNECTIONS:
+        raise ToolError("Unknown connection.")
     with _LOCK:
         try:
-            keyring.delete_password(SERVICE, config.ENV)
+            keyring.delete_password(SERVICE, _account(action))
         except keyring.errors.PasswordDeleteError:
             pass
     return status()
@@ -103,6 +128,48 @@ def _request(method, path, params=None, body=None):
 
 def _get(path, params=None):
     return _request("GET", path, params)
+
+
+def read_data(action, path, params=None, *, text=False):
+    """Read a bounded response using only the permission for this connection."""
+    hosts = {"google_tasks": "https://tasks.googleapis.com/", "google_drive": "https://www.googleapis.com/",
+             "google_contacts": "https://people.googleapis.com/"}
+    label, scopes = CONNECTIONS[action]
+    with _LOCK:
+        credentials = _credentials(action)
+        if not credentials or not credentials.has_scopes(scopes):
+            raise ConnectionRequired(f"Connect {label} in the chat to read this data.", action)
+        try:
+            if not credentials.valid:
+                credentials.refresh(Request())
+                keyring.set_password(SERVICE, _account(action), credentials.to_json())
+        except Exception:
+            raise ConnectionRequired(f"Reconnect {label} in the chat.", action) from None
+    # Paths are assembled by connector code, never accepted as URLs from a tool caller.
+    if path.startswith(("/", "http:" , "https:")):
+        raise ToolError("Invalid Google resource path.")
+    url = hosts[action] + path
+    if action == "google_drive" and path.startswith("sheets/v4/"):
+        url = "https://sheets.googleapis.com/" + path.removeprefix("sheets/")
+    with AuthorizedSession(credentials) as session:
+        with session.get(url, params=params, timeout=10, stream=True, allow_redirects=False) as response:
+            if response.status_code == 401:
+                raise ConnectionRequired(f"Reconnect {label} in the chat.", action)
+            if response.status_code == 403:
+                raise ToolError(f"Google denied {label} access. The app's developer may need to enable its API; reconnecting alone may not fix this.")
+            if response.status_code == 404:
+                raise ToolError("This item is missing or is not shared with the connected account.")
+            if not 200 <= response.status_code < 300:
+                raise ToolError(f"{label} is temporarily unavailable. Try again shortly.")
+            limit = 64000 if text else 512000
+            data = bytearray()
+            for chunk in response.iter_content(8192):
+                data.extend(chunk)
+                if len(data) > limit:
+                    if text:
+                        return {"text": data[:limit].decode("utf-8", errors="replace"), "truncated": True}
+                    raise ToolError("The response is too large. Narrow the query or request a smaller range.")
+            return {"text": data.decode("utf-8", errors="replace"), "truncated": False} if text else json.loads(data)
 
 
 def _create_event(args):

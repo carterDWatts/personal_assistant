@@ -10,7 +10,7 @@ from engine import memory_worker
 
 
 class Session:
-    def __init__(self, map_, runtime, io, device):
+    def __init__(self, map_, runtime, io, device, *, auto_memory=True, before_tool=None):
         self.map, self.runtime, self.io = map_, runtime, io
         self.conv = Conversation(map_, device, runtime.name)
         self.tools = Tools(map_, device)
@@ -19,6 +19,8 @@ class Session:
         self.ended_by = "user"
         self.seen_message = 0
         self.locked = False
+        self.auto_memory = auto_memory
+        self.before_tool = before_tool
 
     async def open(self, mode="talk"):
         self.segment_id, resume, self.seed = self.conv.resolve(mode)
@@ -30,12 +32,22 @@ class Session:
         system = prompt("persona")
         if mode == "morning":
             system += "\n\n" + prompt("morning")
-        await self.runtime.open(system, self.tools.read_specs(), resume=resume)
+        specs = self.tools.read_specs()
+        if self.before_tool:
+            from dataclasses import replace
+            def guarded(fn):
+                async def call(args):
+                    await self.before_tool()
+                    return await fn(args)
+                return call
+            specs = [replace(spec, fn=guarded(spec.fn)) for spec in specs]
+        await self.runtime.open(system, specs, resume=resume)
         if resume and not getattr(self.runtime, "resumed", True):
             self.seed = self.conv.seed_text(self.conv.tail(30))
         if self.runtime.session_id:
             self.conv.set_runtime_session(self.segment_id, self.runtime.session_id)
-        memory_worker.kick(self.runtime.name)
+        if self.auto_memory:
+            memory_worker.kick(self.runtime.name)
         if mode == "morning":
             await self.send("Begin the morning session.", role="system")
 
@@ -60,7 +72,8 @@ class Session:
             self.ended_by = "error"
             raise
         finally:
-            memory_worker.kick(self.runtime.name)
+            if self.auto_memory:
+                memory_worker.kick(self.runtime.name)
 
     async def close(self):
         metrics = getattr(self.runtime, "metrics", Metrics())

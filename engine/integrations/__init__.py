@@ -5,7 +5,9 @@ def read_specs():
     from engine.tools import ToolSpec
     from engine.integrations.weather import forecast
     from engine.integrations.google import calendar_events, calendar_create_event, mail_search, mail_read
-    return [ToolSpec("weather_forecast",
+    from engine.integrations.workspace import specs
+    from engine.integrations.services import specs as service_specs
+    return specs() + service_specs() + [ToolSpec("weather_forecast",
         "Get current weather estimates, hourly rain and wind for the next 24 hours, and a seven-day forecast. "
         "Use whenever weather matters to a question or plan. Supply the city and state/country from the conversation or memory. "
         "Returns the resolved location, units and freshness; requires no account.",

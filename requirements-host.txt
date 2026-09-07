@@ -1,0 +1,5 @@
+claude-agent-sdk==0.2.152
+psycopg[binary]==3.3.5
+jsonschema==4.26.0
+google-auth-oauthlib==1.4.1
+keyring==25.7.0

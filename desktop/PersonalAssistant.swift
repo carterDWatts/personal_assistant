@@ -56,6 +56,8 @@ final class Chat: NSObject, ObservableObject {
     @Published var googleConfigured = false
     @Published var googleConnected = false
     @Published var googleCalendarWrite = false
+    @Published var googleCapabilities: [String: Bool] = [:]
+    @Published var serviceConnections: [String: Bool] = [:]
     @Published var googleConnecting = false
     @Published var connectionError = ""
     @Published var connectionPrompt: String? = nil
@@ -150,9 +152,17 @@ final class Chat: NSObject, ObservableObject {
         process = nil; input = nil; buffer = Data(); connected = false; busy = false; streamingID = nil
     }
 
+    func connectService(_ provider: String, token: String) {
+        connectionError = ""; googleConnecting = true
+        write(["type": "service_connect", "provider": provider, "token": token])
+    }
+    func disconnectService(_ provider: String) {
+        connectionError = ""; googleConnecting = true
+        write(["type": "service_disconnect", "provider": provider])
+    }
     func refreshConnections() { write(["type": "connections"]) }
-    func connectGoogle() { connectionError = ""; googleConnecting = true; write(["type": "google_connect"]) }
-    func disconnectGoogle() { connectionError = ""; googleConnecting = true; write(["type": "google_disconnect"]) }
+    func connectGoogle(_ action: String = "google_connect") { connectionError = ""; googleConnecting = true; write(["type": action]) }
+    func disconnectGoogle(_ action: String = "google_connect") { connectionError = ""; googleConnecting = true; write(["type": "google_disconnect", "connection": action]) }
 
     private func write(_ value: [String: Any]) {
         guard let data = try? JSONSerialization.data(withJSONObject: value) else { return }
@@ -171,7 +181,14 @@ final class Chat: NSObject, ObservableObject {
                 connectionPromptSatisfied = false
                 refreshConnections()
             case "connections":
-                if event["completed"] as? Bool == true { connectionPromptSatisfied = true }
+                if event["completed"] as? Bool == true {
+                    let action = event["action"] as? String
+                    connectionPromptSatisfied = action == connectionPrompt
+                }
+                let capabilities = event["capabilities"] as? [String: [String: Any]] ?? [:]
+                let services = event["services"] as? [String: [String: Any]] ?? [:]
+                serviceConnections = services.mapValues { $0["connected"] as? Bool ?? false }
+                googleCapabilities = capabilities.mapValues { $0["connected"] as? Bool ?? false }
                 googleConfigured = event["configured"] as? Bool ?? false
                 googleConnected = event["connected"] as? Bool ?? false
                 googleCalendarWrite = event["calendar_write"] as? Bool ?? false
@@ -493,20 +510,36 @@ struct DayPanel: View {
 struct ChatConnectionPrompt: View {
     @ObservedObject var chat: Chat
     private var ready: Bool { chat.connectionPromptSatisfied }
+    private var provider: String? {
+        let value = (chat.connectionPrompt ?? "").replacingOccurrences(of: "_connect", with: "")
+        return ServiceSetup.entries[value] == nil ? nil : value
+    }
+    private var title: String {
+        if let provider, let setup = ServiceSetup.entries[provider] { return "Connect " + setup.name }
+        switch chat.connectionPrompt {
+        case "google_tasks": return "Connect Google Tasks"
+        case "google_drive": return "Connect Drive, Docs and Sheets"
+        case "google_contacts": return "Connect Google Contacts"
+        case "google_calendar_write": return "Enable calendar editing"
+        default: return "Connect Google"
+        }
+    }
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Label(ready ? "Google is ready" : "Connect Google to continue", systemImage: "link").font(.headline)
-            Text(ready ? "You can pick up where you left off." : "Give Bunny Man access without leaving this conversation.").font(.callout).foregroundStyle(.secondary)
+            Label(ready ? "Connected" : title, systemImage: "link").font(.headline)
+            Text(ready ? "You can pick up where you left off." : "Approve access in your browser, then continue here.").font(.callout).foregroundStyle(.secondary)
             if chat.googleConnecting {
-                HStack { ProgressView().controlSize(.small); Text("Finish in your browser…") }
+                HStack { ProgressView().controlSize(.small); Text(provider == nil ? "Finish in your browser…" : "Checking connection…") }
             } else if ready {
                 Button("Continue") {
                     chat.connectionPrompt = nil
-                    chat.draft = "Google is connected now. Please continue my previous request."
+                    chat.draft = "The service is connected now. Please continue my previous request."
                     chat.send()
                 }.disabled(chat.busy).buttonStyle(.borderedProminent)
+            } else if let provider {
+                ServiceConnectionForm(chat: chat, provider: provider)
             } else {
-                Button(chat.connectionPrompt == "google_calendar_write" ? "Enable calendar editing" : "Connect Google") { chat.connectGoogle() }
+                Button(title) { chat.connectGoogle(chat.connectionPrompt ?? "google_connect") }
                     .buttonStyle(.borderedProminent)
             }
             if !chat.connectionError.isEmpty { Text(chat.connectionError).font(.caption).foregroundStyle(.secondary) }
@@ -515,9 +548,43 @@ struct ChatConnectionPrompt: View {
     }
 }
 
+struct ServiceSetup {
+    let name: String
+    let url: String
+    let instructions: String
+    static let entries = [
+        "todoist": ServiceSetup(name: "Todoist", url: "https://app.todoist.com/app/settings/integrations/developer", instructions: "Copy your API token from Todoist’s Integrations → Developer settings. This assistant only reads tasks."),
+        "notion": ServiceSetup(name: "Notion", url: "https://www.notion.so/profile/integrations", instructions: "Create an internal connection with Read content access, copy its secret, then share the pages you want through their Connections menu."),
+        "github": ServiceSetup(name: "GitHub", url: "https://github.com/settings/personal-access-tokens/new", instructions: "Create a fine-grained token for your chosen repositories with read access to Issues and Pull requests. Copy the token here.")
+    ]
+}
+
+struct ServiceConnectionForm: View {
+    @ObservedObject var chat: Chat
+    let provider: String
+    @State private var token = ""
+    var body: some View {
+        if let setup = ServiceSetup.entries[provider] {
+            VStack(alignment: .leading, spacing: 8) {
+                Text(setup.instructions).font(.callout).foregroundStyle(.secondary)
+                Link("Open " + setup.name, destination: URL(string: setup.url)!)
+                SecureField("Access token", text: $token).textFieldStyle(.roundedBorder)
+                Text("Stored in this Mac’s Keychain. Never sent to the chat.").font(.caption).foregroundStyle(.secondary)
+                Button("Connect " + setup.name) {
+                    chat.connectService(provider, token: token)
+                    token = ""
+                }.disabled(token.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || chat.googleConnecting)
+                    .buttonStyle(.borderedProminent)
+            }.onDisappear { token = "" }
+        }
+    }
+}
+
 struct ConnectionsView: View {
     @ObservedObject var chat: Chat
+    @State private var serviceSetup: String? = nil
     var body: some View {
+        ScrollView {
         VStack(alignment: .leading, spacing: 20) {
             Text("Connections").font(.title2.weight(.semibold))
             HStack(alignment: .top, spacing: 12) {
@@ -550,8 +617,41 @@ struct ConnectionsView: View {
                     Text("Bunny Man can add calendar events when you ask. Email is read-only.").font(.caption).foregroundStyle(.secondary)
                 }
             }
+            Divider()
+            ForEach([("google_tasks", "Tasks", "Outstanding work and due dates"),
+                     ("google_drive", "Drive, Docs and Sheets", "Documents and spreadsheet data"),
+                     ("google_contacts", "Contacts", "Names, contact details and birthdays")], id: \.0) { action, title, detail in
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack {
+                        Text(title).font(.headline)
+                        Spacer()
+                        if chat.googleCapabilities[action] == true {
+                            Button("Disconnect") { chat.disconnectGoogle(action) }
+                        } else {
+                            Button("Connect") { chat.connectGoogle(action) }
+                        }
+                    }
+                    Text(detail + " · Read only").font(.caption).foregroundStyle(.secondary)
+                }.disabled(chat.googleConnecting || !chat.googleConfigured)
+            }
+            Divider()
+            ForEach(["todoist", "notion", "github"], id: \.self) { provider in
+                HStack {
+                    Text(ServiceSetup.entries[provider]!.name).font(.headline)
+                    Spacer()
+                    if chat.serviceConnections[provider] == true {
+                        Button("Disconnect") { chat.disconnectService(provider) }
+                    } else {
+                        Button("Connect") { serviceSetup = serviceSetup == provider ? nil : provider }
+                    }
+                }.disabled(chat.googleConnecting)
+                if serviceSetup == provider && chat.serviceConnections[provider] != true {
+                    ServiceConnectionForm(chat: chat, provider: provider)
+                }
+            }
             if !chat.connectionError.isEmpty { Text(chat.connectionError).font(.callout).foregroundStyle(.secondary) }
-        }.padding(22).frame(width: 340).onAppear { chat.refreshConnections() }
+        }.padding(22).frame(width: 380)
+        }.frame(maxHeight: 650).onAppear { chat.refreshConnections() }
     }
 }
 

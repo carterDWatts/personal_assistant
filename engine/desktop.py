@@ -35,13 +35,15 @@ class DesktopIO:
     def end_turn(self): emit("end")
     def note(self, text): emit("status", text=text)
     def tool_result(self, payload):
+        from engine.integrations.google import CONNECTION_ACTIONS
+        from engine.integrations.services import CONNECTION_ACTIONS as SERVICE_ACTIONS
         if not payload.get("is_error"):
             return
         try:
             data = json.loads(payload.get("content", ""))
         except (ValueError, TypeError):
             return
-        if isinstance(data, dict) and data.get("connection_action") in ("google_connect", "google_calendar_write"):
+        if isinstance(data, dict) and data.get("connection_action") in CONNECTION_ACTIONS | SERVICE_ACTIONS:
             emit("connection_required", action=data["connection_action"])
     def close(self): pass
 
@@ -52,18 +54,35 @@ async def main():
     from engine.db import Map
     from engine.engine import Session
     from engine.runtime import load
-    from engine.integrations import google
+    from engine.integrations import google, services
     map_, session, active, memory_poll = None, None, None, None
     connection_task = None
 
-    async def google_action(action):
-        emit("connections", **(await asyncio.to_thread(google.status)), connecting=True)
+    async def connection_status():
+        google_status, service_status = await asyncio.gather(asyncio.to_thread(google.status), asyncio.to_thread(services.status))
+        return {**google_status, "services": service_status}
+
+    async def service_action(action, provider, token=None):
+        emit("connections", **(await connection_status()), connecting=True)
         try:
-            result = await asyncio.to_thread(google.connect if action == "google_connect" else google.disconnect)
-            emit("connections", **result, connecting=False, completed=action == "google_connect")
+            if action == "service_disconnect":
+                await asyncio.to_thread(services.disconnect, provider)
+            else:
+                await asyncio.to_thread(services.connect, provider, token)
+            emit("connections", **(await connection_status()), connecting=False,
+                 completed=action == "service_connect", action=f"{provider}_connect")
         except Exception:
-            emit("connections", **(await asyncio.to_thread(google.status)), connecting=False,
-                 error="Google wasn’t connected. Try again and approve Calendar and Gmail access.")
+            emit("connections", **(await connection_status()), connecting=False,
+                 error="Could not connect. Check the token, its permissions, and your network, then try again.")
+
+    async def google_action(action, connection):
+        emit("connections", **(await connection_status()), connecting=True)
+        try:
+            await asyncio.to_thread(google.disconnect if action == "google_disconnect" else google.connect, connection)
+            emit("connections", **(await connection_status()), connecting=False, completed=action != "google_disconnect", action=connection)
+        except Exception:
+            emit("connections", **(await connection_status()), connecting=False,
+                 error="Google wasn’t connected. Try again and approve the requested access.")
 
     async def monitor_memory():
         while True:
@@ -104,11 +123,19 @@ async def main():
                 message = json.loads(line)
                 action = message.get("type")
                 if action == "connections":
-                    emit("connections", **(await asyncio.to_thread(google.status)),
+                    emit("connections", **(await connection_status()),
                          connecting=bool(connection_task and not connection_task.done()))
-                elif action in ("google_connect", "google_disconnect"):
+                elif action in google.CONNECTION_ACTIONS or action == "google_disconnect":
                     if not connection_task or connection_task.done():
-                        connection_task = asyncio.create_task(google_action(action))
+                        connection_task = asyncio.create_task(google_action(action, message.get("connection", "google_connect") if action == "google_disconnect" else action))
+                elif action in ("service_connect", "service_disconnect"):
+                    if not connection_task or connection_task.done():
+                        # Credentials travel through this private pipe, never through Session.send or emit.
+                        provider, token = message.get("provider"), message.pop("token", None)
+                        if provider not in services.PROVIDERS:
+                            raise ValueError("Unknown connection")
+                        connection_task = asyncio.create_task(service_action(action, provider, token))
+                        token = None
                 elif action == "connect":
                     if session:
                         raise ValueError("Already connected")

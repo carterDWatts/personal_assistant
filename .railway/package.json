@@ -1,0 +1,11 @@
+{
+  "dependencies": {
+    "@railway/cli": "5.49.3",
+    "railway": "3.11.0"
+  },
+  "private": true,
+  "type": "module",
+  "overrides": {
+    "tar": "7.5.22"
+  }
+}
