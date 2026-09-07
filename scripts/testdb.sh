@@ -29,7 +29,7 @@ SQL
     n="$(basename "$f")"
     if [ "$(psql -tA -c "select count(*) from public.applied_migrations where name = '$n'")" = "0" ]; then
       echo "applying $n"
-      psql < "$f"
+      psql -1 < "$f"
       psql -c "insert into public.applied_migrations (name) values ('$n')"
     fi
   done

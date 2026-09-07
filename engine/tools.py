@@ -218,12 +218,13 @@ class Tools:
     async def relationship_assert(self, args):
         """Record that one entity relates to another. Properties carry details of the link, like a title."""
         obs = self.observe("statement", args.get("statement") or f"{args['subject_id']} {args['relation']} {args['object_id']}")
-        return self.map.call(
+        row = self.map.call(
             "assert_relationship", p_subject_id=args["subject_id"], p_relation=args["relation"],
             p_object_id=args["object_id"], p_asserted_by=self.device, p_properties=jsonb(args.get("properties") or {}),
             p_valid_from=_when(args.get("valid_from")) or datetime.now().astimezone(),
             p_confidence=Float4(float(args.get("confidence", 1.0))), p_level=args.get("level") or "stated",
             p_observation_id=Int8(obs), p_valid_to=_when(args.get("valid_to")))
+        return row
 
     async def relationship_retract(self, args):
         """Close a relationship that ended."""
@@ -314,7 +315,7 @@ class Tools:
             row = self.map.row("update memory.questions set closed_at = now(), closed_reason = 'answered', answer = %s"
                                " where id = %s and closed_at is null returning *", (args.get("answer"), qid))
         elif action == "defer":
-            until = date.today() + timedelta(days=max(1, int(args.get("days") or 7)))
+            until = _day("today") + timedelta(days=max(1, int(args.get("days") or 7)))
             row = self.map.row("update memory.questions set deferred_until = %s where id = %s and closed_at is null returning *",
                                (until, qid))
         elif action == "close":

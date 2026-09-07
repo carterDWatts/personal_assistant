@@ -57,3 +57,46 @@ class invariants_test(MapTest):
         self.assertEqual(row['content'],'A partial reply')
         self.assertTrue(row['payload']['interrupted'])
         self.assertEqual(self.map.value('select ended_by from memory.conversations'),'error')
+
+    def test_inference_cannot_replace_a_stated_fact(self):
+        now = datetime.now(timezone.utc)
+        original=self.fact('confirmed',now-timedelta(days=1))
+        from psycopg.errors import RaiseException
+        with self.assertRaises(RaiseException):
+            self.map.call('assert_fact',p_entity_id=self.entity,p_attribute='location',p_value=jsonb('guessed'),p_asserted_by='test',p_level='inferred')
+        self.assertEqual(self.map.value('select id from memory.current_assertions'),original['id'])
+
+    def test_revision_records_previous_value_and_predicate_type_is_protected(self):
+        now=datetime.now(timezone.utc)
+        old=self.fact('here',now-timedelta(days=1))
+        self.fact('there',now)
+        revision=self.map.row("select previous,replacement from memory.revisions where row_id=%s order by id limit 1",(old['id'],))
+        self.assertEqual(revision['previous']['value'],'here')
+        self.assertNotEqual(revision['previous']['valid'],revision['replacement']['valid'])
+        from psycopg.errors import RaiseException
+        with self.assertRaises(RaiseException):
+            self.map.execute("update memory.attributes set cardinality='multi' where name='location'")
+
+    def test_open_session_receives_messages_written_elsewhere(self):
+        from engine.conversation import Conversation
+        from tst.helpers import say
+        async def exercise():
+            runtime=FakeRuntime([[say('Understood')]])
+            session=Session(self.map,runtime,FakeTerminal([]),'mac')
+            await session.open()
+            other=Conversation(self.map,'phone','fake')
+            segment=other.open_segment('talk')
+            other.record(segment,'user','I changed the trip to Monday')
+            try:await session.send('What changed?')
+            finally:await session.close()
+            self.assertIn('I changed the trip to Monday',runtime.sent[0])
+        self.run_async(exercise())
+
+    def test_relationship_reconfirmation_keeps_both_sources(self):
+        from psycopg.types.numeric import Int8
+        other=self.map.call('upsert_entity',p_type='person',p_name='Other',p_created_by='test')['id']
+        self.map.execute("insert into memory.relations(name,cardinality,created_by) values('knows','multi','test')")
+        for text in ['first source','second source']:
+            obs=self.map.call_value('record_observation',p_source='test',p_kind='statement',p_content=text)
+            row=self.map.call('assert_relationship',p_subject_id=self.entity,p_relation='knows',p_object_id=other,p_asserted_by='test',p_observation_id=Int8(obs))
+        self.assertEqual(self.map.value('select count(*) from memory.relationship_sources where relationship_id=%s',(row['id'],)),2)

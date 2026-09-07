@@ -5,6 +5,7 @@ from engine import context
 from engine.config import prompt
 from engine.conversation import Conversation
 from engine.tools import Tools
+from engine.runtime import Metrics
 
 
 class Session:
@@ -15,9 +16,16 @@ class Session:
         self.segment_id = None
         self.seed = None
         self.ended_by = "user"
+        self.seen_message = 0
+        self.locked = False
 
     async def open(self, mode="talk"):
         self.segment_id, resume, self.seed = self.conv.resolve(mode)
+        self.locked = bool(self.map.value("select pg_try_advisory_lock(hashtextextended(%s, 0))", ("conversation:" + str(self.segment_id),)))
+        if not self.locked:
+            self.segment_id = None
+            raise RuntimeError("This conversation is already open on this Mac. Disconnect the other window first.")
+        self.seen_message = self.map.value("select coalesce(max(id),0) from memory.messages")
         system = prompt("persona")
         if mode == "morning":
             system += "\n\n" + prompt("morning")
@@ -30,6 +38,13 @@ class Session:
     async def send(self, text, role="user"):
         # Refresh on every turn, including resumed sessions. Model context is a cache.
         opening = context.snapshot(self.map)
+        recent = self.map.rows(
+            "select id, role, content, created_at from memory.messages where id > %s and conversation_id <> %s"
+            " and role in ('user','assistant') and content is not null order by id limit 100",
+            (self.seen_message, self.segment_id))
+        if recent:
+            opening += "\n\nNew messages from other sessions:\n" + "\n".join(f"{m['role']}: {m['content']}" for m in recent)
+            self.seen_message = recent[-1]["id"]
         if self.seed:
             opening += "\n\n" + self.seed
             self.seed = None
@@ -42,14 +57,20 @@ class Session:
             raise
 
     async def close(self):
+        metrics = getattr(self.runtime, "metrics", Metrics())
         try:
             metrics = await self.runtime.close()
         finally:
-            self.io.close()
-        if self.segment_id:
-            if self.runtime.session_id:
-                self.conv.set_runtime_session(self.segment_id, self.runtime.session_id)
-            self.conv.close_segment(self.segment_id, self.ended_by, metrics.as_dict())
+            try:
+                if self.segment_id:
+                    if self.runtime.session_id:
+                        self.conv.set_runtime_session(self.segment_id, self.runtime.session_id)
+                    self.conv.close_segment(self.segment_id, self.ended_by, metrics.as_dict())
+            finally:
+                if self.locked:
+                    self.map.execute("select pg_advisory_unlock(hashtextextended(%s, 0))", ("conversation:" + str(self.segment_id),))
+                    self.locked = False
+                self.io.close()
 
 
 async def run(mode, map_, runtime, io, device):

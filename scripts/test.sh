@@ -32,12 +32,12 @@ SQL
 
 for f in "$ROOT"/supabase/migrations/*.sql; do
   echo "applying $(basename "$f")"
-  psql < "$f"
+  psql -1 < "$f"
 done
 
 for f in "$ROOT"/supabase/tests/*.sql; do
   echo "running $(basename "$f")"
-  psql < "$f"
+  psql -1 < "$f"
 done
 
 echo "running python tests"
