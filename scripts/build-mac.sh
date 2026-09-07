@@ -10,6 +10,7 @@ APP="$ROOT/build/Personal Assistant.app"
 mkdir -p "$APP/Contents/MacOS"
 mkdir -p "$APP/Contents/Resources" "$ROOT/build/icon.iconset"
 swift "$ROOT/scripts/make_icon.swift" "$ROOT/build/icon.iconset" "$ROOT/desktop/Assets/AppIcon.png"
+cp "$ROOT/desktop/Assets/FlowerBed.png" "$APP/Contents/Resources/FlowerBed.png"
 iconutil -c icns "$ROOT/build/icon.iconset" -o "$APP/Contents/Resources/AppIcon.icns"
 swiftc -parse-as-library "$ROOT/desktop/PersonalAssistant.swift" "$ROOT/desktop/OutputStream.swift" "$ROOT/desktop/LiveVoice.swift" "$ROOT/desktop/LocalSpeech.swift" "$ROOT/desktop/LocalVoice.swift" "$ROOT/desktop/VoiceTurn.swift" -o "$APP/Contents/MacOS/PersonalAssistant" -framework SwiftUI -framework AVFoundation
 "$PYTHON" - "$APP" "$ROOT" "$PYTHON" "$VOICE_PYTHON" <<'PY'

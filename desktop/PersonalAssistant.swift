@@ -260,7 +260,7 @@ private let grainImage: NSImage = {
     for y in 0..<size {
         for x in 0..<size {
             let v = CGFloat(Int.random(in: 0...255, using: &rng)) / 255
-            rep.setColor(NSColor(white: v, alpha: 1), atX: x, y: y)
+            rep.setColor(NSColor(deviceRed: v, green: v, blue: v, alpha: 1), atX: x, y: y)
         }
     }
     let image = NSImage(size: NSSize(width: size, height: size))
@@ -306,38 +306,66 @@ func leaf(at point: CGPoint, length: CGFloat, angle: CGFloat) -> Path {
 struct Mark: View {
     let palette: Palette
     var lit = true
+    var thinking = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private let nodes: [CGPoint] = [CGPoint(x: 0.22, y: 0.7), CGPoint(x: 0.5, y: 0.26), CGPoint(x: 0.8, y: 0.58), CGPoint(x: 0.56, y: 0.82)]
     private let edges = [(0, 1), (1, 2), (0, 3), (3, 2)]
     private func at(_ p: CGPoint, _ s: CGFloat) -> CGPoint { CGPoint(x: p.x * s, y: p.y * s) }
     var body: some View {
-        GeometryReader { geo in
-            let s = min(geo.size.width, geo.size.height)
-            ZStack {
-                Path { path in
-                    for (a, b) in edges { path.move(to: at(nodes[a], s)); path.addLine(to: at(nodes[b], s)) }
-                }.stroke(palette.ink, style: StrokeStyle(lineWidth: s * 0.08, lineCap: .square))
-                ForEach(Array(nodes.enumerated()), id: \.offset) { i, n in
-                    let r = s * (i == 1 ? 0.15 : 0.1)
-                    Rectangle().fill(i == 1 && lit ? palette.accent : palette.ink)
-                        .frame(width: 2 * r, height: 2 * r).position(at(n, s))
+        TimelineView(.animation(minimumInterval: 1.0 / 30, paused: !thinking || reduceMotion)) { timeline in
+            let time = timeline.date.timeIntervalSinceReferenceDate
+            let tilt = thinking && !reduceMotion ? sin(time * 1.3) * 4 : 0
+            GeometryReader { geo in
+                let s = min(geo.size.width, geo.size.height)
+                ZStack {
+                    Path { path in
+                        for (a, b) in edges { path.move(to: at(nodes[a], s)); path.addLine(to: at(nodes[b], s)) }
+                    }.stroke(palette.ink, style: StrokeStyle(lineWidth: s * 0.08, lineCap: .square))
+                    ForEach([0, 2, 3], id: \.self) { i in
+                        let c = at(nodes[i], s)
+                        Rectangle().fill(palette.ink).frame(width: s * 0.2, height: s * 0.2).position(c)
+                    }
+                    ZStack {
+                        Rectangle().fill(lit ? palette.accent : palette.ink)
+                            .frame(width: s * 0.3, height: s * 0.3).position(at(nodes[1], s))
+                        if lit {
+                            let base = at(nodes[1], s)
+                            leaf(at: CGPoint(x: base.x + s * 0.1, y: base.y - s * 0.08), length: s * 0.34, angle: -0.9).fill(palette.sage)
+                            leaf(at: CGPoint(x: base.x - s * 0.06, y: base.y - s * 0.12), length: s * 0.26, angle: -2.1).fill(palette.moss)
+                        }
+                    }
+                    .rotationEffect(.degrees(tilt), anchor: UnitPoint(x: 0.5, y: 0.41))
                 }
-                if lit {
-                    let base = at(nodes[1], s)
-                    leaf(at: CGPoint(x: base.x + s * 0.1, y: base.y - s * 0.08), length: s * 0.34, angle: -0.9).fill(palette.sage)
-                    leaf(at: CGPoint(x: base.x - s * 0.06, y: base.y - s * 0.12), length: s * 0.26, angle: -2.1).fill(palette.moss)
-                }
-            }
-        }.aspectRatio(1, contentMode: .fit).accessibilityHidden(true)
+            }.aspectRatio(1, contentMode: .fit)
+        }.accessibilityHidden(true)
     }
 }
 
-// The one place nature lives: the mark, grown large in a corner. The bed it sits in is still to come.
+// Remove the white backing when compositing the painted layer over the app material.
+private let flowerBed: NSImage = {
+    guard let image = NSImage(named: "FlowerBed"),
+          let bitmap = image.cgImage(forProposedRect: nil, context: nil, hints: nil),
+          let cutout = bitmap.copy(maskingColorComponents: [245, 255, 245, 255, 245, 255]) else {
+        return NSImage(named: "FlowerBed") ?? NSImage()
+    }
+    return NSImage(cgImage: cutout, size: image.size)
+}()
+
+// The flowers stay still while the bunny looks around.
 struct CornerGrowth: View {
     let palette: Palette
-    let lit: Bool
+    var thinking = false
     var body: some View {
-        Mark(palette: palette, lit: lit).frame(width: 96, height: 96)
-            .padding(.trailing, 18).padding(.bottom, 16)
+        GeometryReader { geo in
+            let size = min(geo.size.width, geo.size.height)
+            ZStack(alignment: .topLeading) {
+                Mark(palette: palette, thinking: thinking)
+                    .frame(width: size * 0.55, height: size * 0.55)
+                    .offset(x: size * 0.22, y: size * 0.237)
+                Image(nsImage: flowerBed).resizable().aspectRatio(contentMode: .fit)
+                    .frame(width: size, height: size)
+            }.frame(width: size, height: size)
+        }.aspectRatio(1, contentMode: .fit)
             .allowsHitTesting(false).accessibilityHidden(true)
     }
 }
@@ -416,7 +444,9 @@ struct MessageRow: View {
                     .overlay(Rectangle().stroke(palette.line, lineWidth: 1))
             }
         } else {
-            VStack(alignment: .leading, spacing: 4) {
+            HStack(alignment: .top, spacing: 12) {
+                Mark(palette: palette).frame(width: 24, height: 24).padding(.top, 4)
+                VStack(alignment: .leading, spacing: 4) {
                 if message.text.isEmpty {
                     ThinkingDots(color: palette.accent)
                 } else {
@@ -433,7 +463,8 @@ struct MessageRow: View {
                     } label: { Image(systemName: "doc.on.doc") }
                     .buttonStyle(.borderless).controlSize(.small).help("Copy").accessibilityLabel("Copy message")
                 }.opacity(hovering && !message.text.isEmpty ? 1 : 0)
-            }.padding(.trailing, 48)
+                }
+            }.padding(.trailing, 24)
             .onHover { hovering = $0 }
         }
     }
@@ -510,7 +541,10 @@ struct DayPanel: View {
         .padding(18)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(palette.surface.opacity(0.55))
-        .overlay(alignment: .bottomTrailing) { CornerGrowth(palette: palette, lit: chat.connected) }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            CornerGrowth(palette: palette, thinking: chat.busy)
+                .frame(maxWidth: 260).padding(.horizontal, 4)
+        }
     }
 }
 
@@ -619,7 +653,7 @@ struct SettingsPopover: View {
         .toolbar {
             ToolbarItem(placement: .navigation) {
                 HStack(spacing: 8) {
-                    Mark(palette: palette, lit: chat.connected).frame(width: 18, height: 18)
+                    Mark(palette: palette).frame(width: 22, height: 22)
                     Text(Date().formatted(.dateTime.weekday(.wide).month(.abbreviated).day())).font(.subheadline).foregroundStyle(.secondary)
                 }
             }
@@ -694,9 +728,14 @@ struct SettingsPopover: View {
                     }
                 }
             }
-            Composer(chat: chat, palette: palette)
-                .frame(maxWidth: column).frame(maxWidth: .infinity)
-                .padding(.horizontal, 32).padding(.bottom, 16)
+            HStack(alignment: .bottom, spacing: 0) {
+                Composer(chat: chat, palette: palette)
+                    .frame(maxWidth: column).frame(maxWidth: .infinity)
+                    .padding(.leading, 32).padding(.trailing, showMemory ? 32 : 8).padding(.bottom, 16)
+                if !showMemory {
+                    CornerGrowth(palette: palette, thinking: chat.busy).frame(width: 160, height: 160)
+                }
+            }
         }
     }
 }
