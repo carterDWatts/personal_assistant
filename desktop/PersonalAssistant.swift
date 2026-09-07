@@ -1,5 +1,5 @@
 import SwiftUI
-import Speech
+import Darwin
 import AVFoundation
 import Combine
 
@@ -22,6 +22,9 @@ final class Chat: NSObject, ObservableObject {
     @Published var voice = false
     var listening: Bool { liveVoice.active }
     let liveVoice = LiveVoice()
+    var spokenDraft: String {
+        [voiceTurn.pending, liveVoice.transcript.isEmpty ? nil : liveVoice.transcript].compactMap { $0 }.joined(separator: " ")
+    }
     private var voiceTurn = VoiceTurn()
     private var voiceSubscription: AnyCancellable?
     @Published var runtime = UserDefaults.standard.string(forKey: "runtime") ?? "claude-agent-sdk" {
@@ -164,7 +167,7 @@ final class Chat: NSObject, ObservableObject {
 
     private func sendVoice(_ text: String) {
         guard voice, connected else { return }
-        if busy { voiceTurn.queue(text); interruptForSpeech() }
+        if busy { objectWillChange.send(); voiceTurn.queue(text); interruptForSpeech() }
         else { submit(text) }
     }
 
@@ -231,6 +234,7 @@ struct MessageText: NSViewRepresentable {
 @MainActor struct VoiceStrip: View {
     @ObservedObject var live: LiveVoice
     let busy: Bool
+    let draft: String
     let end: () -> Void
     private var title: String {
         if !live.transcript.isEmpty { return "Listening" }
@@ -238,23 +242,36 @@ struct MessageText: NSViewRepresentable {
         return busy ? "Thinking" : live.active ? "Listening" : live.startupMessage
     }
     var body: some View {
-        HStack(spacing: 16) {
-            Image(systemName: live.speaking ? "waveform" : "mic.fill")
-                .font(.system(size: 24, weight: .medium)).foregroundStyle(Color.accentColor)
-                .frame(width: 48, height: 48).background(Color.accentColor.opacity(0.10), in: Circle())
-            VStack(alignment: .leading, spacing: 4) {
-                Text(title).font(.headline)
-                Text(live.transcript.isEmpty ? "Speak naturally. You can interrupt me." : live.transcript)
-                    .font(.callout).foregroundStyle(.secondary).lineLimit(3)
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 10) {
+                Image(systemName: live.speaking ? "waveform" : "mic.fill")
+                    .foregroundStyle(Color.accentColor)
+                Text(title).font(.callout.weight(.medium))
+                if live.active { ProgressView(value: live.inputLevel).frame(width: 52).accessibilityLabel("Microphone input level") }
+                Spacer()
+                Button("End conversation", action: end).buttonStyle(.borderless)
+                    .foregroundStyle(.secondary).accessibilityLabel("End voice conversation")
             }
-            Spacer(minLength: 8)
-            Button("End", action: end).buttonStyle(.bordered).accessibilityLabel("End voice conversation")
-        }.padding(18).background(Color.accentColor.opacity(0.04), in: RoundedRectangle(cornerRadius: 18))
+            ScrollViewReader { proxy in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 0) {
+                        Text(draft.isEmpty ? "Go ahead. I’m listening." : draft)
+                            .font(.system(size: 19)).lineSpacing(5)
+                            .foregroundStyle(draft.isEmpty ? Color.secondary : Color.primary)
+                            .textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
+                        Color.clear.frame(height: 1).id("live-end")
+                    }
+                }.frame(height: 76)
+                    .onChange(of: draft) { _ in proxy.scrollTo("live-end", anchor: .bottom) }
+            }
+        }.padding(18).background(Color.accentColor.opacity(0.045), in: RoundedRectangle(cornerRadius: 16))
+
     }
 }
 
 @MainActor struct ConversationView: View {
     @StateObject private var chat = Chat()
+    @State private var followConversation = true
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 16) {
@@ -298,11 +315,25 @@ struct MessageText: NSViewRepresentable {
                             }.id(message.id)
                         }
                         Color.clear.frame(height: 1).id("bottom")
+                            .onAppear { followConversation = true }
+                            .onDisappear { followConversation = false }
                     }.padding(28).frame(maxWidth: 780).frame(maxWidth: .infinity)
-                }.onChange(of: chat.messages.last?.text) { _ in proxy.scrollTo("bottom", anchor: .bottom) }
+                }.onChange(of: chat.messages.last?.text) { _ in
+                    if followConversation { proxy.scrollTo("bottom", anchor: .bottom) }
+                }
+                .onChange(of: chat.messages.count) { _ in
+                    if followConversation || chat.messages.last?.role == "user" { proxy.scrollTo("bottom", anchor: .bottom) }
+                }
+                .overlay(alignment: .bottomTrailing) {
+                    if !followConversation {
+                        Button { proxy.scrollTo("bottom", anchor: .bottom); followConversation = true }
+                            label: { Label("Latest", systemImage: "arrow.down") }
+                            .buttonStyle(.bordered).padding(16)
+                    }
+                }
             }
             VStack(alignment: .leading, spacing: 12) {
-                if chat.voice { VoiceStrip(live: chat.liveVoice, busy: chat.busy, end: { chat.stop() }) }
+                if chat.voice { VoiceStrip(live: chat.liveVoice, busy: chat.busy, draft: chat.spokenDraft, end: { chat.stop() }) }
                 HStack(alignment: .bottom, spacing: 12) {
                     TextField("Message your assistant", text: $chat.draft, axis: .vertical).lineLimit(1...6).textFieldStyle(.plain).onSubmit { chat.send() }
                         .padding(.vertical, 7)
@@ -331,6 +362,7 @@ struct MessageText: NSViewRepresentable {
 }
 
 @main struct PersonalAssistantApp: App {
+    init() { signal(SIGPIPE, SIG_IGN) }
     var body: some Scene {
         WindowGroup { ConversationView() }.windowStyle(.hiddenTitleBar)
     }

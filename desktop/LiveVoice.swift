@@ -1,19 +1,9 @@
 import AVFoundation
-import Speech
-
-private final class MicrophoneFeed: @unchecked Sendable {
-    private let lock = NSLock()
-    private var request: SFSpeechAudioBufferRecognitionRequest?
-    func set(_ value: SFSpeechAudioBufferRecognitionRequest?) {
-        lock.lock(); defer { lock.unlock() }; request = value
-    }
-    func append(_ buffer: AVAudioPCMBuffer) {
-        lock.lock(); defer { lock.unlock() }; request?.append(buffer)
-    }
-}
+import OSLog
 
 @MainActor
 final class LiveVoice: ObservableObject {
+    @Published private(set) var inputLevel: Double = 0
     @Published private(set) var active = false
     @Published private(set) var speaking = false
     @Published private(set) var transcript = ""
@@ -23,134 +13,133 @@ final class LiveVoice: ObservableObject {
     var onError: ((String) -> Void)?
     private let engine = AVAudioEngine()
     private let player = AVAudioPlayerNode()
-    private let synth = AVSpeechSynthesizer()
-    private let recognizer = SFSpeechRecognizer()
-    private let feed = MicrophoneFeed()
+    private let synth = LocalVoice()
+    private var recognitionReady = false
+    private var voiceReady = false
+    private let speech = LocalSpeech()
     private let playbackFormat = AVAudioFormat(standardFormatWithSampleRate: 48000, channels: 1)!
-    private var recognition: SFSpeechRecognitionTask?
-    private var request: SFSpeechAudioBufferRecognitionRequest?
-    private var silence: Task<Void, Never>?
-    private var rotation: Task<Void, Never>?
+    private var meter: Task<Void, Never>?
     private var playbackTasks: [UUID: Task<Void, Never>] = [:]
-    private var capture = UUID()
     private var playback = UUID()
     private var permission = UUID()
     private var speechQueue: [String] = []
     private var scheduled = 0
     private var rendering = 0
-    private var failures = 0
     private var tapInstalled = false
+    private var recovery: Task<Void, Never>?
+    private var recoveryAttempts = 0
+    private var lastRecovery = Date.distantPast
+    private let log = Logger(subsystem: "com.carterwatts.personal-assistant", category: "voice")
     private var configurationObserver: NSObjectProtocol?
 
     init() {
+        speech.onReady = { [weak self] in
+            guard let self else { return }; self.recognitionReady = true
+            if self.voiceReady { self.begin() }
+        }
+        synth.onReady = { [weak self] in
+            guard let self else { return }; self.voiceReady = true
+            if self.recognitionReady { self.begin() }
+        }
+        synth.onError = { [weak self] text in self?.stop(); self?.onError?(text) }
+        speech.onPartial = { [weak self] text in
+            guard let self, self.active else { return }
+            let first = self.transcript.isEmpty
+            self.transcript = text
+            if first { self.onSpeech?() }
+        }
+        speech.onFinal = { [weak self] text in
+            guard let self, self.active else { return }
+            self.transcript = ""
+            self.onUtterance?(text)
+        }
+        speech.onError = { [weak self] text in self?.stop(); self?.onError?(text) }
         engine.attach(player)
         engine.connect(player, to: engine.mainMixerNode, format: playbackFormat)
         configurationObserver = NotificationCenter.default.addObserver(forName: .AVAudioEngineConfigurationChange, object: engine, queue: .main) { [weak self] _ in
             Task { @MainActor [weak self] in
                 guard let self, self.active, !self.engine.isRunning else { return }
-                self.stop()
-                self.onError?("Audio device changed. Start voice again.")
+                self.recoverAudio()
             }
         }
     }
 
     func start() {
         let token = UUID(); permission = token
-        startupMessage = "Allow speech and microphone access if macOS asks"
-        SFSpeechRecognizer.requestAuthorization { [weak self] result in
-            AVCaptureDevice.requestAccess(for: .audio) { allowed in
-                Task { @MainActor [weak self] in
-                    guard let self, self.permission == token else { return }
-                    guard result == .authorized, allowed else {
-                        self.onError?("Allow Microphone and Speech Recognition in System Settings."); return
-                    }
-                    self.startupMessage = "Starting audio"
-                    self.begin()
-                }
+        startupMessage = "Allow microphone access if macOS asks"
+        AVCaptureDevice.requestAccess(for: .audio) { [weak self] allowed in
+            Task { @MainActor [weak self] in
+                guard let self, self.permission == token else { return }
+                guard allowed else { self.onError?("Allow Microphone in System Settings."); return }
+                self.startupMessage = "Loading local speech"
+                self.recognitionReady = false; self.voiceReady = false
+                self.speech.start(); self.synth.start()
             }
         }
     }
 
     private func begin() {
         guard !active else { return }
-        guard recognizer?.isAvailable == true else { onError?("Speech recognition is unavailable."); return }
         let node = engine.inputNode
         do {
             // Speech playback goes through this engine too, providing the echo reference.
-            try node.setVoiceProcessingEnabled(true)
+            if !node.isVoiceProcessingEnabled { try node.setVoiceProcessingEnabled(true) }
             engine.connect(player, to: engine.mainMixerNode, format: playbackFormat)
             let format = node.outputFormat(forBus: 0)
-            guard format.sampleRate > 0 else { onError?("No microphone found."); return }
-            let feed = self.feed
+            guard format.sampleRate > 0 else { stop(); onError?("No microphone found."); return }
+            guard let feed = speech.input else { stop(); onError?("Local speech is not ready."); return }
             node.installTap(onBus: 0, bufferSize: 1024, format: format) { buffer, _ in feed.append(buffer) }
             tapInstalled = true
             do { try engine.start() } catch { node.removeTap(onBus: 0); tapInstalled = false; throw error }
-            active = true; failures = 0
-            beginRecognition()
-        } catch { onError?("Could not start echo-cancelled voice. Check your audio devices and try again.") }
-    }
-
-    private func beginRecognition() {
-        capture = UUID()
-        recognition?.cancel(); request?.endAudio()
-        silence?.cancel(); rotation?.cancel()
-        transcript = ""
-        guard active, let recognizer else { return }
-        let token = capture
-        let req = SFSpeechAudioBufferRecognitionRequest()
-        req.shouldReportPartialResults = true
-        if recognizer.supportsOnDeviceRecognition { req.requiresOnDeviceRecognition = true }
-        request = req; feed.set(req)
-        recognition = recognizer.recognitionTask(with: req) { [weak self] result, error in
-            Task { @MainActor [weak self] in
-                guard let self, self.active, self.capture == token else { return }
-                if let result {
-                    let text = result.bestTranscription.formattedString.trimmingCharacters(in: .whitespacesAndNewlines)
-                    if !text.isEmpty, text != self.transcript {
-                        let first = self.transcript.isEmpty
-                        self.transcript = text; self.failures = 0
-                        if first { self.onSpeech?() }
-                        self.silence?.cancel()
-                        self.silence = Task { @MainActor [weak self] in
-                            try? await Task.sleep(nanoseconds: 900_000_000)
-                            guard !Task.isCancelled, let self, self.capture == token else { return }
-                            self.finishUtterance()
-                        }
-                    }
-                    if result.isFinal { self.finishUtterance() }
-                } else if error != nil {
-                    self.failures += 1
-                    if self.failures >= 3 {
-                        self.stop(); self.onError?("Speech recognition stopped. Start voice to retry.")
-                    } else { self.finishUtterance() }
+            active = true
+            log.info("Audio capture started")
+            meter?.cancel()
+            meter = Task { @MainActor [weak self] in
+                var reported = false
+                while !Task.isCancelled {
+                    guard let self, self.active else { return }
+                    let (level, frames) = self.speech.input?.stats() ?? (0,0)
+                    self.inputLevel = min(1, Double(level) * 12)
+                    if frames > 0, !reported { self.log.info("Microphone buffers received"); reported = true }
+                    try? await Task.sleep(nanoseconds: 100_000_000)
                 }
             }
-        }
-        // Rotate Apple's finite recognition sessions without stopping the audio engine.
-        rotation = Task { @MainActor [weak self] in
-            try? await Task.sleep(nanoseconds: 50_000_000_000)
-            guard !Task.isCancelled, let self, self.capture == token else { return }
-            self.finishUtterance()
-        }
+
+        } catch { stop(); onError?("Could not start echo-cancelled voice. Check your audio devices and try again.") }
     }
 
-    private func finishUtterance() {
-        let text = transcript
-        beginRecognition()
-        if !text.isEmpty { onUtterance?(text) }
+    private func recoverAudio() {
+        recovery?.cancel()
+        recovery = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 400_000_000)
+            guard !Task.isCancelled, let self, self.active, !self.engine.isRunning else { return }
+            if Date().timeIntervalSince(self.lastRecovery) > 10 { self.recoveryAttempts = 0 }
+            self.lastRecovery = Date(); self.recoveryAttempts += 1
+            guard self.recoveryAttempts <= 3 else {
+                self.stop(); self.onError?("Audio keeps disconnecting. Check your selected microphone."); return
+            }
+            self.log.info("Reconnecting audio after configuration change")
+            self.silencePlayback()
+            self.engine.stop()
+            if self.tapInstalled { self.engine.inputNode.removeTap(onBus: 0); self.tapInstalled = false }
+            self.active = false
+            self.begin()
+        }
     }
 
     func silencePlayback() {
         playback = UUID()
-        synth.stopSpeaking(at: .immediate); player.stop()
+        synth.cancel(); player.stop()
         playbackTasks.values.forEach { $0.cancel() }; playbackTasks.removeAll()
         speechQueue.removeAll(); scheduled = 0; rendering = 0; speaking = false
     }
 
     func stop() {
-        permission = UUID(); active = false; capture = UUID()
-        silence?.cancel(); rotation?.cancel(); feed.set(nil)
-        recognition?.cancel(); recognition = nil; request?.endAudio(); request = nil
+        meter?.cancel(); meter = nil; inputLevel = 0
+        recovery?.cancel(); recovery = nil
+        permission = UUID(); active = false
+        speech.stop()
+        synth.stop(); recognitionReady = false; voiceReady = false
         engine.stop()
         if tapInstalled { engine.inputNode.removeTap(onBus: 0); tapInstalled = false }
         silencePlayback(); transcript = ""
@@ -165,23 +154,9 @@ final class LiveVoice: ObservableObject {
     private func renderNext() {
         guard active, rendering == 0, !speechQueue.isEmpty else { return }
         let token = playback, id = UUID()
-        let utterance = AVSpeechUtterance(string: speechQueue.removeFirst())
-        utterance.rate = AVSpeechUtteranceDefaultSpeechRate
+        let text = speechQueue.removeFirst()
         rendering += 1; speaking = true
-        // One consumer preserves buffer order, even when synthesis callbacks are rapid.
-        let stream = AsyncStream<AVAudioPCMBuffer> { continuation in
-            synth.write(utterance) { buffer in
-                guard let pcm = buffer as? AVAudioPCMBuffer, pcm.frameLength > 0 else { continuation.finish(); return }
-                guard let copy = AVAudioPCMBuffer(pcmFormat: pcm.format, frameCapacity: pcm.frameLength) else { return }
-                copy.frameLength = pcm.frameLength
-                let source = UnsafeMutableAudioBufferListPointer(UnsafeMutablePointer(mutating: pcm.audioBufferList))
-                let target = UnsafeMutableAudioBufferListPointer(copy.mutableAudioBufferList)
-                for i in 0..<source.count {
-                    if let from = source[i].mData, let to = target[i].mData { memcpy(to, from, Int(source[i].mDataByteSize)) }
-                }
-                continuation.yield(copy)
-            }
-        }
+        let stream = synth.render(text)
         playbackTasks[id] = Task { @MainActor [weak self] in
             var converter: AVAudioConverter?
             for await buffer in stream {

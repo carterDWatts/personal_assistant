@@ -62,8 +62,28 @@ The real map only ever holds real life. Anything exploratory runs against a sepa
 
 The SwiftUI app starts `python -m engine.desktop` as a child process and exchanges newline-delimited JSON over private pipes. There is no HTTP listener and no database password in the app bundle. Runtime opening, streaming, interruption and closing use the same `Session` class as the terminal. Partial replies survive failed or interrupted turns.
 
-The native voice loop uses Speech and AVFoundation. LiveVoice keeps microphone capture running while speech plays through the same AVAudioEngine, with Apple voice processing enabled for echo cancellation. Recognition sessions rotate without stopping the engine. Recognized speech cancels synthesis, queued audio and model generation; completed utterances wait for the previous model turn to end before sending. Cancellation generations discard late audio callbacks. A 900 ms pause submits the utterance. The VoiceTurn state is tested separately from hardware. Real-room echo rejection and interruption timing still require a speaking test on the user's audio devices.
+The native audio loop uses AVFoundation. `LiveVoice` keeps capture running during playback, with Apple voice processing enabled for echo cancellation and automatic recovery after audio configuration changes. It sends bounded PCM frames to `engine.voice.recognize` over a private pipe. That process runs sherpa-onnx locally and emits partial and final transcripts. It has no database access, model credentials or network dependency. Partial text appears in a fixed panel below the chat, without moving the conversation. The same Python module can run on Linux; sherpa's C API supports mobile integrations, which are not implemented here yet.
+
+Recognized speech cancels synthesis, queued playback and model generation. Completed utterances wait for the previous model turn to end. `engine.voice.synthesize` keeps Kokoro loaded in a separate local process and streams sentence audio through a private pipe. The selected voice is British George (speaker 26). Cancellation invalidates queued synthesis and stops playback immediately; late audio is discarded by request ID. Both speech processes run without database or model-provider credentials. Physical speaker/microphone echo testing remains outstanding.
 
 To verify retrieval with a real subscription model, run `python3 -m scripts.check_memory`. This creates a random fact in a rolled-back transaction on the local test map. A fresh ChatGPT session gets no transcript or snapshot and must recover the value through map tools. The check leaves existing chats and facts unchanged.
 
 Clear starts a fresh agent and resets the visible conversation in the selected memory environment. The boundary persists across restarts and model changes. Structured facts and queued extraction remain intact; older messages remain stored for provenance and explicit history searches but are excluded from the conversation seed and pending-message context.
+
+## Voice verification
+
+Run `python3 -m engine.voice.models` once, then `python3 -m scripts.check_voice`. The check streams two public model-test recordings in 20 ms chunks through the actual recognition subprocess. It checks silence, partial text before the recording ends, final text accuracy, and consecutive utterances. It never writes to the knowledge map or calls an LLM. Fixtures and model weights live outside the repository under `~/.personal-assistant/models`; model revision and ONNX checksums are pinned. `ASSISTANT_SPEECH_MODEL` overrides the directory.
+
+Unit tests cover malformed audio framing and interruption state. Those tests do not establish acoustic echo rejection, microphone selection, expressive voice quality, or Pi performance.
+
+## Independent devices
+
+Every device is intended to run its own engine, connected directly to shared memory and the model provider. No Mac relay is part of this design. The voice library supports Mac, Linux, Android and iOS, but only the Mac integration is currently implemented and tested. There is no additional speech API bill.
+
+The model harness is a separate unresolved constraint: [Claude Code documents 4 GB RAM and desktop operating systems](https://code.claude.com/docs/en/setup), while the [Pi 3 Model B has 1 GB RAM](https://www.raspberrypi.com/products/raspberry-pi-3-model-b/). Independent subscription access from a mobile app has not been established. These requirements must be solved explicitly before claiming either device is deployable.
+
+Speech dependencies: [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) and the [Apache-2.0 English model](https://huggingface.co/csukuangfj/sherpa-onnx-streaming-zipformer-en-2023-06-26). We use the library directly, without its server or a hosted voice framework.
+
+For synthesis, run `python3 -m engine.voice.tts_models`, then `python3 -m scripts.check_synthesis`. This exercises real audio generation, cancellation and another utterance without reloading the model. An optional output WAV path saves a sample. It does not use your microphone or call a paid API. Kokoro weights are Apache-2.0; the accompanying eSpeak NG data is GPL-licensed. The weight license remains beside the cached model. See [Kokoro voice mapping](https://k2-fsa.github.io/sherpa/onnx/tts/pretrained_models/kokoro.html) and [eSpeak NG licensing](https://github.com/espeak-ng/espeak-ng/blob/master/COPYING).
+
+On the development Mac, the larger recognizer reduced first-clip word error from 16.7% to zero on the two public recordings; first partial text arrived around one second. These read-speech fixtures are regression checks, not evidence of accuracy on conversational speech in a room. Pi and mobile performance still need device testing.
