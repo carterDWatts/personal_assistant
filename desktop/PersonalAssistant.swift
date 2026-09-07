@@ -543,7 +543,8 @@ struct DayPanel: View {
         .background(palette.surface.opacity(0.55))
         .safeAreaInset(edge: .bottom, spacing: 0) {
             CornerGrowth(palette: palette, thinking: chat.busy)
-                .frame(maxWidth: 260).padding(.horizontal, 4)
+                .frame(width: 180, height: 180)
+                .frame(maxWidth: .infinity, alignment: .trailing).padding(.trailing, 8)
         }
     }
 }
@@ -733,7 +734,7 @@ struct SettingsPopover: View {
                     .frame(maxWidth: column).frame(maxWidth: .infinity)
                     .padding(.leading, 32).padding(.trailing, showMemory ? 32 : 8).padding(.bottom, 16)
                 if !showMemory {
-                    CornerGrowth(palette: palette, thinking: chat.busy).frame(width: 160, height: 160)
+                    CornerGrowth(palette: palette, thinking: chat.busy).frame(width: 120, height: 120)
                 }
             }
         }
