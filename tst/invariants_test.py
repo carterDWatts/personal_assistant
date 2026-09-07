@@ -118,3 +118,19 @@ class invariants_test(MapTest):
             finally:await session.close()
             self.assertIn('Earlier context worth keeping',runtime.sent[0])
         self.run_async(exercise())
+
+    def test_display_finishes_with_the_canonical_reply(self):
+        from tst.helpers import say
+        class Display(FakeTerminal):
+            final_text=None
+            def replace_text(self,text):self.final_text=text
+        async def exercise():
+            runtime=FakeRuntime([[Event('text',text='What’s on mind your?'),say('What’s on your mind?')]])
+            display=Display([])
+            session=Session(self.map,runtime,display,'test')
+            await session.open()
+            try:await session.send('hello')
+            finally:await session.close()
+            self.assertEqual(display.final_text,'What’s on your mind?')
+            self.assertEqual(display.final_text,self.map.value("select content from memory.messages where role='assistant'"))
+        self.run_async(exercise())

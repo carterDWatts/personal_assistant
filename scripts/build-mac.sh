@@ -5,7 +5,7 @@ PYTHON="${PYTHON:-python3}"
 PYTHON="$($PYTHON -c 'import sys; print(sys.executable)')"
 APP="$ROOT/build/Personal Assistant.app"
 mkdir -p "$APP/Contents/MacOS"
-swiftc -parse-as-library "$ROOT/desktop/PersonalAssistant.swift" -o "$APP/Contents/MacOS/PersonalAssistant" -framework SwiftUI -framework Speech -framework AVFoundation
+swiftc -parse-as-library "$ROOT/desktop/PersonalAssistant.swift" "$ROOT/desktop/OutputStream.swift" -o "$APP/Contents/MacOS/PersonalAssistant" -framework SwiftUI -framework Speech -framework AVFoundation
 "$PYTHON" - "$APP" "$ROOT" "$PYTHON" <<'PY'
 import plistlib,sys,pathlib
 app,root,python=sys.argv[1:]

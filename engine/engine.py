@@ -119,7 +119,10 @@ async def turn(runtime, conv, tools, io, segment_id, message_id, text):
         if pending:
             completed.append(pending)
         if completed:
-            conv.record(segment_id, "assistant", "\n\n".join(completed), {"interrupted": failed})
+            final_text = "\n\n".join(completed)
+            conv.record(segment_id, "assistant", final_text, {"interrupted": failed})
+            if replace := getattr(io, "replace_text", None):
+                replace(final_text)
         if runtime.session_id:
             conv.set_runtime_session(segment_id, runtime.session_id)
         io.end_turn()

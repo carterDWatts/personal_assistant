@@ -43,3 +43,9 @@ done
 echo "running python tests"
 cd "$ROOT"
 ASSISTANT_TEST_DATABASE_URL="postgresql://postgres:test@localhost:$PORT/app" "${PYTHON:-python3}" -m pytest -q "$@"
+
+if [[ "$(uname)" == Darwin ]] && command -v swiftc >/dev/null; then
+  mkdir -p "$ROOT/build"
+  swiftc -parse-as-library "$ROOT/desktop/OutputStream.swift" "$ROOT/tst/swift/OutputStreamCheck.swift" -o "$ROOT/build/stream-check"
+  "$ROOT/build/stream-check"
+fi

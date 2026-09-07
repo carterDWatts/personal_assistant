@@ -31,6 +31,7 @@ def emit(kind, **values):
 class DesktopIO:
     def start_turn(self): emit("start")
     def delta(self, text): emit("delta", text=text)
+    def replace_text(self, text): emit("replace", text=text)
     def end_turn(self): emit("end")
     def note(self, text): emit("status", text=text)
     def close(self): pass

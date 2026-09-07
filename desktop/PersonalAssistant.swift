@@ -28,6 +28,7 @@ final class Chat: NSObject, ObservableObject, AVSpeechSynthesizerDelegate {
     private var process: Process?
     private var input: FileHandle?
     private var buffer = Data()
+    private var outputTask: Task<Void, Never>?
     private let audio = AVAudioEngine()
     private let speaker = AVSpeechSynthesizer()
     private let recognizer = SFSpeechRecognizer()
@@ -56,10 +57,12 @@ final class Chat: NSObject, ObservableObject, AVSpeechSynthesizerDelegate {
         env["PYTHONUNBUFFERED"] = "1"
         child.environment = env
         child.standardInput = stdin; child.standardOutput = stdout; child.standardError = FileHandle.nullDevice
-        stdout.fileHandleForReading.readabilityHandler = { [weak self] handle in
-            let data = handle.availableData
-            if data.isEmpty { handle.readabilityHandler = nil; return }
-            Task { @MainActor [weak self] in if self?.generation == epoch { self?.receive(data) } }
+        let output = outputStream(from: stdout.fileHandleForReading)
+        outputTask = Task { @MainActor [weak self] in
+            for await data in output {
+                guard let self = self, self.generation == epoch else { return }
+                self.receive(data)
+            }
         }
         child.terminationHandler = { [weak self] _ in
             Task { @MainActor [weak self] in
@@ -76,6 +79,7 @@ final class Chat: NSObject, ObservableObject, AVSpeechSynthesizerDelegate {
 
     func disconnect() {
         generation = UUID()
+        outputTask?.cancel(); outputTask = nil
         stopListening(); speaker.stopSpeaking(at: .immediate)
         write(["type": "quit"])
         if let child = process, child.isRunning {
@@ -111,6 +115,8 @@ final class Chat: NSObject, ObservableObject, AVSpeechSynthesizerDelegate {
             case "delta":
                 if let i = messages.firstIndex(where: { $0.id == streamingID }) { messages[i].text += text }
                 speechBuffer += text; speakSentences(flush: false); status = "Replying…"
+            case "replace":
+                if let i = messages.firstIndex(where: { $0.id == streamingID }) { messages[i].text = text }
             case "end": speakSentences(flush: true); streamingID = nil
             case "status": status = text.replacingOccurrences(of: "_", with: " ")
             case "error": busy = false; status = text; voice = false; stopListening(); speaker.stopSpeaking(at: .immediate)
@@ -201,11 +207,45 @@ final class Chat: NSObject, ObservableObject, AVSpeechSynthesizerDelegate {
     }
 }
 
+struct MessageText: NSViewRepresentable {
+    let text: String
+
+    func makeNSView(context: Context) -> NSTextView {
+        let view = NSTextView()
+        view.isEditable = false
+        view.isSelectable = true
+        view.drawsBackground = false
+        view.textContainerInset = .zero
+        view.textContainer?.lineFragmentPadding = 0
+        view.isHorizontallyResizable = false
+        view.isVerticallyResizable = true
+        view.textContainer?.widthTracksTextView = true
+        view.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        return view
+    }
+
+    func updateNSView(_ view: NSTextView, context: Context) {
+        guard view.string != text else { return }
+        let content = NSMutableAttributedString(string: text)
+        let range = NSRange(location: 0, length: content.length)
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.lineSpacing = 5
+        content.addAttributes([.font: NSFont.systemFont(ofSize: 16), .foregroundColor: NSColor.labelColor,
+                               .paragraphStyle: paragraph], range: range)
+        view.textStorage?.setAttributedString(content)
+    }
+
+    func sizeThatFits(_ proposal: ProposedViewSize, nsView: NSTextView, context: Context) -> CGSize? {
+        guard let container = nsView.textContainer, let layout = nsView.layoutManager else { return nil }
+        let width = max(1, proposal.width ?? 600)
+        container.containerSize = NSSize(width: width, height: .greatestFiniteMagnitude)
+        layout.ensureLayout(for: container)
+        return CGSize(width: width, height: max(24, ceil(layout.usedRect(for: container).height)))
+    }
+}
+
 @MainActor struct ConversationView: View {
     @StateObject private var chat = Chat()
-    private func render(_ text: String) -> AttributedString {
-        (try? AttributedString(markdown: text, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(text)
-    }
     var body: some View {
         HStack(spacing: 0) {
             VStack(alignment: .leading, spacing: 22) {
@@ -233,8 +273,16 @@ final class Chat: NSObject, ObservableObject, AVSpeechSynthesizerDelegate {
                             }
                             ForEach(chat.messages) { message in
                                 VStack(alignment: .leading, spacing: 8) {
-                                    Text(message.role == "user" ? "You" : "Assistant").font(.caption.weight(.semibold)).foregroundColor(.secondary)
-                                    Text(render(message.text.isEmpty ? "…" : message.text)).textSelection(.enabled).font(.system(size: 16)).lineSpacing(5)
+                                    HStack {
+                                        Text(message.role == "user" ? "You" : "Assistant").font(.caption.weight(.semibold)).foregroundColor(.secondary)
+                                        Spacer()
+                                        Button {
+                                            NSPasteboard.general.clearContents()
+                                            NSPasteboard.general.setString(message.text, forType: .string)
+                                        } label: { Label("Copy", systemImage: "doc.on.doc") }
+                                        .buttonStyle(.borderless).font(.caption).disabled(message.text.isEmpty)
+                                    }
+                                    MessageText(text: message.text.isEmpty ? "…" : message.text)
                                 }.frame(maxWidth: .infinity, alignment: .leading).id(message.id)
                             }
                             Color.clear.frame(height: 1).id("bottom")
