@@ -60,7 +60,7 @@ The real map only ever holds real life. Anything exploratory runs against a sepa
 
 ## Desktop transport
 
-The SwiftUI app starts `python -m engine.desktop` as a child process and exchanges newline-delimited JSON over private pipes. There is no HTTP listener and no database password in the app bundle. Runtime opening, streaming, interruption and closing use the same `Session` class as the terminal. Partial replies survive failed or interrupted turns.
+The SwiftUI app starts `python -m engine.desktop` as a child process and exchanges newline-delimited JSON over private pipes. There is no HTTP listener and no database password in the app bundle. Every few seconds the bridge also sends a `map` event with the latest facts learned, today's plan, the count of open questions and the memory queue state, which the app uses for its day panel. Runtime opening, streaming, interruption and closing use the same `Session` class as the terminal. Partial replies survive failed or interrupted turns.
 
 The native audio loop uses AVFoundation. `LiveVoice` keeps capture running during playback, with Apple voice processing enabled for echo cancellation and automatic recovery after audio configuration changes. It sends bounded PCM frames to `engine.voice.recognize` over a private pipe. That process runs sherpa-onnx locally and emits partial and final transcripts. It has no database access, model credentials or network dependency. Partial text appears in a fixed panel below the chat, without moving the conversation. The same Python module can run on Linux; sherpa's C API supports mobile integrations, which are not implemented here yet.
 

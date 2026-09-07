@@ -50,6 +50,13 @@ async def main():
                 counts = map_.row("select count(*) filter(where status <> 'done') as pending, count(*) filter(where status='error') as errors from memory.memory_jobs")
                 text = "Memory update paused; chat still works." if counts['errors'] else "Updating memory in the background…" if counts['pending'] else ""
                 emit("memory", text=text)
+                # What the memory panel shows: the latest things learned, today's plan, and what is still open.
+                emit("map",
+                     learned=map_.rows("select entity_name, attribute, value, recorded_at from memory.current_assertions"
+                                       " order by recorded_at desc limit 8"),
+                     plans=map_.rows("select item, status from memory.plans where day = current_date order by id"),
+                     questions=map_.value("select count(*) from memory.questions where closed_at is null"),
+                     pending=counts['pending'], errors=counts['errors'])
             except Exception:
                 emit("memory", text="Memory status is unavailable.")
             await asyncio.sleep(3)
