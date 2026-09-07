@@ -21,7 +21,7 @@ docs/design-v0.1.md    the original design doc
 ## Running it
 
 ```bash
-pip3 install claude-agent-sdk "psycopg[binary]"
+pip3 install -r requirements.txt
 export ASSISTANT_DATABASE_URL='postgresql://...'   # the project's session pooler URI
 python3 assistant.py talk
 ```
@@ -54,3 +54,22 @@ supabase db push
 ## The eval set
 
 `eval/cases.json` holds knowledge-update and abstention cases: what was said or synced, the question, the answer the assistant must give, and what the current views must show. It is the regression check for extraction, retrieval and consolidation, written before any of that logic exists so the logic is held to it rather than the other way round.
+
+## Mac app
+
+```bash
+scripts/build-mac.sh
+open "build/Personal Assistant.app"
+```
+
+The build uses `python3`; set `PYTHON` if your dependencies are in a different interpreter. The app runs the engine from this checkout, so keep the folder in place. It reads literal `export ASSISTANT_DATABASE_URL=...` and `ASSISTANT_TEST_DATABASE_URL=...` lines from `~/.zshrc` when launched from Finder. It never executes that file. Test mode defaults to the local database created by `scripts/testdb.sh up` if no test URL is set.
+
+Choose Claude or ChatGPT, then Connect. Disconnect before changing models or switching test memory. Both models use the same shared transcript and knowledge map. The microphone starts a voice conversation; Stop interrupts the reply. Allow Microphone and Speech Recognition when macOS asks. Speech is transcribed on-device when supported; otherwise macOS may use Apple's speech service. Playback uses installed macOS voices. This first version pauses the microphone during replies; it is not a full-duplex voice engine.
+
+ChatGPT uses your Codex subscription login through the official app server. Sign in with `codex login` if needed. API-key accounts are rejected. `ASSISTANT_OPENAI_MODEL` optionally selects a model; otherwise Codex chooses its default. Claude uses the existing Claude login and rejects API billing environment variables. Reported SDK dollar estimates are not invoices or proof of subscription charges.
+
+For terminal ChatGPT conversations:
+
+```bash
+ASSISTANT_RUNTIME=codex python3 assistant.py talk
+```

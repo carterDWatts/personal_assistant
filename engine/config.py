@@ -14,7 +14,7 @@ PROMPTS = ROOT / "prompts"
 ENV = os.environ.get("ASSISTANT_ENV", "prod")
 if ENV not in ("prod", "test"):
     raise ValueError("ASSISTANT_ENV must be prod or test")
-DATABASE_URL = os.environ.get("ASSISTANT_TEST_DATABASE_URL" if ENV == "test" else "ASSISTANT_DATABASE_URL")
+DATABASE_URL = (os.environ.get("ASSISTANT_TEST_DATABASE_URL") or "postgresql://postgres:test@localhost:55433/app") if ENV == "test" else os.environ.get("ASSISTANT_DATABASE_URL")
 MODEL = os.environ.get("ASSISTANT_MODEL", "claude-opus-5")
 EFFORT = os.environ.get("ASSISTANT_EFFORT", "medium")
 DEVICE = os.environ.get("ASSISTANT_DEVICE", socket.gethostname().split(".")[0])
