@@ -56,6 +56,7 @@ func plain(_ value: Any?) -> String {
     @Published var busy = false
     @Published var connected = false
     @Published var voice = false
+    @Published var connectionPrompt: String? = nil
     let liveVoice = LiveVoice()
     var spokenDraft: String {
         [voiceTurn.pending, liveVoice.transcript.isEmpty ? nil : liveVoice.transcript].compactMap { $0 }.joined(separator: " ")
@@ -85,7 +86,7 @@ func plain(_ value: Any?) -> String {
 
     func connect(clear: Bool = false) {
         liveVoice.stop(); voice = false; voiceTurn = VoiceTurn()
-        messages = []; memoryStatus = ""; streamingID = nil
+        messages = []; memoryStatus = ""; streamingID = nil; connectionPrompt = nil
         busy = true; status = "Connecting…"
         transport.connect(clear: clear)
     }
@@ -114,6 +115,7 @@ func plain(_ value: Any?) -> String {
         case "end":
             if !voiceTurn.interrupted { speakSentences(flush: true) }
             streamingID = nil
+        case "connection_required": connectionPrompt = event["action"] as? String
         case "memory": memoryStatus = text
         case "map":
             plans = (event["plans"] as? [[String: Any]] ?? []).map { PlanItem(item: plain($0["item"]), status: plain($0["status"])) }
@@ -179,4 +181,14 @@ func plain(_ value: Any?) -> String {
         guard voice else { speechBuffer = ""; return }
         while let chunk = nextSpeechChunk(&speechBuffer, flush: flush) { liveVoice.speak(chunk) }
     }
+}
+
+/// Which service a missing-access event is about. Shared authorization for the host does not exist yet,
+/// so the phone only explains; it never implies a Mac connection covers the host.
+func serviceName(for action: String) -> String {
+    if action.hasPrefix("google") { return "Google" }
+    if action.hasPrefix("todoist") { return "Todoist" }
+    if action.hasPrefix("notion") { return "Notion" }
+    if action.hasPrefix("github") { return "GitHub" }
+    return "That service"
 }

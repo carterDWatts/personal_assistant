@@ -374,6 +374,13 @@ struct ConversationView: View {
                         }
                         MessageRow(message: message, palette: palette).id(message.id)
                     }
+                    if let action = chat.connectionPrompt {
+                        HStack(alignment: .top, spacing: 8) {
+                            Image(systemName: "link").foregroundStyle(palette.muted).padding(.top, 2)
+                            Text("\(serviceName(for: action)) isn’t connected for the host yet, so that part has to wait.")
+                                .font(.callout).foregroundStyle(palette.muted)
+                        }.padding(.leading, 32)
+                    }
                     Color.clear.frame(height: 1).id("bottom")
                         .onAppear { follow = true }
                         .onDisappear { follow = false }
