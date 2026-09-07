@@ -44,3 +44,37 @@ func nextSpeechChunk(_ buffer: inout String, flush: Bool) -> String? {
     let chunk = buffer; buffer = ""
     return chunk
 }
+
+// Catch residual speaker echo after acoustic cancellation, including delayed ASR results.
+struct PlaybackEcho {
+    private var words: [String] = []
+    private var playing = false
+    private var endedAt = Date.distantPast
+
+    private func tokens(_ text: String) -> [String] {
+        text.lowercased().split(whereSeparator: { !$0.isLetter && !$0.isNumber }).map(String.init)
+    }
+
+    mutating func record(_ text: String, now: Date = Date()) {
+        if !playing && now.timeIntervalSince(endedAt) > 2 { words.removeAll() }
+        words = Array((words + tokens(text)).suffix(100))
+        playing = true
+    }
+
+    mutating func resumed() { playing = true }
+
+    mutating func finished(now: Date = Date()) {
+        if playing { endedAt = now; playing = false }
+    }
+
+    func matches(_ text: String, now: Date = Date()) -> Bool {
+        guard playing || now.timeIntervalSince(endedAt) <= 2 else { return false }
+        let heard = tokens(text)
+        guard !heard.isEmpty, heard.count <= words.count else { return false }
+        // Short fragments must match exactly; longer ones tolerate one ASR substitution.
+        let tolerance = heard.count >= 5 ? 1 : 0
+        return (0...(words.count - heard.count)).contains { start in
+            zip(heard, words[start..<(start + heard.count)]).filter { $0 != $1 }.count <= tolerance
+        }
+    }
+}

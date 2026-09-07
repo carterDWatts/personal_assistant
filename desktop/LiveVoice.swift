@@ -27,6 +27,7 @@ final class LiveVoice: ObservableObject {
     private var playback = UUID()
     private var permission = UUID()
     private var speechQueue: [String] = []
+    private var echo = PlaybackEcho()
     private var scheduled = 0
     private var rendering = 0
     private var tapInstalled = false
@@ -49,11 +50,13 @@ final class LiveVoice: ObservableObject {
         speech.onPartial = { [weak self] text in
             guard let self, self.active else { return }
             let first = self.transcript.isEmpty
+            guard !first || !self.echo.matches(text) else { return }
             self.transcript = text
             if first { self.onSpeech?() }
         }
         speech.onFinal = { [weak self] text in
             guard let self, self.active else { return }
+            guard !self.transcript.isEmpty || !self.echo.matches(text) else { return }
             self.transcript = ""
             self.onUtterance?(text)
         }
@@ -149,6 +152,7 @@ final class LiveVoice: ObservableObject {
 
     func silencePlayback() {
         playback = UUID()
+        echo.finished()
         synth.cancel(); player.stop()
         playbackTasks.values.forEach { $0.cancel() }; playbackTasks.removeAll()
         speechQueue.removeAll(); scheduled = 0; rendering = 0; speaking = false
@@ -160,7 +164,7 @@ final class LiveVoice: ObservableObject {
         permission = UUID(); starting = false; captureRequested = false; active = false
         engine.stop()
         if tapInstalled { engine.inputNode.removeTap(onBus: 0); tapInstalled = false }
-        silencePlayback(); transcript = ""
+        silencePlayback(); transcript = ""; echo = PlaybackEcho()
         if recognitionReady {
             recognitionReady = false
             speech.reset()
@@ -181,6 +185,7 @@ final class LiveVoice: ObservableObject {
         let stream = synth.render(text)
         playbackTasks[id] = Task { @MainActor [weak self] in
             var converter: AVAudioConverter?
+            var recorded = false
             for await buffer in stream {
                 guard let self, !Task.isCancelled, self.active, self.playback == token else { return }
                 if converter == nil { converter = AVAudioConverter(from: buffer.format, to: self.playbackFormat) }
@@ -193,11 +198,14 @@ final class LiveVoice: ObservableObject {
                     supplied = true; status.pointee = .haveData; return buffer
                 }
                 guard error == nil, output.frameLength > 0 else { continue }
+                if !recorded { self.echo.record(text); recorded = true }
+                self.echo.resumed()
                 self.scheduled += 1
                 self.player.scheduleBuffer(output, completionCallbackType: .dataPlayedBack) { [weak self] _ in
                     Task { @MainActor [weak self] in
                         guard let self, self.playback == token else { return }
                         self.scheduled -= 1
+                        if self.scheduled == 0 { self.echo.finished() }
                         self.speaking = self.scheduled > 0 || self.rendering > 0
                     }
                 }
