@@ -55,10 +55,18 @@ class Conversation:
         self.map.execute("update memory.conversations set runtime_session_id = %s where id = %s", (session_id, segment_id))
 
     def close_segment(self, segment_id, ended_by, metrics=None, summary=None):
+        """Close a segment. A resumed segment closes more than once, so numeric metrics add up."""
         from engine.db import jsonb
+        current = self.map.value("select metrics from memory.conversations where id = %s", (segment_id,)) or {}
+        total = dict(current)
+        for key, value in (metrics or {}).items():
+            if isinstance(value, (int, float)) and isinstance(total.get(key), (int, float)):
+                total[key] = round(total[key] + value, 4)
+            else:
+                total[key] = value
         self.map.execute(
             "update memory.conversations set ended_at = now(), ended_by = %s, metrics = %s, summary = coalesce(%s, summary) where id = %s",
-            (ended_by, jsonb(metrics or {}), summary, segment_id))
+            (ended_by, jsonb(total), summary, segment_id))
 
     def tail(self, n):
         rows = self.map.rows(

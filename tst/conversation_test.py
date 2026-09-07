@@ -59,6 +59,11 @@ class conversation_test(MapTest):
         row = self.map.row("select ended_by, metrics from memory.conversations where id = %s", (s,))
         self.assertEqual(row["ended_by"], "user")
         self.assertEqual(row["metrics"]["turns"], 1)
+        # a resumed segment closes again later; the numbers add up rather than reset
+        conv.close_segment(s, "silence", {"cost_usd": 0.03, "turns": 2})
+        row = self.map.row("select ended_by, metrics from memory.conversations where id = %s", (s,))
+        self.assertEqual(row["ended_by"], "silence")
+        self.assertEqual((row["metrics"]["turns"], row["metrics"]["cost_usd"]), (3, 0.05))
 
 
 if __name__ == "__main__":
