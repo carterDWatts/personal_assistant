@@ -50,6 +50,7 @@ struct RelayError: LocalizedError {
             cursor = number(boot["replay_after"]) ?? number(boot["cursor"]) ?? 0
             activeTurn = (boot["active_turn"] as? [String: Any])?["turn_id"] as? String
             presence(boot["host"])
+            if var day = boot["day"] as? [String: Any] { day["type"] = "map"; emit(day) }
             try await drain()
             if activeTurn == nil { emit(["type": "ready"]) } else { emit(["type": "status", "text": "Waiting for the host"]) }
             failures = 0

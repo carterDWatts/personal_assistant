@@ -31,6 +31,10 @@ targets:
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
         ITSAppUsesNonExemptEncryption: false
+        CFBundleURLTypes:
+          - CFBundleURLName: com.carterwatts.assistant.auth
+            CFBundleURLSchemes:
+              - personal-assistant
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.carterwatts.assistant

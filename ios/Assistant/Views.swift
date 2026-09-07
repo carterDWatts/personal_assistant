@@ -249,34 +249,29 @@ struct SignInView: View {
     let palette: Palette
     @ObservedObject private var account = Account.shared
     @State private var email = UserDefaults.standard.string(forKey: "email") ?? ""
-    @State private var code = ""
     @State private var sent = false
     @State private var working = false
-    @State private var problem = ""
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             Spacer()
             Mark(palette: palette).frame(width: 64, height: 64)
             Text(AssistantIdentity.name).font(.largeTitle.weight(.semibold)).foregroundStyle(palette.ink)
-            Text(sent ? "Enter the code from the email." : "Sign in with the address on the account. A code will be emailed to you.")
+            Text(sent ? "Open the email on this phone and tap the link. It brings you back here signed in."
+                      : "Sign in with the address on the account. A link will be emailed to you.")
                 .font(.callout).foregroundStyle(palette.muted)
-            if sent {
-                TextField("Code", text: $code).keyboardType(.numberPad).textContentType(.oneTimeCode)
-                    .font(.title3.monospacedDigit()).foregroundStyle(palette.ink).tint(palette.accent)
-                    .padding(12).background(palette.surface).overlay(Rectangle().stroke(palette.line, lineWidth: 1))
-            } else {
+            if !sent {
                 TextField("Email", text: $email).keyboardType(.emailAddress).textContentType(.emailAddress)
                     .textInputAutocapitalization(.never).autocorrectionDisabled()
                     .font(.body).foregroundStyle(palette.ink).tint(palette.accent)
                     .padding(12).background(palette.surface).overlay(Rectangle().stroke(palette.line, lineWidth: 1))
             }
-            if !problem.isEmpty { Text(problem).font(.caption).foregroundStyle(Color.orange) }
+            if !account.problem.isEmpty { Text(account.problem).font(.caption).foregroundStyle(Color.orange) }
             HStack {
-                if sent { Button("Use another address") { sent = false; code = ""; problem = "" }.foregroundStyle(palette.muted) }
+                if sent { Button("Use another address") { sent = false; account.problem = "" }.foregroundStyle(palette.muted) }
                 Spacer()
-                Button { Task { await submit() } } label: { Text(sent ? "Sign in" : "Send code").padding(.horizontal, 10) }
+                Button { Task { await send() } } label: { Text(sent ? "Send again" : "Send link").padding(.horizontal, 10) }
                     .buttonStyle(SquareButton(palette: palette, prominent: true))
-                    .disabled(working || (sent ? code.count < 6 : !email.contains("@")))
+                    .disabled(working || !email.contains("@"))
             }
             Spacer()
         }
@@ -286,20 +281,16 @@ struct SignInView: View {
         .preferredColorScheme(.light)
     }
 
-    private func submit() async {
-        working = true; problem = ""
+    private func send() async {
+        working = true; account.problem = ""
         defer { working = false }
         let address = email.trimmingCharacters(in: .whitespaces)
         do {
-            if sent {
-                try await account.verify(email: address, code: code.trimmingCharacters(in: .whitespaces))
-                UserDefaults.standard.set(address, forKey: "email")
-            } else {
-                try await account.requestCode(email: address)
-                sent = true
-            }
+            try await account.requestLink(email: address)
+            UserDefaults.standard.set(address, forKey: "email")
+            sent = true
         } catch {
-            problem = error.localizedDescription
+            account.problem = error.localizedDescription
         }
     }
 }
@@ -357,6 +348,7 @@ struct ConversationView: View {
             .fullScreenCover(isPresented: Binding(get: { !account.signedIn && !sample }, set: { _ in })) { SignInView(palette: palette) }
             .onAppear { if !chat.connected && !chat.busy { chat.connect() } }
             .onChange(of: account.signedIn) { _, now in if now { chat.connect() } }
+            .onOpenURL { url in Task { await account.open(url) } }
             .onChange(of: phase) { _, now in
                 if now != .active && chat.voice { chat.stop() }
                 chat.foreground(now == .active)

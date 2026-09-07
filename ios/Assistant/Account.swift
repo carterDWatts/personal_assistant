@@ -1,5 +1,6 @@
 import Foundation
 import Security
+import CryptoKit
 
 enum Keychain {
     private static let service = Bundle.main.bundleIdentifier ?? "assistant"
@@ -44,6 +45,7 @@ struct AccountError: LocalizedError {
     static let shared = Account()
 
     @Published private(set) var signedIn: Bool
+    @Published var problem = ""
     let deviceID: String
     private var session: Session? {
         didSet {
@@ -72,12 +74,46 @@ struct AccountError: LocalizedError {
         set { UserDefaults.standard.set(newValue, forKey: "registered:" + deviceID) }
     }
 
-    func requestCode(email: String) async throws {
-        _ = try await auth("otp", ["email": email, "create_user": false])
+    /// Where the link in the sign-in email brings the phone back. The Auth project allowlists it.
+    static let callback = "personal-assistant://auth/callback"
+
+    /// Kept in the Keychain because the link is usually tapped after the app has been closed.
+    private var verifier: String? {
+        get { Keychain.get("verifier").flatMap { String(data: $0, encoding: .utf8) } }
+        set { if let newValue { Keychain.set("verifier", Data(newValue.utf8)) } else { Keychain.delete("verifier") } }
     }
 
-    func verify(email: String, code: String) async throws {
-        session = try parse(await auth("verify", ["type": "email", "email": email, "token": code]))
+    func requestLink(email: String) async throws {
+        var bytes = [UInt8](repeating: 0, count: 48)
+        guard SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes) == errSecSuccess else { throw AccountError("Couldn’t start sign-in.") }
+        let verifier = base64url(Data(bytes))
+        let challenge = base64url(Data(SHA256.hash(data: Data(verifier.utf8))))
+        self.verifier = verifier
+        let redirect = Self.callback.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? Self.callback
+        _ = try await auth("otp?redirect_to=" + redirect,
+                           ["email": email, "create_user": false, "code_challenge": challenge, "code_challenge_method": "s256"])
+    }
+
+    /// The link lands here, on a running app or one launched by it. The code is exchanged with Auth; the link alone proves nothing.
+    func open(_ url: URL) async {
+        guard url.scheme == "personal-assistant", url.host == "auth" else { return }
+        let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
+        if let description = items.first(where: { $0.name == "error_description" })?.value {
+            problem = description.replacingOccurrences(of: "+", with: " "); return
+        }
+        guard let code = items.first(where: { $0.name == "code" })?.value else { problem = "The link didn’t carry a sign-in code."; return }
+        guard let verifier else { problem = "Ask for a new link from this phone."; return }
+        do {
+            session = try parse(await auth("token?grant_type=pkce", ["auth_code": code, "code_verifier": verifier]))
+            self.verifier = nil
+            problem = ""
+        } catch {
+            problem = error.localizedDescription
+        }
+    }
+
+    private func base64url(_ data: Data) -> String {
+        data.base64EncodedString().replacingOccurrences(of: "+", with: "-").replacingOccurrences(of: "/", with: "_").replacingOccurrences(of: "=", with: "")
     }
 
     /// A token good for at least another minute, refreshed here when it is not.
