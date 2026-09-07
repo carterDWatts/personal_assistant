@@ -10,7 +10,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 PROMPTS = ROOT / "prompts"
 
-DATABASE_URL = os.environ.get("ASSISTANT_DATABASE_URL")
+# ASSISTANT_ENV=test points everything at the test map so the real one only ever holds real life.
+ENV = os.environ.get("ASSISTANT_ENV", "prod")
+DATABASE_URL = os.environ.get("ASSISTANT_TEST_DATABASE_URL" if ENV == "test" else "ASSISTANT_DATABASE_URL")
 MODEL = os.environ.get("ASSISTANT_MODEL", "claude-opus-5")
 EFFORT = os.environ.get("ASSISTANT_EFFORT", "medium")
 DEVICE = os.environ.get("ASSISTANT_DEVICE", socket.gethostname().split(".")[0])

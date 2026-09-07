@@ -7,8 +7,11 @@ Usage:
   python3 assistant.py snapshot    print the map snapshot the assistant would receive
   python3 assistant.py status      recent sessions with their cost
 
+Add --test to any command to use the test map instead of the real one.
+
 Environment:
   ASSISTANT_DATABASE_URL           the knowledge map (Supabase session pooler URI)
+  ASSISTANT_TEST_DATABASE_URL      the test map, used with --test or ASSISTANT_ENV=test
   ASSISTANT_MODEL                  model for the runtime, default claude-opus-5
   ASSISTANT_EFFORT                 low, medium or high, default medium
   ASSISTANT_SESSION_BUDGET_USD     hard cap per session, default 2.00
@@ -16,16 +19,21 @@ Environment:
 """
 
 import asyncio
+import os
 import sys
-
-from engine import config
 
 
 def main(argv):
+    if "--test" in argv:
+        os.environ["ASSISTANT_ENV"] = "test"
+        argv = [a for a in argv if a != "--test"]
     if not argv or argv[0] not in ("talk", "morning", "snapshot", "status"):
         print(__doc__.strip())
         return 1
+    from engine import config
     from engine.db import Map
+    if config.ENV == "test":
+        print("[test map]")
     try:
         map_ = Map()
     except RuntimeError as e:

@@ -22,7 +22,8 @@ class Map:
     def __init__(self, url=None):
         self.url = url or config.DATABASE_URL
         if not self.url:
-            raise RuntimeError("ASSISTANT_DATABASE_URL is not set")
+            name = "ASSISTANT_TEST_DATABASE_URL" if config.ENV == "test" else "ASSISTANT_DATABASE_URL"
+            raise RuntimeError(f"{name} is not set")
         self.conn = psycopg.Connection.connect(self.url, row_factory=dict_row, autocommit=True)  # type: ignore[arg-type]
         # Dates the database computes must agree with the device the user is on.
         self.conn.execute("select set_config('timezone', %s, false)", (config.TIMEZONE,))

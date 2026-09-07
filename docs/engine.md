@@ -42,6 +42,10 @@ python3 assistant.py status
 
 `ASSISTANT_MODEL`, `ASSISTANT_EFFORT`, `ASSISTANT_SESSION_BUDGET_USD`, `ASSISTANT_DEVICE` and `ASSISTANT_TIMEZONE` override the defaults. The time zone matters: the map connection sets it so every date the database computes matches the device.
 
+## The test map
+
+The real map only ever holds real life. Anything exploratory runs against a separate test map: `--test` on any command, or `ASSISTANT_ENV=test`, switches the engine to `ASSISTANT_TEST_DATABASE_URL`. `scripts/testdb.sh up` provides one locally, a persistent Postgres 17 container with pgvector and every migration applied, and prints the URL to put in that variable. `reset` wipes it. `scripts/push.sh test` pushes migrations to a hosted test project instead, when there is one.
+
 ## Tests
 
 `scripts/test.sh` runs everything against a throwaway Postgres: the migrations, the SQL checks, then the Python suite, which exercises the tools, the conversation continuity rules, the snapshot and the engine loop with a scripted runtime in place of the model.

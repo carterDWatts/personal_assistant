@@ -11,7 +11,7 @@ prompts/               the persona and the morning instructions
 supabase/migrations/   the schema, in SQL
 supabase/tests/        behavioral checks for the schema
 eval/                  knowledge-update and abstention cases
-scripts/test.sh        the whole suite in a throwaway Postgres container
+scripts/                test.sh runs the suite, testdb.sh keeps a local test map, push.sh pushes migrations
 docs/knowledge-map.md  how the map works
 docs/engine.md         how the engine works
 docs/research/         the research the design rests on
@@ -24,6 +24,14 @@ docs/design-v0.1.md    the original design doc
 pip3 install claude-agent-sdk "psycopg[binary]"
 export ASSISTANT_DATABASE_URL='postgresql://...'   # the project's session pooler URI
 python3 assistant.py talk
+```
+
+For anything exploratory, use the test map instead of the real one:
+
+```bash
+scripts/testdb.sh up                                # a local Postgres with the migrations applied
+export ASSISTANT_TEST_DATABASE_URL="$(scripts/testdb.sh url)"
+python3 assistant.py talk --test
 ```
 
 `docs/engine.md` covers the rest.
