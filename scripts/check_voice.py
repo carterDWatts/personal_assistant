@@ -56,7 +56,7 @@ def main():
         paused = Path(fixtures.name)/'paused.wav'
         with wave.open(str(paused),'wb') as wav:
             wav.setparams((1,2,48000,0,'NONE','not compressed'))
-            wav.writeframes(np.concatenate([parts[0],np.zeros(12000,dtype='<i2'),parts[1]]).astype('<i2').tobytes())
+            wav.writeframes(np.concatenate([parts[0],np.zeros(38400,dtype='<i2'),parts[1]]).astype('<i2').tobytes())
         cases.append(('input-pause',paused,1,phrase,0))
     process = subprocess.Popen([sys.executable,'-m','engine.voice.recognize'], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
     events = queue.Queue()
@@ -89,7 +89,7 @@ def main():
                 samples=np.frombuffer(wav.readframes(wav.getnframes()),dtype='<i2').astype(np.float32)/32768
             samples *= gain
             duration=len(samples)/rate
-            padded=np.concatenate([samples,np.zeros(rate*2,dtype=np.float32)])
+            padded=np.concatenate([samples,np.zeros(rate*3,dtype=np.float32)])
             step=int(rate*0.02)
             started=time.monotonic()
             for offset in range(0,len(padded),step):

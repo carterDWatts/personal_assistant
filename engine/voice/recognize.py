@@ -22,8 +22,8 @@ class Recognizer:
             tokens=str(root/FILES[3]), encoder=str(root/FILES[0]), decoder=str(root/FILES[1]),
             joiner=str(root/FILES[2]), num_threads=2, sample_rate=16000, feature_dim=80,
             decoding_method='greedy_search', enable_endpoint_detection=True,
-            rule1_min_trailing_silence=10, rule2_min_trailing_silence=0.35,
-            rule3_min_utterance_length=30)
+            rule1_min_trailing_silence=10, rule2_min_trailing_silence=1.0,
+            rule3_min_utterance_length=120)
         self.stream = self.decoder.create_stream()
         self.previous = ''
         root = final_directory()

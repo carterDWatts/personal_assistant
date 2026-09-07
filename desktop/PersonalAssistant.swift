@@ -25,6 +25,7 @@ final class Chat: NSObject, ObservableObject {
     var spokenDraft: String {
         [voiceTurn.pending, liveVoice.transcript.isEmpty ? nil : liveVoice.transcript].compactMap { $0 }.joined(separator: " ")
     }
+    private(set) var voiceStartIndex = 0
     private var voiceTurn = VoiceTurn()
     private var voiceSubscription: AnyCancellable?
     @Published var runtime = UserDefaults.standard.string(forKey: "runtime") ?? "claude-agent-sdk" {
@@ -182,6 +183,7 @@ final class Chat: NSObject, ObservableObject {
 
     func toggleVoice() {
         if voice { stop(); return }
+        voiceStartIndex = messages.count
         voice = true
         liveVoice.start()
     }
@@ -256,61 +258,81 @@ struct VoicePresence: View {
     }
 }
 
-struct VoicePanel: View {
-    let title: String
-    let hint: String
-    let draft: String
-    let level: Double
-    let moving: Bool
-    let end: () -> Void
-
+@MainActor struct VoiceConversation: View {
+    @ObservedObject var chat: Chat
+    private var title: String {
+        if !chat.liveVoice.active { return chat.liveVoice.startupMessage }
+        if !chat.spokenDraft.isEmpty { return "Listening" }
+        if chat.liveVoice.speaking { return "Speaking" }
+        return chat.busy ? "Thinking" : "Listening"
+    }
+    private var messages: [ChatMessage] { Array(chat.messages.dropFirst(chat.voiceStartIndex)) }
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 12) {
-                VoicePresence(level: level, moving: moving)
-                    .scaleEffect(0.35).frame(width: 48, height: 38)
+        VStack(spacing: 0) {
+            HStack {
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(title).font(.system(size: 16, weight: .medium, design: .rounded))
-                    Text(hint).font(.caption).foregroundStyle(.secondary)
+                    Text("Voice conversation").font(.system(size: 15, weight: .semibold))
+                    Text(chat.runtime == "codex" ? "ChatGPT" : "Claude").font(.caption).foregroundStyle(.secondary)
                 }
                 Spacer()
-                Button(action: end) {
-                    Label("End voice", systemImage: "xmark")
-                        .font(.system(size: 13, weight: .medium))
-                        .padding(.horizontal, 12).padding(.vertical, 9)
-                        .background(Color.primary.opacity(0.07), in: Capsule())
-                }.buttonStyle(.plain)
+                Button { chat.stop() } label: {
+                    Image(systemName: "xmark").font(.system(size: 13, weight: .semibold))
+                        .frame(width: 30, height: 30).background(Color.primary.opacity(0.07), in: Circle())
+                }.buttonStyle(.plain).accessibilityLabel("End voice conversation")
+            }.padding(22)
+            ScrollViewReader { proxy in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 22) {
+                        if messages.isEmpty {
+                            VStack(spacing: 6) {
+                                VoicePresence(level: chat.liveVoice.inputLevel, moving: false).scaleEffect(0.5).frame(height: 72)
+                                Text("What’s on your mind?").font(.system(size: 22, design: .serif))
+                            }.frame(maxWidth: .infinity).padding(.top, 38)
+                        }
+                        ForEach(messages) { message in
+                            HStack {
+                                if message.role == "user" { Spacer(minLength: 46) }
+                                Text(message.text.isEmpty ? AttributedString("Thinking…") : (try? AttributedString(markdown: message.text, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(message.text))
+                                    .font(.system(size: message.role == "user" ? 16 : 20, design: message.role == "user" ? .default : .serif))
+                                    .lineSpacing(5).textSelection(.enabled)
+                                    .padding(message.role == "user" ? 12 : 0)
+                                    .background(message.role == "user" ? Color.primary.opacity(0.055) : .clear, in: RoundedRectangle(cornerRadius: 16))
+                                if message.role != "user" { Spacer(minLength: 12) }
+                            }
+                        }
+                        Color.clear.frame(height: 1).id("voice-bottom")
+                    }.padding(.horizontal, 24).padding(.bottom, 12)
+                }
+                .onChange(of: chat.messages.last?.text) { _ in proxy.scrollTo("voice-bottom", anchor: .bottom) }
+                .onChange(of: chat.messages.count) { _ in proxy.scrollTo("voice-bottom", anchor: .bottom) }
             }
-            if !draft.isEmpty {
+            VStack(spacing: 12) {
                 ScrollViewReader { proxy in
                     ScrollView {
-                        VStack(alignment: .leading, spacing: 0) {
-                            Text(draft).font(.system(size: 18)).lineSpacing(4)
-                                .textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
-                            Color.clear.frame(height: 1).id("voice-caption-end")
+                        VStack(spacing: 0) {
+                            Text(chat.spokenDraft).font(.system(size: 16)).italic().lineSpacing(4)
+                                .multilineTextAlignment(.center).textSelection(.enabled).frame(maxWidth: .infinity)
+                            Color.clear.frame(height: 1).id("live-words")
                         }
-                    }.frame(height: 52)
-                        .onChange(of: draft) { _ in proxy.scrollTo("voice-caption-end", anchor: .bottom) }
+                    }.frame(height: 62)
+                        .onChange(of: chat.spokenDraft) { _ in proxy.scrollTo("live-words", anchor: .bottom) }
                 }
-            }
-        }.padding(16).frame(maxWidth: .infinity, alignment: .leading)
-            .background(voiceInk.opacity(0.07), in: RoundedRectangle(cornerRadius: 18))
+                HStack(spacing: 10) {
+                    Image(systemName: chat.liveVoice.speaking ? "waveform" : "mic.fill")
+                        .foregroundStyle(voiceInk)
+                    Text(title).font(.system(size: 14, weight: .medium))
+                    Spacer()
+                    Button("Done") { chat.stop() }.buttonStyle(.bordered).controlSize(.large)
+                }
+            }.padding(.horizontal, 26).padding(.top, 14).padding(.bottom, 24)
+                .background(LinearGradient(colors: [.clear, voiceInk.opacity(chat.liveVoice.speaking ? 0.12 : 0.2)], startPoint: .top, endPoint: .bottom))
+        }.frame(width: 460, height: 520).background(Color(nsColor: .windowBackgroundColor))
     }
 }
 
 @MainActor struct ConversationView: View {
     @StateObject private var chat = Chat()
     @State private var followConversation = true
-    private var voiceTitle: String {
-        if !chat.liveVoice.active { return chat.liveVoice.startupMessage }
-        if !chat.spokenDraft.isEmpty { return "Listening" }
-        if chat.liveVoice.speaking { return "Speaking" }
-        return chat.busy ? "Thinking it through" : "I’m listening"
-    }
-    private var voiceHint: String {
-        if !chat.liveVoice.active { return "Getting ready to talk" }
-        return chat.liveVoice.speaking ? "You can interrupt anytime" : chat.busy && chat.spokenDraft.isEmpty ? "Your conversation continues here" : "Take your time. Speak naturally."
-    }
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 16) {
@@ -372,11 +394,6 @@ struct VoicePanel: View {
                 }
             }
             VStack(alignment: .leading, spacing: 12) {
-                if chat.voice {
-                    VoicePanel(title: voiceTitle, hint: voiceHint, draft: chat.spokenDraft,
-                               level: chat.liveVoice.inputLevel, moving: chat.liveVoice.speaking || chat.busy,
-                               end: { chat.stop() })
-                }
                 HStack(alignment: .bottom, spacing: 12) {
                     TextField("Message your assistant", text: $chat.draft, axis: .vertical).lineLimit(1...6).textFieldStyle(.plain).onSubmit { chat.send() }
                         .padding(.vertical, 7)
@@ -400,6 +417,9 @@ struct VoicePanel: View {
             .onAppear { if !chat.connected && !chat.busy { chat.connect() } }
             .onChange(of: chat.runtime) { _ in chat.connect() }
             .onChange(of: chat.test) { _ in chat.connect() }
+            .sheet(isPresented: $chat.voice, onDismiss: { chat.stop() }) {
+                VoiceConversation(chat: chat)
+            }
             .onReceive(NotificationCenter.default.publisher(for: NSApplication.didResignActiveNotification)) { _ in
                 if chat.voice { chat.stop() }
             }
