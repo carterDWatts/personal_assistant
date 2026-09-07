@@ -14,13 +14,17 @@ final class Chat: NSObject, ObservableObject, AVSpeechSynthesizerDelegate {
     @Published var draft = UserDefaults.standard.string(forKey: "draft") ?? "" {
         didSet { UserDefaults.standard.set(draft, forKey: "draft") }
     }
-    @Published var status = "Connect to begin"
+    @Published var status = "Starting…"
     @Published var busy = false
     @Published var connected = false
     @Published var voice = false
     @Published var listening = false
-    @Published var runtime = "claude-agent-sdk"
-    @Published var test = false
+    @Published var runtime = UserDefaults.standard.string(forKey: "runtime") ?? "claude-agent-sdk" {
+        didSet { UserDefaults.standard.set(runtime, forKey: "runtime") }
+    }
+    @Published var test = UserDefaults.standard.bool(forKey: "testMemory") {
+        didSet { UserDefaults.standard.set(test, forKey: "testMemory") }
+    }
     private var process: Process?
     private var input: FileHandle?
     private var buffer = Data()
@@ -210,10 +214,8 @@ final class Chat: NSObject, ObservableObject, AVSpeechSynthesizerDelegate {
                 Picker("Model", selection: $chat.runtime) {
                     Text("Claude").tag("claude-agent-sdk")
                     Text("ChatGPT").tag("codex")
-                }.disabled(chat.connected || chat.busy)
-                Toggle("Test memory", isOn: $chat.test).disabled(chat.connected || chat.busy)
-                Button("Connect", action: { chat.connect() }).disabled(chat.busy || chat.connected)
-                Button("Disconnect", action: { chat.disconnect() }).disabled(!chat.connected && !chat.busy)
+                }.disabled(chat.busy)
+                Toggle("Test memory", isOn: $chat.test).disabled(chat.busy)
                 Spacer()
                 Text(chat.test ? "Local test database" : "Personal memory in Supabase").font(.caption).foregroundColor(.secondary)
             }.padding(24).frame(width: 210).frame(maxHeight: .infinity).background(.ultraThinMaterial)
@@ -240,7 +242,12 @@ final class Chat: NSObject, ObservableObject, AVSpeechSynthesizerDelegate {
                     }.onChange(of: chat.messages.last?.text) { _ in proxy.scrollTo("bottom", anchor: .bottom) }
                 }
                 VStack(alignment: .leading, spacing: 10) {
-                    Text(chat.status).font(.caption).foregroundColor(.secondary).lineLimit(2)
+                    HStack {
+                        Text(chat.status).font(.caption).foregroundColor(.secondary).lineLimit(2)
+                        if !chat.connected && !chat.busy {
+                            Button("Retry", action: { chat.connect() })
+                        }
+                    }
                     HStack(alignment: .bottom, spacing: 12) {
                         TextField("Message your assistant", text: $chat.draft, axis: .vertical).lineLimit(1...6).textFieldStyle(.plain).onSubmit { chat.send() }
                         Button(action: { chat.toggleVoice() }) { Image(systemName: chat.voice ? "mic.fill" : "mic") }.disabled(!chat.connected).help("Voice conversation")
@@ -249,7 +256,11 @@ final class Chat: NSObject, ObservableObject, AVSpeechSynthesizerDelegate {
                     }.padding(16).background(RoundedRectangle(cornerRadius: 18).fill(Color(nsColor: .controlBackgroundColor)))
                 }.padding(24)
             }.frame(minWidth: 540)
-        }.frame(minWidth: 840, minHeight: 620).onDisappear { chat.disconnect() }
+        }.frame(minWidth: 840, minHeight: 620)
+            .onAppear { if !chat.connected && !chat.busy { chat.connect() } }
+            .onChange(of: chat.runtime) { _ in chat.connect() }
+            .onChange(of: chat.test) { _ in chat.connect() }
+            .onDisappear { chat.disconnect() }
     }
 }
 
