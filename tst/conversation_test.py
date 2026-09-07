@@ -37,6 +37,18 @@ class conversation_test(MapTest):
         self.assertIn("on phone] user: car is in the garage", seed3)
         self.assertTrue(seed3.index("user: hello") < seed3.index("car is in the garage"))
 
+    def test_clear_starts_a_fresh_runtime_and_keeps_history(self):
+        conv = Conversation(self.map, "mac", "fake")
+        old, _, _ = conv.resolve("talk")
+        conv.record(old, "user", "Remember this conversation")
+        conv.set_runtime_session(old, "old-session")
+        fresh, resume, seed = conv.resolve("clear")
+        self.assertNotEqual(fresh, old)
+        self.assertIsNone(resume)
+        self.assertIsNone(seed)
+        self.assertEqual(conv.tail(100), [])
+        self.assertEqual(self.map.value("select content from memory.messages where conversation_id=%s and role='user'", (old,)), "Remember this conversation")
+
     def test_morning_always_starts_fresh(self):
         mac = Conversation(self.map, "mac", "fake")
         s1, _, _ = mac.resolve("talk")
