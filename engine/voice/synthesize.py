@@ -6,8 +6,12 @@ import sys
 import threading
 
 import numpy as np
-from engine.voice.csm import create_voice, generate
-from engine.voice.tts_models import PLAYBACK_RATE
+if '--american-lower' in sys.argv:
+    from engine.voice.csm import create_voice, generate
+    from engine.voice.csm_models import PLAYBACK_RATE
+else:
+    from engine.voice.kokoro import create_voice, generate
+    PLAYBACK_RATE = 24000
 
 
 def main():
@@ -39,8 +43,9 @@ def main():
             def current():
                 with lock: return not cancelled.is_set() and token==generation
             if not current(): continue
+            emit({'type':'started','id':request['id']})
             produced = False
-            stream = generate(voice, request['text'])
+            stream = generate(voice, request['text'], current)
             try:
                 for result in stream:
                     if not current(): break

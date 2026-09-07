@@ -3,10 +3,8 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 PYTHON="${PYTHON:-python3}"
 PYTHON="$($PYTHON -c 'import sys; print(sys.executable)')"
-(cd "$ROOT" && "$PYTHON" -m engine.voice.models)
-VOICE_PYTHON="$HOME/.personal-assistant/voice-env/bin/python"
-if [ ! -x "$VOICE_PYTHON" ]; then "$PYTHON" -m venv "$HOME/.personal-assistant/voice-env"; fi
-"$VOICE_PYTHON" -m pip install -r "$ROOT/requirements-voice-mac.txt"
+(cd "$ROOT" && "$PYTHON" -m engine.voice.models && "$PYTHON" -m engine.voice.final_models)
+VOICE_PYTHON="$PYTHON"
 (cd "$ROOT" && "$VOICE_PYTHON" -m engine.voice.tts_models)
 APP="$ROOT/build/Personal Assistant.app"
 mkdir -p "$APP/Contents/MacOS"

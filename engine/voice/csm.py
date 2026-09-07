@@ -3,7 +3,7 @@ import contextlib
 import os
 import sys
 
-from engine.voice.tts_models import asset, REFERENCE_TEXT
+from engine.voice.csm_models import asset, REFERENCE_TEXT
 
 
 def create_voice():
@@ -36,12 +36,13 @@ def create_voice():
     return model
 
 
-def generate(voice, text):
+def generate(voice, text, current=lambda: True):
     import mlx.core as mx
     mx.random.seed(42)
     # Bound each context to the model's sequence limit without dropping text.
     import textwrap
     for part in textwrap.wrap(text, width=350, break_long_words=True):
+        if not current(): return
         yield from voice.generate(
             text=part,
             ref_audio=str(asset('reference') / 'expresso/ex01-ex02_default_001_channel1_168s.wav'),

@@ -10,6 +10,7 @@ import sys
 import numpy as np
 import sherpa_onnx
 from engine.voice.models import directory, FILES
+from engine.voice.final_models import directory as final_directory, FILES as FINAL_FILES
 
 
 class Recognizer:
@@ -25,10 +26,23 @@ class Recognizer:
             rule3_min_utterance_length=30)
         self.stream = self.decoder.create_stream()
         self.previous = ''
+        root = final_directory()
+        self.final_decoder = sherpa_onnx.OnlineRecognizer.from_transducer(
+            tokens=str(root/FINAL_FILES[3]), encoder=str(root/FINAL_FILES[0]),
+            decoder=str(root/FINAL_FILES[1]), joiner=str(root/FINAL_FILES[2]),
+            num_threads=2, decoding_method='greedy_search')
+        self.audio = []
+        self.rate = None
 
     def accept(self, rate, samples):
         if not 8000 <= rate <= 192000 or not np.isfinite(samples).all():
             raise ValueError('Invalid audio frame')
+        if self.rate is not None and self.rate != rate:
+            self.stream = self.decoder.create_stream()
+            self.previous = ''
+            self.audio = []
+        self.rate = rate
+        self.audio.append(samples.copy())
         self.stream.accept_waveform(rate, samples)
         while self.decoder.is_ready(self.stream):
             self.decoder.decode_stream(self.stream)
@@ -42,8 +56,16 @@ class Recognizer:
             self.previous = text
         if self.decoder.is_endpoint(self.stream):
             if text:
-                events.append({'type':'final', 'text':text})
-            self.decoder.reset(self.stream)
+                verified = self.final_decoder.create_stream()
+                verified.accept_waveform(rate, np.concatenate(self.audio))
+                verified.accept_waveform(rate, np.zeros(rate*3, dtype=np.float32))
+                verified.input_finished()
+                while self.final_decoder.is_ready(verified):
+                    self.final_decoder.decode_stream(verified)
+                final = self.final_decoder.get_result(verified).strip()
+                events.append({'type':'final', 'text':final or text})
+            self.stream = self.decoder.create_stream()
+            self.audio = []
             self.previous = ''
         return events
 
