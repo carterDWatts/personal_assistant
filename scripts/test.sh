@@ -48,4 +48,6 @@ if [[ "$(uname)" == Darwin ]] && command -v swiftc >/dev/null; then
   mkdir -p "$ROOT/build"
   swiftc -parse-as-library "$ROOT/desktop/OutputStream.swift" "$ROOT/tst/swift/OutputStreamCheck.swift" -o "$ROOT/build/stream-check"
   "$ROOT/build/stream-check"
+  swiftc -parse-as-library "$ROOT/desktop/VoiceTurn.swift" "$ROOT/tst/swift/VoiceTurnCheck.swift" -o "$ROOT/build/voice-check"
+  "$ROOT/build/voice-check"
 fi

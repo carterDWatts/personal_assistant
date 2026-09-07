@@ -26,6 +26,7 @@ class CodexRuntime:
         self.session_id = None
         self.resumed = False
         self.turn_id = None
+        self.interrupt_requested = False
         self.metrics = Metrics()
         self.serial = 0
         self.pending = {}
@@ -116,6 +117,8 @@ class CodexRuntime:
     async def send(self, text):
         result = await self.request("turn/start", {"threadId": self.session_id, "input": [{"type": "text", "text": text}], "environments": [], "effort": self.effort})
         self.turn_id = result["turn"]["id"]
+        if self.interrupt_requested:
+            await self.interrupt()
         started = asyncio.get_running_loop().time()
         while True:
             try:
@@ -161,6 +164,7 @@ class CodexRuntime:
                 yield Event("assistant_text", text=params["item"]["text"])
             elif method == "turn/completed" and params["turn"]["id"] == self.turn_id:
                 self.turn_id = None
+                self.interrupt_requested = False
                 if params["turn"].get("status") != "completed":
                     raise RuntimeError("The reply was interrupted or failed. You can continue the conversation.")
                 self.metrics.turns += 1
@@ -168,6 +172,7 @@ class CodexRuntime:
                 return
 
     async def interrupt(self):
+        self.interrupt_requested = True
         if self.turn_id:
             await self.request("turn/interrupt", {"threadId": self.session_id, "turnId": self.turn_id})
 

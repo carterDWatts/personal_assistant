@@ -1,6 +1,7 @@
 import SwiftUI
 import Speech
 import AVFoundation
+import Combine
 
 struct ChatMessage: Identifiable {
     let id = UUID()
@@ -9,7 +10,7 @@ struct ChatMessage: Identifiable {
 }
 
 @MainActor
-final class Chat: NSObject, ObservableObject, AVSpeechSynthesizerDelegate {
+final class Chat: NSObject, ObservableObject {
     @Published var messages: [ChatMessage] = []
     @Published var draft = UserDefaults.standard.string(forKey: "draft") ?? "" {
         didSet { UserDefaults.standard.set(draft, forKey: "draft") }
@@ -19,7 +20,10 @@ final class Chat: NSObject, ObservableObject, AVSpeechSynthesizerDelegate {
     @Published var busy = false
     @Published var connected = false
     @Published var voice = false
-    @Published var listening = false
+    var listening: Bool { liveVoice.active }
+    let liveVoice = LiveVoice()
+    private var voiceTurn = VoiceTurn()
+    private var voiceSubscription: AnyCancellable?
     @Published var runtime = UserDefaults.standard.string(forKey: "runtime") ?? "claude-agent-sdk" {
         didSet { UserDefaults.standard.set(runtime, forKey: "runtime") }
     }
@@ -30,18 +34,17 @@ final class Chat: NSObject, ObservableObject, AVSpeechSynthesizerDelegate {
     private var input: FileHandle?
     private var buffer = Data()
     private var outputTask: Task<Void, Never>?
-    private let audio = AVAudioEngine()
-    private let speaker = AVSpeechSynthesizer()
-    private let recognizer = SFSpeechRecognizer()
-    private var recognition: SFSpeechRecognitionTask?
-    private var request: SFSpeechAudioBufferRecognitionRequest?
-    private var silence: Timer?
     private var speechBuffer = ""
     private var streamingID: UUID?
     private var generation = UUID()
-    private var listeningID = UUID()
 
-    override init() { super.init(); speaker.delegate = self }
+    override init() {
+        super.init()
+        voiceSubscription = liveVoice.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }
+        liveVoice.onSpeech = { [weak self] in self?.interruptForSpeech() }
+        liveVoice.onUtterance = { [weak self] text in self?.sendVoice(text) }
+        liveVoice.onError = { [weak self] text in self?.voice = false; self?.status = text }
+    }
 
     func connect(clear: Bool = false) {
         disconnect()
@@ -69,7 +72,7 @@ final class Chat: NSObject, ObservableObject, AVSpeechSynthesizerDelegate {
         child.terminationHandler = { [weak self] _ in
             Task { @MainActor [weak self] in
                 guard let self = self, self.generation == epoch else { return }
-                self.connected = false; self.busy = false; self.stopListening(); self.status = "Disconnected · reconnect to continue"
+                self.connected = false; self.busy = false; self.voice = false; self.liveVoice.stop(); self.status = "Disconnected · reconnect to continue"
             }
         }
         do {
@@ -88,7 +91,7 @@ final class Chat: NSObject, ObservableObject, AVSpeechSynthesizerDelegate {
     func disconnect() {
         generation = UUID()
         outputTask?.cancel(); outputTask = nil
-        stopListening(); speaker.stopSpeaking(at: .immediate)
+        liveVoice.stop(); voice = false; voiceTurn = VoiceTurn()
         write(["type": "quit"])
         if let child = process, child.isRunning {
             Task { @MainActor in
@@ -117,19 +120,23 @@ final class Chat: NSObject, ObservableObject, AVSpeechSynthesizerDelegate {
                     guard let role = row["role"] as? String, let content = row["content"] as? String else { return nil }
                     return ChatMessage(role: role, text: content)
                 }
-            case "ready": connected = true; busy = false; status = "Ready"; resumeListening()
+            case "ready":
+                connected = true; busy = false; status = "Ready"
+                if let pending = voiceTurn.ready(), voice { submit(pending) }
             case "start":
                 busy = true; speechBuffer = ""; let item = ChatMessage(role: "assistant", text: "")
                 streamingID = item.id; messages.append(item); status = "Thinking…"
             case "delta":
                 if let i = messages.firstIndex(where: { $0.id == streamingID }) { messages[i].text += text }
-                speechBuffer += text; speakSentences(flush: false); status = "Replying…"
+                if !voiceTurn.interrupted { speechBuffer += text; speakSentences(flush: false); status = "Replying…" }
             case "replace":
                 if let i = messages.firstIndex(where: { $0.id == streamingID }) { messages[i].text = text }
-            case "end": speakSentences(flush: true); streamingID = nil
+            case "end":
+                if !voiceTurn.interrupted { speakSentences(flush: true) }
+                streamingID = nil
             case "memory": memoryStatus = text
             case "status": status = text.replacingOccurrences(of: "_", with: " ")
-            case "error": busy = false; status = text; voice = false; stopListening(); speaker.stopSpeaking(at: .immediate)
+            case "error": busy = false; status = text; voice = false; liveVoice.stop(); voiceTurn = VoiceTurn()
             default: break
             }
         }
@@ -138,66 +145,38 @@ final class Chat: NSObject, ObservableObject, AVSpeechSynthesizerDelegate {
     func send() {
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard connected, !busy, !text.isEmpty else { return }
-        stopListening(); speaker.stopSpeaking(at: .immediate)
-        draft = ""; messages.append(ChatMessage(role: "user", text: text)); busy = true
+        draft = ""
+        submit(text)
+    }
+
+    private func submit(_ text: String) {
+        liveVoice.silencePlayback()
+        speechBuffer = ""
+        messages.append(ChatMessage(role: "user", text: text)); busy = true
         write(["type": "send", "text": text])
     }
 
+    private func interruptForSpeech() {
+        liveVoice.silencePlayback(); speechBuffer = ""
+        if voiceTurn.interrupt(busy: busy) { write(["type": "stop"]) }
+        status = "Listening…"
+    }
+
+    private func sendVoice(_ text: String) {
+        guard voice, connected else { return }
+        if busy { voiceTurn.queue(text); interruptForSpeech() }
+        else { submit(text) }
+    }
+
     func stop() {
-        stopListening(); speaker.stopSpeaking(at: .immediate); speechBuffer = ""
-        write(["type": "stop"]); voice = false
+        liveVoice.stop(); speechBuffer = ""; voice = false; voiceTurn.discardPending()
+        if voiceTurn.interrupt(busy: busy) { write(["type": "stop"]) }
     }
 
     func toggleVoice() {
-        voice.toggle()
-        if !voice { stopListening(); speaker.stopSpeaking(at: .immediate); status = busy ? "Replying…" : "Ready"; return }
-        SFSpeechRecognizer.requestAuthorization { [weak self] result in
-            AVCaptureDevice.requestAccess(for: .audio) { allowed in
-                Task { @MainActor in
-                    guard let self = self else { return }
-                    if result == .authorized && allowed { self.resumeListening() }
-                    else { self.voice = false; self.status = "Allow Microphone and Speech Recognition in System Settings" }
-                }
-            }
-        }
-    }
-
-    private func resumeListening() {
-        guard voice, connected, !busy, !speaker.isSpeaking, !listening else { return }
-        guard let recognizer = recognizer, recognizer.isAvailable else { status = "Speech recognition is unavailable"; return }
-        let req = SFSpeechAudioBufferRecognitionRequest()
-        req.shouldReportPartialResults = true
-        if recognizer.supportsOnDeviceRecognition { req.requiresOnDeviceRecognition = true }
-        request = req
-        let node = audio.inputNode
-        let format = node.outputFormat(forBus: 0)
-        guard format.sampleRate > 0 else { status = "No microphone found"; return }
-        node.installTap(onBus: 0, bufferSize: 1024, format: format) { buffer, _ in req.append(buffer) }
-        do { try audio.start() } catch { node.removeTap(onBus: 0); status = "Could not start microphone"; return }
-        listening = true; status = "Listening…"
-        let capture = UUID(); listeningID = capture
-        recognition = recognizer.recognitionTask(with: req) { [weak self] result, error in
-            Task { @MainActor [weak self] in
-                guard let self = self, self.listening, self.listeningID == capture else { return }
-                if let result = result {
-                    self.draft = result.bestTranscription.formattedString
-                    self.silence?.invalidate()
-                    if result.isFinal { self.send() }
-                    else {
-                        self.silence = Timer.scheduledTimer(withTimeInterval: 1.4, repeats: false) { [weak self] _ in
-                            Task { @MainActor [weak self] in self?.send() }
-                        }
-                    }
-                } else if error != nil { self.stopListening(); self.status = "Microphone stopped · toggle voice to retry" }
-            }
-        }
-    }
-
-    private func stopListening() {
-        listeningID = UUID()
-        silence?.invalidate(); silence = nil
-        if listening { audio.stop(); audio.inputNode.removeTap(onBus: 0) }
-        listening = false; request?.endAudio(); recognition?.cancel(); recognition = nil; request = nil
+        if voice { stop(); return }
+        voice = true
+        liveVoice.start()
     }
 
     private func speakSentences(flush: Bool) {
@@ -208,13 +187,8 @@ final class Chat: NSObject, ObservableObject, AVSpeechSynthesizerDelegate {
         }
         if flush { speak(speechBuffer); speechBuffer = "" }
     }
-    private func speak(_ text: String) {
-        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
-        let utterance = AVSpeechUtterance(string: text); utterance.rate = 0.5; speaker.speak(utterance)
-    }
-    nonisolated func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) {
-        Task { @MainActor in self.resumeListening() }
-    }
+    private func speak(_ text: String) { liveVoice.speak(text) }
+
 }
 
 struct MessageText: NSViewRepresentable {
@@ -254,69 +228,101 @@ struct MessageText: NSViewRepresentable {
     }
 }
 
+@MainActor struct VoiceStrip: View {
+    @ObservedObject var live: LiveVoice
+    let busy: Bool
+    let end: () -> Void
+    private var title: String {
+        if !live.transcript.isEmpty { return "Listening" }
+        if live.speaking { return "Speaking" }
+        return busy ? "Thinking" : live.active ? "Listening" : live.startupMessage
+    }
+    var body: some View {
+        HStack(spacing: 16) {
+            Image(systemName: live.speaking ? "waveform" : "mic.fill")
+                .font(.system(size: 24, weight: .medium)).foregroundStyle(Color.accentColor)
+                .frame(width: 48, height: 48).background(Color.accentColor.opacity(0.10), in: Circle())
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title).font(.headline)
+                Text(live.transcript.isEmpty ? "Speak naturally. You can interrupt me." : live.transcript)
+                    .font(.callout).foregroundStyle(.secondary).lineLimit(3)
+            }
+            Spacer(minLength: 8)
+            Button("End", action: end).buttonStyle(.bordered).accessibilityLabel("End voice conversation")
+        }.padding(18).background(Color.accentColor.opacity(0.04), in: RoundedRectangle(cornerRadius: 18))
+    }
+}
+
 @MainActor struct ConversationView: View {
     @StateObject private var chat = Chat()
     var body: some View {
-        HStack(spacing: 0) {
-            VStack(alignment: .leading, spacing: 22) {
-                Label("Personal Assistant", systemImage: "sparkle").font(.headline)
-                Text("One conversation.\nShared memory.").font(.title2).foregroundColor(.secondary)
+        VStack(spacing: 0) {
+            HStack(spacing: 16) {
+                Text("Personal Assistant").font(.system(size: 17, weight: .semibold))
+                Spacer()
                 Picker("Model", selection: $chat.runtime) {
                     Text("Claude").tag("claude-agent-sdk")
                     Text("ChatGPT").tag("codex")
-                }.disabled(chat.busy)
-                Toggle("Test memory", isOn: $chat.test).disabled(chat.busy)
-                Spacer()
-                Text(chat.test ? "Local test database" : "Personal memory in Supabase").font(.caption).foregroundColor(.secondary)
-            }.padding(24).frame(width: 210).frame(maxHeight: .infinity).background(.ultraThinMaterial)
-            VStack(spacing: 0) {
-                HStack { Text("Conversation").font(.headline); Spacer(); Text(chat.listening ? "● Listening" : chat.busy ? "Working" : "").foregroundColor(.secondary) }.padding(24)
-                Divider()
-                ScrollViewReader { proxy in
-                    ScrollView {
-                        LazyVStack(alignment: .leading, spacing: 28) {
-                            if chat.messages.isEmpty {
-                                VStack(alignment: .leading, spacing: 12) {
-                                    Text("What’s on your mind?").font(.largeTitle)
-                                    Text("Type a message or turn on voice to talk.").foregroundColor(.secondary)
-                                }.padding(.vertical, 70)
-                            }
-                            ForEach(chat.messages) { message in
+                }.labelsHidden().frame(width: 112).disabled(chat.busy || chat.voice)
+                Toggle("Test memory", isOn: $chat.test).toggleStyle(.switch).controlSize(.small).disabled(chat.busy || chat.voice)
+                Button("Clear", action: { chat.clearChat() }).buttonStyle(.borderless)
+                    .disabled(chat.busy || !chat.connected).help("Start a fresh chat. Keep memory.")
+            }.padding(.horizontal, 28).padding(.top, 22).padding(.bottom, 18)
+            Divider().opacity(0.5)
+            ScrollViewReader { proxy in
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 26) {
+                        if chat.messages.isEmpty {
+                            VStack(alignment: .leading, spacing: 12) {
+                                Text("What’s on your mind?").font(.system(size: 32, weight: .medium, design: .rounded))
+                                Text("Write a little. Talk it through.").font(.title3).foregroundStyle(.secondary)
+                            }.padding(.vertical, 80)
+                        }
+                        ForEach(chat.messages) { message in
+                            HStack {
+                                if message.role == "user" { Spacer(minLength: 60) }
                                 VStack(alignment: .leading, spacing: 8) {
                                     HStack {
-                                        Text(message.role == "user" ? "You" : "Assistant").font(.caption.weight(.semibold)).foregroundColor(.secondary)
+                                        Text(message.role == "user" ? "You" : "Assistant").font(.caption.weight(.medium)).foregroundStyle(.secondary)
                                         Spacer()
                                         Button {
                                             NSPasteboard.general.clearContents()
                                             NSPasteboard.general.setString(message.text, forType: .string)
-                                        } label: { Label("Copy", systemImage: "doc.on.doc") }
-                                        .buttonStyle(.borderless).font(.caption).disabled(message.text.isEmpty)
+                                        } label: { Image(systemName: "doc.on.doc") }
+                                        .buttonStyle(.borderless).foregroundStyle(.secondary).help("Copy message").accessibilityLabel("Copy message").disabled(message.text.isEmpty)
                                     }
                                     MessageText(text: message.text.isEmpty ? "…" : message.text)
-                                }.frame(maxWidth: .infinity, alignment: .leading).id(message.id)
-                            }
-                            Color.clear.frame(height: 1).id("bottom")
-                        }.padding(32).frame(maxWidth: 800).frame(maxWidth: .infinity)
-                    }.onChange(of: chat.messages.last?.text) { _ in proxy.scrollTo("bottom", anchor: .bottom) }
-                }
-                VStack(alignment: .leading, spacing: 10) {
-                    HStack {
-                        Button("Clear", action: { chat.clearChat() }).disabled(chat.busy || !chat.connected).help("Clear the chat and start fresh. Keep structured memory.")
-                        Text(chat.status).font(.caption).foregroundColor(.secondary).lineLimit(2)
-                        if !chat.connected && !chat.busy {
-                            Button("Retry", action: { chat.connect() })
+                                }.padding(message.role == "user" ? 16 : 0)
+                                    .background(message.role == "user" ? Color(nsColor: .controlBackgroundColor) : Color.clear, in: RoundedRectangle(cornerRadius: 16))
+                                if message.role != "user" { Spacer(minLength: 32) }
+                            }.id(message.id)
                         }
+                        Color.clear.frame(height: 1).id("bottom")
+                    }.padding(28).frame(maxWidth: 780).frame(maxWidth: .infinity)
+                }.onChange(of: chat.messages.last?.text) { _ in proxy.scrollTo("bottom", anchor: .bottom) }
+            }
+            VStack(alignment: .leading, spacing: 12) {
+                if chat.voice { VoiceStrip(live: chat.liveVoice, busy: chat.busy, end: { chat.stop() }) }
+                HStack(alignment: .bottom, spacing: 12) {
+                    TextField("Message your assistant", text: $chat.draft, axis: .vertical).lineLimit(1...6).textFieldStyle(.plain).onSubmit { chat.send() }
+                        .padding(.vertical, 7)
+                    if !chat.voice {
+                        Button(action: { chat.toggleVoice() }) { Label("Talk", systemImage: "waveform") }
+                            .buttonStyle(.bordered).disabled(!chat.connected).help("Start a live voice conversation")
                     }
-                    if !chat.memoryStatus.isEmpty { Text(chat.memoryStatus).font(.caption).foregroundColor(.secondary) }
-                    HStack(alignment: .bottom, spacing: 12) {
-                        TextField("Message your assistant", text: $chat.draft, axis: .vertical).lineLimit(1...6).textFieldStyle(.plain).onSubmit { chat.send() }
-                        Button(action: { chat.toggleVoice() }) { Image(systemName: chat.voice ? "mic.fill" : "mic") }.disabled(!chat.connected).help("Voice conversation")
-                        if chat.busy || chat.voice { Button(action: { chat.stop() }) { Image(systemName: "stop.fill") }.help("Stop reply and voice") }
-                        Button(action: { chat.send() }) { Image(systemName: "arrow.up.circle.fill").font(.title2) }.buttonStyle(.plain).disabled(chat.busy || !chat.connected || chat.draft.isEmpty).keyboardShortcut(.return, modifiers: .command)
-                    }.padding(16).background(RoundedRectangle(cornerRadius: 18).fill(Color(nsColor: .controlBackgroundColor)))
-                }.padding(24)
-            }.frame(minWidth: 540)
-        }.frame(minWidth: 840, minHeight: 620)
+                    if chat.busy { Button(action: { chat.stop() }) { Image(systemName: "stop.fill") }.buttonStyle(.borderless).help("Stop reply") }
+                    Button(action: { chat.send() }) { Image(systemName: "arrow.up.circle.fill").font(.system(size: 28)) }
+                        .buttonStyle(.plain).foregroundStyle(chat.draft.isEmpty ? Color.secondary : Color.accentColor)
+                        .disabled(chat.busy || !chat.connected || chat.draft.isEmpty).keyboardShortcut(.return, modifiers: .command).accessibilityLabel("Send message")
+                }.padding(14).background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 18))
+                HStack(alignment: .top) {
+                    Text(chat.status).lineLimit(2)
+                    if !chat.connected && !chat.busy { Button("Retry", action: { chat.connect() }).buttonStyle(.borderless) }
+                    Spacer()
+                    Text(chat.memoryStatus.isEmpty ? (chat.test ? "Test memory" : "Personal memory") : chat.memoryStatus).lineLimit(2)
+                }.font(.caption).foregroundStyle(.secondary)
+            }.padding(.horizontal, 28).padding(.bottom, 20).frame(maxWidth: 780).frame(maxWidth: .infinity)
+        }.background(Color(nsColor: .windowBackgroundColor)).frame(minWidth: 660, minHeight: 600)
             .onAppear { if !chat.connected && !chat.busy { chat.connect() } }
             .onChange(of: chat.runtime) { _ in chat.connect() }
             .onChange(of: chat.test) { _ in chat.connect() }

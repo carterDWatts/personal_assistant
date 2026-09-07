@@ -54,11 +54,18 @@ async def main():
                 emit("memory", text="Memory status is unavailable.")
             await asyncio.sleep(3)
 
+    interrupted = False
+
     async def reply(text):
+        nonlocal interrupted
+        interrupted = False
         try:
             await session.send(text)
         except RuntimeError as error:
-            emit("error", text=str(error))
+            if interrupted:
+                emit("ready")
+            else:
+                emit("error", text=str(error))
         except Exception:
             emit("error", text="The reply failed. Previously saved messages are available; reconnect to continue.")
         else:
@@ -87,6 +94,9 @@ async def main():
                     if text:
                         active = asyncio.create_task(reply(text))
                 elif action == "stop" and session:
+                    interrupted = bool(active and not active.done())
+                    if not interrupted:
+                        continue
                     interrupt = getattr(session.runtime, "interrupt", None)
                     if interrupt:
                         await interrupt()

@@ -51,3 +51,19 @@ class codex_test(unittest.IsolatedAsyncioTestCase):
         await runtime._read()
         with self.assertRaises(RuntimeError):await future
         self.assertIsInstance(await runtime.events.get(),RuntimeError)
+
+    async def test_interrupt_during_turn_start_is_not_lost(self):
+        runtime = CodexRuntime(); runtime.session_id = 'thread'
+        requested = []
+        async def request(method, params):
+            requested.append(method)
+            if method == 'turn/start':
+                await runtime.interrupt()
+                return {'turn': {'id': 'turn'}}
+            return {}
+        runtime.request = request
+        await runtime.events.put({'method':'turn/completed','params':{'threadId':'thread','turn':{'id':'turn','status':'interrupted'}}})
+        with self.assertRaises(RuntimeError):
+            async for _ in runtime.send('test'): pass
+        self.assertEqual(requested, ['turn/start', 'turn/interrupt'])
+        self.assertFalse(runtime.interrupt_requested)
