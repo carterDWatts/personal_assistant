@@ -143,7 +143,8 @@ struct AccountError: LocalizedError {
     }
 
     private func auth(_ path: String, _ body: [String: Any]) async throws -> [String: Any] {
-        var request = URLRequest(url: Relay.url.appendingPathComponent("auth/v1/" + path))
+        guard let url = URL(string: Relay.url.absoluteString + "/auth/v1/" + path) else { throw AccountError("Bad sign-in address.") }
+        var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.timeoutInterval = 20
         request.setValue(Relay.key, forHTTPHeaderField: "apikey")
@@ -153,7 +154,7 @@ struct AccountError: LocalizedError {
         let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] ?? [:]
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
         guard (200..<300).contains(status) else {
-            throw AccountError(json["msg"] as? String ?? json["error_description"] as? String ?? "Sign-in failed.")
+            throw AccountError(json["msg"] as? String ?? json["error_description"] as? String ?? "Sign-in failed (\(status)).")
         }
         return json
     }
