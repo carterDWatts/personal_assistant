@@ -1,13 +1,18 @@
 import Foundation
 
-// Keep cancelled output out of playback until the engine acknowledges the turn ending.
+// Stop playback on tentative speech; cancel generation only for a complete utterance.
 struct VoiceTurn {
     private(set) var interrupted = false
     private(set) var pending: String?
+    private var cancellationRequested = false
+
+    mutating func pausePlayback(busy: Bool) {
+        if busy { interrupted = true }
+    }
 
     mutating func interrupt(busy: Bool) -> Bool {
-        guard busy, !interrupted else { return false }
-        interrupted = true
+        guard busy, !cancellationRequested else { return false }
+        interrupted = true; cancellationRequested = true
         return true
     }
 
@@ -18,7 +23,7 @@ struct VoiceTurn {
     mutating func discardPending() { pending = nil }
 
     mutating func ready() -> String? {
-        interrupted = false
+        interrupted = false; cancellationRequested = false
         defer { pending = nil }
         return pending
     }

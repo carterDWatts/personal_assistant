@@ -162,13 +162,16 @@ final class Chat: NSObject, ObservableObject {
 
     private func interruptForSpeech() {
         liveVoice.silencePlayback(); speechBuffer = ""
-        if voiceTurn.interrupt(busy: busy) { write(["type": "stop"]) }
+        voiceTurn.pausePlayback(busy: busy)
         status = "Listening…"
     }
 
     private func sendVoice(_ text: String) {
         guard voice, connected else { return }
-        if busy { objectWillChange.send(); voiceTurn.queue(text); interruptForSpeech() }
+        if busy {
+            objectWillChange.send(); voiceTurn.queue(text); interruptForSpeech()
+            if voiceTurn.interrupt(busy: busy) { write(["type": "stop"]) }
+        }
         else { submit(text) }
     }
 
