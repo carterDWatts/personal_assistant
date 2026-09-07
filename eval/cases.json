@@ -1,0 +1,237 @@
+{
+  "about": "Knowledge-update and abstention cases against the knowledge map. Each case lists what was said or synced, in day offsets from the question, then the question and the answer the assistant must give. map_expectation is what the current views must show once the setup has been extracted. Cases run in two modes: schema mode applies the setup through the write functions and checks the views; agent mode feeds the setup through extraction and asks the model.",
+  "cases": [
+    {
+      "id": "update_single_value",
+      "category": "knowledge_update",
+      "setup": [
+        {"day": -3, "from": "user", "text": "The car is parked on 5th street."},
+        {"day": 0, "from": "user", "text": "I moved the car into the garage this morning."}
+      ],
+      "question": "Where is the car?",
+      "expected_answer": "In the garage, since this morning.",
+      "map_expectation": {"entity": "car", "attribute": "parked_at", "current": "garage", "history": ["5th street"]}
+    },
+    {
+      "id": "update_not_blended",
+      "category": "knowledge_update",
+      "setup": [
+        {"day": -30, "from": "user", "text": "I live at 12 Orchard Street."},
+        {"day": -2, "from": "user", "text": "I moved. The new place is 88 Grand Street, apartment 4B."}
+      ],
+      "question": "What's my address?",
+      "expected_answer": "88 Grand Street, apartment 4B. Orchard Street was the old one.",
+      "map_expectation": {"entity": "carter", "attribute": "address", "current": "88 Grand Street, apartment 4B", "history": ["12 Orchard Street"]}
+    },
+    {
+      "id": "update_relationship",
+      "category": "knowledge_update",
+      "setup": [
+        {"day": -60, "from": "user", "text": "I work at Acme."},
+        {"day": -1, "from": "user", "text": "I start at Globex on Monday. Last day at Acme was Friday."}
+      ],
+      "question": "Who do I work for?",
+      "expected_answer": "Globex, starting Monday. Acme ended Friday.",
+      "map_expectation": {"relationship": {"subject": "carter", "relation": "employed_by", "current_object": "globex", "history_objects": ["acme"]}}
+    },
+    {
+      "id": "update_schedule",
+      "category": "knowledge_update",
+      "setup": [
+        {"day": -20, "from": "user", "text": "I lift five days a week."},
+        {"day": -1, "from": "user", "text": "I've cut the gym back to three days a week for now."}
+      ],
+      "question": "How many days a week do I lift?",
+      "expected_answer": "Three, as of yesterday. It was five before that.",
+      "map_expectation": {"entity": "gym", "attribute": "schedule", "current": "three days a week", "history": ["five days a week"]}
+    },
+    {
+      "id": "history_query",
+      "category": "temporal",
+      "setup": [
+        {"day": -10, "from": "user", "text": "The car is at the airport lot."},
+        {"day": -6, "from": "user", "text": "Picked the car up, it's on 5th street now."},
+        {"day": -1, "from": "user", "text": "Car's in the garage."}
+      ],
+      "question": "Where was the car a week ago?",
+      "expected_answer": "At the airport lot. It moved to 5th street six days ago and into the garage yesterday.",
+      "map_expectation": {"entity": "car", "attribute": "parked_at", "current": "garage", "history": ["airport lot", "5th street"], "transitions": 2}
+    },
+    {
+      "id": "count_transitions",
+      "category": "temporal",
+      "setup": [
+        {"day": -14, "from": "user", "text": "Car's on 5th street."},
+        {"day": -9, "from": "user", "text": "Moved the car to the garage."},
+        {"day": -4, "from": "user", "text": "Car's back on 5th street."},
+        {"day": -1, "from": "user", "text": "Garage again."}
+      ],
+      "question": "How many times has the car moved in the last two weeks?",
+      "expected_answer": "Three times.",
+      "map_expectation": {"entity": "car", "attribute": "parked_at", "transitions": 3}
+    },
+    {
+      "id": "multi_valued_add_and_drop",
+      "category": "multi_valued",
+      "setup": [
+        {"day": -40, "from": "user", "text": "My hobbies are climbing and wrenching on the car."},
+        {"day": -3, "from": "user", "text": "I've gotten into cycling lately."},
+        {"day": -1, "from": "user", "text": "I've stopped climbing, my shoulder can't take it."}
+      ],
+      "question": "What are my hobbies?",
+      "expected_answer": "Wrenching on the car and cycling. Climbing stopped yesterday because of your shoulder.",
+      "map_expectation": {"entity": "carter", "attribute": "hobby", "current_set": ["wrenching", "cycling"], "closed": ["climbing"]}
+    },
+    {
+      "id": "correction_not_transition",
+      "category": "correction",
+      "setup": [
+        {"day": -2, "from": "user", "text": "The dentist is at 3pm Thursday."},
+        {"day": -1, "from": "user", "text": "I misspoke, the dentist was never at 3. It's at 4pm Thursday."}
+      ],
+      "question": "When is the dentist?",
+      "expected_answer": "4pm Thursday.",
+      "map_expectation": {"entity": "dentist appointment", "attribute": "time", "current": "4pm Thursday", "deprecated": ["3pm Thursday"], "transitions": 0}
+    },
+    {
+      "id": "backdated_start",
+      "category": "temporal",
+      "setup": [
+        {"day": -1, "from": "user", "text": "By the way, I've actually been at Globex since the first of August."}
+      ],
+      "question": "How long have I been at Globex?",
+      "expected_answer": "Since August 1.",
+      "map_expectation": {"relationship": {"subject": "carter", "relation": "employed_by", "current_object": "globex", "valid_from": "2026-08-01"}}
+    },
+    {
+      "id": "source_then_user_wins",
+      "category": "knowledge_update",
+      "setup": [
+        {"day": -3, "from": "google_calendar", "text": "Event: Dentist, Thursday 3:00pm."},
+        {"day": -1, "from": "user", "text": "I pushed the dentist to 4."}
+      ],
+      "question": "When is the dentist?",
+      "expected_answer": "4pm Thursday. The calendar still shows 3pm, so it may need updating.",
+      "map_expectation": {"entity": "dentist appointment", "attribute": "time", "current": "4pm Thursday", "current_level": "stated", "history": ["3pm Thursday"]}
+    },
+    {
+      "id": "user_then_source_wins",
+      "category": "knowledge_update",
+      "setup": [
+        {"day": -3, "from": "user", "text": "Dentist is Thursday at 4."},
+        {"day": -1, "from": "google_calendar", "text": "Event updated: Dentist, Friday 10:00am."}
+      ],
+      "question": "When is the dentist?",
+      "expected_answer": "Friday at 10am, per the calendar. It was Thursday at 4 before.",
+      "map_expectation": {"entity": "dentist appointment", "attribute": "time", "current": "Friday 10:00am", "current_level": "synced"}
+    },
+    {
+      "id": "abstain_never_stated",
+      "category": "abstention",
+      "setup": [
+        {"day": -5, "from": "user", "text": "I took the dog to the park."}
+      ],
+      "question": "What's my dog's name?",
+      "expected_answer": "I don't know it. You've mentioned the dog but never the name.",
+      "map_expectation": {"entity": "dog", "attribute": "name", "current": null}
+    },
+    {
+      "id": "abstain_retired_fact",
+      "category": "abstention",
+      "setup": [
+        {"day": -20, "from": "user", "text": "I'm subscribed to the climbing gym."},
+        {"day": -2, "from": "user", "text": "I cancelled the climbing gym membership."}
+      ],
+      "question": "Which gym am I a member of?",
+      "expected_answer": "None that I know of. The climbing gym membership was cancelled two days ago.",
+      "map_expectation": {"relationship": {"subject": "carter", "relation": "member_of", "current_object": null, "history_objects": ["climbing gym"]}}
+    },
+    {
+      "id": "stale_with_caveat",
+      "category": "abstention",
+      "setup": [
+        {"day": -12, "from": "user", "text": "The car is on 5th street."}
+      ],
+      "question": "Is the car still on 5th street?",
+      "expected_answer": "Last I knew, yes, but that was twelve days ago and it's past the point I'd trust it. Is it still there?",
+      "map_expectation": {"entity": "car", "attribute": "parked_at", "current": "5th street", "stale": true}
+    },
+    {
+      "id": "merge_unifies",
+      "category": "merge",
+      "setup": [
+        {"day": -8, "from": "user", "text": "Sam is helping me with the move on Saturday."},
+        {"day": -6, "from": "gmail", "text": "From Samantha Lee: confirming Saturday for the move, I'll bring the truck."},
+        {"day": -1, "from": "user", "text": "Samantha Lee and Sam are the same person."}
+      ],
+      "question": "What is Sam bringing on Saturday?",
+      "expected_answer": "The truck.",
+      "map_expectation": {"entity": "samantha lee", "aliases": ["sam"], "merged_count": 1}
+    },
+    {
+      "id": "merge_uncertain_becomes_question",
+      "category": "merge",
+      "setup": [
+        {"day": -8, "from": "user", "text": "Alex from the climbing gym might come to the barbecue."},
+        {"day": -2, "from": "gmail", "text": "From Alex Rivera: see you Sunday."}
+      ],
+      "question": "Is Alex Rivera the Alex from the gym?",
+      "expected_answer": "I'm not sure. I'd like to confirm that rather than assume it.",
+      "map_expectation": {"questions": [{"kind": "merge"}]}
+    },
+    {
+      "id": "plan_vs_actual",
+      "category": "calibration",
+      "setup": [
+        {"day": -5, "from": "user", "text": "Plan for this week: gym every weekday."},
+        {"day": -3, "from": "user", "text": "Went to the gym Monday and Tuesday. Skipped Wednesday."},
+        {"day": -1, "from": "user", "text": "Skipped Thursday and Friday too."}
+      ],
+      "question": "How did the gym plan go this week?",
+      "expected_answer": "Two of five. Monday and Tuesday done, Wednesday through Friday skipped.",
+      "map_expectation": {"plans": {"category": "gym", "planned": 5, "done": 2, "skipped": 3}}
+    },
+    {
+      "id": "rule_learned",
+      "category": "rules",
+      "setup": [
+        {"day": -1, "from": "user", "text": "You can always move my solo calendar blocks around. Never touch anything with other attendees."}
+      ],
+      "question": "Can you move my 2pm focus block to 4pm?",
+      "expected_answer": "Yes, it's a solo block, so I'll move it.",
+      "map_expectation": {"rules": [{"kind": "mandate", "status": "active"}]}
+    },
+    {
+      "id": "tuning_in_band",
+      "category": "rules",
+      "setup": [
+        {"day": -1, "from": "user", "text": "Fewer questions in the mornings, one is plenty."}
+      ],
+      "question": "How many questions will you ask tomorrow morning?",
+      "expected_answer": "One.",
+      "map_expectation": {"tuning": {"question_budget": 1}}
+    },
+    {
+      "id": "emergent_proposal",
+      "category": "proposal",
+      "setup": [
+        {"day": -30, "from": "user", "text": "Street cleaning on 5th street is every Tuesday morning."},
+        {"day": -1, "from": "user", "text": "Car's on 5th street."}
+      ],
+      "question": "Anything I should do today? It's Monday.",
+      "expected_answer": "Move the car off 5th street before tomorrow morning, it's street cleaning Tuesday.",
+      "map_expectation": {"plans": [{"status": "proposed", "origin": "map"}]}
+    },
+    {
+      "id": "concurrent_writers",
+      "category": "concurrency",
+      "setup": [
+        {"day": 0, "from": "device:mac", "text": "Car's in the garage."},
+        {"day": 0, "from": "device:phone", "text": "Car's on 5th street.", "note": "asserted seconds after the mac"}
+      ],
+      "question": "Where is the car?",
+      "expected_answer": "On 5th street, per the latest report.",
+      "map_expectation": {"entity": "car", "attribute": "parked_at", "current": "5th street", "current_count": 1, "history": ["garage"]}
+    }
+  ]
+}

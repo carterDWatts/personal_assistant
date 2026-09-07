@@ -27,3 +27,7 @@ To push it to the project:
 supabase link --project-ref koauvyfxewczcajnlrfp
 supabase db push
 ```
+
+## The eval set
+
+`eval/cases.json` holds knowledge-update and abstention cases: what was said or synced, the question, the answer the assistant must give, and what the current views must show. It is the regression check for extraction, retrieval and consolidation, written before any of that logic exists so the logic is held to it rather than the other way round.
