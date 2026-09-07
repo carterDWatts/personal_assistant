@@ -45,6 +45,7 @@ final class Chat: NSObject, ObservableObject, AVSpeechSynthesizerDelegate {
 
     func connect() {
         disconnect()
+        messages = []
         let epoch = generation
         guard let settings = Bundle.main.infoDictionary,
               let root = settings["AssistantRoot"] as? String,

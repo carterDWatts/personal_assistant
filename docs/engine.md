@@ -63,3 +63,5 @@ The real map only ever holds real life. Anything exploratory runs against a sepa
 The SwiftUI app starts `python -m engine.desktop` as a child process and exchanges newline-delimited JSON over private pipes. There is no HTTP listener and no database password in the app bundle. Runtime opening, streaming, interruption and closing use the same `Session` class as the terminal. Partial replies survive failed or interrupted turns.
 
 The native voice loop uses Speech and AVFoundation. It sends an utterance after a pause and speaks completed sentences as they stream. It stops listening during playback to avoid hearing its own voice. Stop cancels playback and asks the runtime to interrupt. Microphone permissions and real-room voice quality need to be checked on the user's Mac.
+
+To verify retrieval with a real subscription model, run `python3 -m scripts.check_memory`. This creates a random fact in a rolled-back transaction on the local test map. A fresh ChatGPT session gets no transcript or snapshot and must recover the value through map tools. The check leaves existing chats and facts unchanged.
