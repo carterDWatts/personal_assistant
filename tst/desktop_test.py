@@ -63,3 +63,22 @@ class desktop_voice_test(unittest.IsolatedAsyncioTestCase):
             await asyncio.wait_for(desktop.main(), 5)
         self.assertEqual(events.count('ready'), 2)
         self.assertNotIn('error', events)
+
+
+class connection_prompt_test(unittest.TestCase):
+    def test_connection_errors_emit_chat_action(self):
+        from engine.desktop import DesktopIO
+        import json
+        with patch('engine.desktop.emit') as emit:
+            DesktopIO().tool_result({'is_error': True, 'content': json.dumps({'error':'Permission needed', 'connection_action':'google_calendar_write'})})
+        emit.assert_called_once_with('connection_required', action='google_calendar_write')
+
+    def test_plain_errors_and_untrusted_actions_do_not_prompt(self):
+        from engine.desktop import DesktopIO
+        import json
+        with patch('engine.desktop.emit') as emit:
+            for payload in ({'is_error':True,'content':'Network failed'},
+                            {'is_error':False,'content':json.dumps({'connection_action':'google_connect'})},
+                            {'is_error':True,'content':json.dumps({'connection_action':'unknown'})}):
+                DesktopIO().tool_result(payload)
+        emit.assert_not_called()

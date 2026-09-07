@@ -58,6 +58,8 @@ final class Chat: NSObject, ObservableObject {
     @Published var googleCalendarWrite = false
     @Published var googleConnecting = false
     @Published var connectionError = ""
+    @Published var connectionPrompt: String? = nil
+    @Published var connectionPromptSatisfied = false
     @Published var plans: [PlanItem] = []
     @Published var openQuestions = 0
     @Published var memoryPending = 0
@@ -99,6 +101,7 @@ final class Chat: NSObject, ObservableObject {
     func connect(clear: Bool = false) {
         disconnect()
         messages = []
+        connectionPrompt = nil
         let epoch = generation
         guard let settings = Bundle.main.infoDictionary,
               let root = settings["AssistantRoot"] as? String,
@@ -163,7 +166,12 @@ final class Chat: NSObject, ObservableObject {
             guard let event = (try? JSONSerialization.jsonObject(with: line)) as? [String: Any], let type = event["type"] as? String else { continue }
             let text = event["text"] as? String ?? ""
             switch type {
+            case "connection_required":
+                connectionPrompt = event["action"] as? String
+                connectionPromptSatisfied = false
+                refreshConnections()
             case "connections":
+                if event["completed"] as? Bool == true { connectionPromptSatisfied = true }
                 googleConfigured = event["configured"] as? Bool ?? false
                 googleConnected = event["connected"] as? Bool ?? false
                 googleCalendarWrite = event["calendar_write"] as? Bool ?? false
@@ -482,6 +490,31 @@ struct DayPanel: View {
     }
 }
 
+struct ChatConnectionPrompt: View {
+    @ObservedObject var chat: Chat
+    private var ready: Bool { chat.connectionPromptSatisfied }
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Label(ready ? "Google is ready" : "Connect Google to continue", systemImage: "link").font(.headline)
+            Text(ready ? "You can pick up where you left off." : "Give Bunny Man access without leaving this conversation.").font(.callout).foregroundStyle(.secondary)
+            if chat.googleConnecting {
+                HStack { ProgressView().controlSize(.small); Text("Finish in your browser…") }
+            } else if ready {
+                Button("Continue") {
+                    chat.connectionPrompt = nil
+                    chat.draft = "Google is connected now. Please continue my previous request."
+                    chat.send()
+                }.disabled(chat.busy).buttonStyle(.borderedProminent)
+            } else {
+                Button(chat.connectionPrompt == "google_calendar_write" ? "Enable calendar editing" : "Connect Google") { chat.connectGoogle() }
+                    .buttonStyle(.borderedProminent)
+            }
+            if !chat.connectionError.isEmpty { Text(chat.connectionError).font(.caption).foregroundStyle(.secondary) }
+        }.padding(16).frame(maxWidth: .infinity, alignment: .leading)
+            .background(.quaternary, in: RoundedRectangle(cornerRadius: 14))
+    }
+}
+
 struct ConnectionsView: View {
     @ObservedObject var chat: Chat
     var body: some View {
@@ -576,6 +609,7 @@ struct SettingsPopover: View {
                                 if message.role != "user" { Spacer(minLength: 12) }
                             }
                         }
+                        if chat.connectionPrompt != nil { ChatConnectionPrompt(chat: chat) }
                         Color.clear.frame(height: 1).id("voice-bottom")
                     }.padding(.horizontal, 18).padding(.bottom, 12)
                 }
@@ -693,6 +727,7 @@ struct SettingsPopover: View {
                             }
                             MessageRow(message: message, palette: palette).id(message.id)
                         }
+                        if chat.connectionPrompt != nil { ChatConnectionPrompt(chat: chat) }
                         Color.clear.frame(height: 1).id("bottom")
                             .onAppear { followConversation = true }
                             .onDisappear { followConversation = false }

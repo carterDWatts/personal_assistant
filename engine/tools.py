@@ -34,6 +34,12 @@ class ToolError(Exception):
     pass
 
 
+class ConnectionRequired(ToolError):
+    def __init__(self, message, action):
+        super().__init__(message)
+        self.action = action
+
+
 def _s(desc, **extra):
     return {"type": "string", "description": desc, **extra}
 
@@ -445,6 +451,8 @@ async def run(spec, args):
             result = await spec.fn(args or {})
     except ValidationError as e:
         return "Invalid tool arguments: " + e.message, True
+    except ConnectionRequired as e:
+        return dumps({"error": str(e), "connection_action": e.action}), True
     except ToolError as e:
         return str(e), True
     except Exception as e:  # noqa: BLE001 - database errors are the model's problem to react to

@@ -15,7 +15,7 @@ from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 
 from engine import config
-from engine.tools import ToolError
+from engine.tools import ToolError, ConnectionRequired
 
 WRITE_SCOPE = "https://www.googleapis.com/auth/calendar.events"
 SCOPES = [WRITE_SCOPE, "https://www.googleapis.com/auth/calendar.readonly", "https://www.googleapis.com/auth/gmail.readonly"]
@@ -79,15 +79,15 @@ def _request(method, path, params=None, body=None):
     with _LOCK:
         credentials = _credentials()
         if not credentials:
-            raise ToolError("Google is not connected. Open Connections and choose Connect Google.")
+            raise ConnectionRequired("Google is not connected. Use Connect Google in the chat.", "google_connect")
         if method != "GET" and not credentials.has_scopes([WRITE_SCOPE]):
-            raise ToolError("Calendar editing needs permission. Choose Enable calendar editing in Connections.")
+            raise ConnectionRequired("Calendar editing needs permission. Choose Enable calendar editing in the chat.", "google_calendar_write")
         try:
             if not credentials.valid:
                 credentials.refresh(Request())
                 keyring.set_password(SERVICE, config.ENV, credentials.to_json())
         except Exception:
-            raise ToolError("Google access has expired. Reconnect Google in Connections.") from None
+            raise ConnectionRequired("Google access has expired. Reconnect Google in the chat.", "google_connect") from None
     with AuthorizedSession(credentials) as session:
         response = session.request(method, "https://www.googleapis.com/" + path, params=params, json=body, timeout=10)
         if response.status_code == 409 and method == "POST":

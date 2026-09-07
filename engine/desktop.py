@@ -34,6 +34,15 @@ class DesktopIO:
     def replace_text(self, text): emit("replace", text=text)
     def end_turn(self): emit("end")
     def note(self, text): emit("status", text=text)
+    def tool_result(self, payload):
+        if not payload.get("is_error"):
+            return
+        try:
+            data = json.loads(payload.get("content", ""))
+        except (ValueError, TypeError):
+            return
+        if isinstance(data, dict) and data.get("connection_action") in ("google_connect", "google_calendar_write"):
+            emit("connection_required", action=data["connection_action"])
     def close(self): pass
 
 
@@ -51,7 +60,7 @@ async def main():
         emit("connections", **(await asyncio.to_thread(google.status)), connecting=True)
         try:
             result = await asyncio.to_thread(google.connect if action == "google_connect" else google.disconnect)
-            emit("connections", **result, connecting=False)
+            emit("connections", **result, connecting=False, completed=action == "google_connect")
         except Exception:
             emit("connections", **(await asyncio.to_thread(google.status)), connecting=False,
                  error="Google wasn’t connected. Try again and approve Calendar and Gmail access.")

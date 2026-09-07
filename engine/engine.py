@@ -118,6 +118,8 @@ async def turn(runtime, conv, tools, io, segment_id, message_id, text):
                 conv.record(segment_id, "tool", None, {"call": ev.name, "input": ev.payload})
             elif ev.kind == "tool_result":
                 conv.record(segment_id, "tool", None, {"result_for": ev.name, **(ev.payload or {})})
+                if notify := getattr(io, "tool_result", None):
+                    notify(ev.payload or {})
         failed = False
     finally:
         if pending:
