@@ -347,7 +347,8 @@ class Tools:
     # --- the list --------------------------------------------------------------------------
 
     def read_specs(self):
-        return [spec for spec in self.specs() if spec.name in READ_TOOLS]
+        from engine.integrations import read_specs
+        return [spec for spec in self.specs() if spec.name in READ_TOOLS] + read_specs()
 
     def specs(self):
         entity_id = _s("entity id (uuid)")

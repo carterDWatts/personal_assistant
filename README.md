@@ -79,3 +79,9 @@ ASSISTANT_RUNTIME=codex python3 assistant.py talk
 ```
 
 The assistant’s name lives in `identity.json`. Both model adapters use it through the shared persona in `prompts/persona.md`, and the Mac build copies it into the app. To rename the character, edit that one value and rebuild the app; storage paths and conversation history do not change.
+
+## Connections
+
+Open Connections (the link button) in the app. Weather works automatically through [Open-Meteo](https://open-meteo.com/), with forecasts cached for at most five minutes. Google connects Calendar and Gmail through the system browser and stores its tokens in the operating system keychain, separately for test and production. Access is read-only. Disconnect removes this device’s token without deleting memory or disconnecting other devices.
+
+Developer setup, once per distribution: enable Calendar and Gmail in a Google Cloud project, configure the consent screen, and create a Desktop OAuth client. Keep its downloaded JSON at the ignored `google-client.json` in the project root. Customers only use **Connect Google**; they do not create clients or enter API keys. Without that registration this build labels Google sign-in unavailable. Public distribution requires Google’s applicable [OAuth verification](https://developers.google.com/identity/protocols/oauth2/production-readiness/restricted-scope-verification), particularly for Gmail access. The current sign-in callback is for desktop; mobile needs its platform’s native Google sign-in adapter.

@@ -43,7 +43,19 @@ async def main():
     from engine.db import Map
     from engine.engine import Session
     from engine.runtime import load
+    from engine.integrations import google
     map_, session, active, memory_poll = None, None, None, None
+    connection_task = None
+
+    async def google_action(action):
+        emit("connections", **(await asyncio.to_thread(google.status)), connecting=True)
+        try:
+            result = await asyncio.to_thread(google.connect if action == "google_connect" else google.disconnect)
+            emit("connections", **result, connecting=False)
+        except Exception:
+            emit("connections", **(await asyncio.to_thread(google.status)), connecting=False,
+                 error="Google wasn’t connected. Try again and approve Calendar and Gmail access.")
+
     async def monitor_memory():
         while True:
             try:
@@ -82,7 +94,13 @@ async def main():
             try:
                 message = json.loads(line)
                 action = message.get("type")
-                if action == "connect":
+                if action == "connections":
+                    emit("connections", **(await asyncio.to_thread(google.status)),
+                         connecting=bool(connection_task and not connection_task.done()))
+                elif action in ("google_connect", "google_disconnect"):
+                    if not connection_task or connection_task.done():
+                        connection_task = asyncio.create_task(google_action(action))
+                elif action == "connect":
                     if session:
                         raise ValueError("Already connected")
                     name = message.get("runtime", "claude-agent-sdk")

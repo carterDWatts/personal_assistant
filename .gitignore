@@ -10,3 +10,6 @@ supabase/.temp/
 build/
 .DS_Store
 *.egg-info/
+
+# Google app registration belongs to the developer, not customer setup.
+google-client.json

@@ -53,6 +53,10 @@ final class Chat: NSObject, ObservableObject {
     }
     @Published var status = "Starting…"
     @Published var memoryStatus = ""
+    @Published var googleConfigured = false
+    @Published var googleConnected = false
+    @Published var googleConnecting = false
+    @Published var connectionError = ""
     @Published var plans: [PlanItem] = []
     @Published var openQuestions = 0
     @Published var memoryPending = 0
@@ -142,6 +146,10 @@ final class Chat: NSObject, ObservableObject {
         process = nil; input = nil; buffer = Data(); connected = false; busy = false; streamingID = nil
     }
 
+    func refreshConnections() { write(["type": "connections"]) }
+    func connectGoogle() { connectionError = ""; googleConnecting = true; write(["type": "google_connect"]) }
+    func disconnectGoogle() { connectionError = ""; googleConnecting = true; write(["type": "google_disconnect"]) }
+
     private func write(_ value: [String: Any]) {
         guard let data = try? JSONSerialization.data(withJSONObject: value) else { return }
         do { try input?.write(contentsOf: data + Data([10])) } catch { status = "Connection closed" }
@@ -154,6 +162,11 @@ final class Chat: NSObject, ObservableObject {
             guard let event = (try? JSONSerialization.jsonObject(with: line)) as? [String: Any], let type = event["type"] as? String else { continue }
             let text = event["text"] as? String ?? ""
             switch type {
+            case "connections":
+                googleConfigured = event["configured"] as? Bool ?? false
+                googleConnected = event["connected"] as? Bool ?? false
+                googleConnecting = event["connecting"] as? Bool ?? false
+                connectionError = event["error"] as? String ?? event["message"] as? String ?? ""
             case "history":
                 messages = (event["messages"] as? [[String: Any]] ?? []).compactMap { row in
                     guard let role = row["role"] as? String, let content = row["content"] as? String else { return nil }
@@ -467,6 +480,43 @@ struct DayPanel: View {
     }
 }
 
+struct ConnectionsView: View {
+    @ObservedObject var chat: Chat
+    var body: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            Text("Connections").font(.title2.weight(.semibold))
+            HStack(alignment: .top, spacing: 12) {
+                Image(systemName: "cloud.sun").font(.title2)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Weather").font(.headline)
+                    Text("Available automatically. No account needed.").font(.callout).foregroundStyle(.secondary)
+                    Link("Forecasts by Open-Meteo", destination: URL(string: "https://open-meteo.com/")!).font(.caption)
+                }
+            }
+            Divider()
+            HStack(alignment: .top, spacing: 12) {
+                Image(systemName: "calendar").font(.title2)
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Google").font(.headline)
+                    Text("Read your calendar and recent email to help plan your day.").font(.callout).foregroundStyle(.secondary)
+                    if chat.googleConnecting {
+                        HStack { ProgressView().controlSize(.small); Text("Finish connecting in your browser…").font(.callout) }
+                    } else if chat.googleConnected {
+                        Text("Connected").foregroundStyle(.green)
+                        Button("Disconnect this device") { chat.disconnectGoogle() }
+                    } else if chat.googleConfigured {
+                        Button("Connect Google") { chat.connectGoogle() }.buttonStyle(.borderedProminent)
+                    } else {
+                        Text("Google sign-in isn’t available in this build yet.").font(.callout).foregroundStyle(.secondary)
+                    }
+                    Text("Nothing is sent or changed in your Google account.").font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            if !chat.connectionError.isEmpty { Text(chat.connectionError).font(.callout).foregroundStyle(.secondary) }
+        }.padding(22).frame(width: 340).onAppear { chat.refreshConnections() }
+    }
+}
+
 struct SettingsPopover: View {
     @ObservedObject var chat: Chat
     var body: some View {
@@ -555,6 +605,7 @@ struct SettingsPopover: View {
     @State private var followConversation = true
     @State private var showMemory = true
     @State private var showSettings = false
+    @State private var showConnections = false
     @Environment(\.colorScheme) private var scheme
     private var palette: Palette { Palette.forScheme(scheme) }
     private let column: CGFloat = 680
@@ -582,6 +633,9 @@ struct SettingsPopover: View {
                     Text(chat.status).font(.caption).foregroundStyle(.secondary).lineLimit(1)
                     if !chat.connected && !chat.busy { Button("Reconnect") { chat.connect() }.controlSize(.small) }
                 }
+                Button { showConnections.toggle() } label: { Image(systemName: "link") }
+                    .help("Connections")
+                    .popover(isPresented: $showConnections) { ConnectionsView(chat: chat) }
                 Button("Clear") {
                     chat.draft = ""
                     chat.connect(clear: true)

@@ -96,4 +96,3 @@ struct CornerGrowth: View {
             .allowsHitTesting(false).accessibilityHidden(true)
     }
 }
-

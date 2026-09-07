@@ -1,6 +1,7 @@
 """ChatGPT subscription adapter over Codex's local JSON-RPC app server."""
 
 import asyncio
+import hashlib
 import json
 import os
 import shutil
@@ -75,6 +76,14 @@ class CodexRuntime:
         self.tools = {s.name: s for s in tools}
         state = Path.home() / "Library/Application Support/Personal Assistant" / config.ENV / "codex"
         state.mkdir(parents=True, exist_ok=True, mode=0o700)
+        toolsets = state / "toolsets"
+        toolsets.mkdir(exist_ok=True, mode=0o700)
+        signature = hashlib.sha256(json.dumps([(t.name, t.schema) for t in tools], sort_keys=True).encode()).hexdigest()
+        def manifest(session):
+            return toolsets / (hashlib.sha256(session.encode()).hexdigest() + ".txt")
+        # Codex cannot change dynamic tools on resume. Reseed through Session when they change.
+        if resume and (not manifest(resume).exists() or manifest(resume).read_text() != signature):
+            resume = None
         # Share the user's login only; do not inherit their plugins, MCP servers or tools.
         login = Path(os.environ.get("CODEX_HOME", str(Path.home() / ".codex"))) / "auth.json"
         target = state / "auth.json"
@@ -113,6 +122,7 @@ class CodexRuntime:
             params["environments"] = []
             result = await self.request("thread/start", params)
         self.session_id = result["thread"]["id"]
+        manifest(self.session_id).write_text(signature)
 
     async def send(self, text):
         result = await self.request("turn/start", {"threadId": self.session_id, "input": [{"type": "text", "text": text}], "environments": [], "effort": self.effort})
