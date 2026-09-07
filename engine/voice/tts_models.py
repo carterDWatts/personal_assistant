@@ -1,50 +1,31 @@
-"""Install pinned Kokoro assets once. Model weights stay outside the repository."""
-from concurrent.futures import ThreadPoolExecutor
-import hashlib
-import json
+"""Download the selected voice and its dependencies at pinned revisions."""
 from pathlib import Path
-import urllib.request
 
-REPO = 'csukuangfj/kokoro-multi-lang-v1_0'
-REVISION = '7e9b67b79bfdcbd2b4bc144370345fcceac3cb0c'
+ASSETS = {
+    'csm': ('mlx-community/csm-1b', '5bf5ec118cf45fecc7b51198fd9f1a20a5aab65a', ['config.json', 'model.safetensors', 'README.md']),
+    'tokenizer': ('unsloth/Llama-3.2-1B', '9535bd9b1d1dea6acafbdc4813b728796aeb28da', ['tokenizer*', 'special_tokens_map.json']),
+    'codec': ('kyutai/moshiko-pytorch-bf16', '2bfc9ae6e89079a5cc7ed2a68436010d91a3d289', ['tokenizer-e351c8d8-checkpoint125.safetensors']),
+    'reference': ('kyutai/tts-voices', '323332d33f997de8394f24a193e1a76df720e01a', ['expresso/ex01-ex02_default_001_channel1_168s.wav', 'README.md']),
+}
+REFERENCE_TEXT = 'The smell must have been atrocious. I mean, are you like, um, so in what I know about like'
+# Playing at this rate preserves the audition's 0.75-semitone lowering and pace.
+PLAYBACK_RATE = round(24000 * 2 ** (-0.75 / 12))
 
 
 def directory():
-    return Path.home()/'.personal-assistant'/'models'/REVISION
+    return Path.home() / '.personal-assistant' / 'models' / 'american-lower'
+
+
+def asset(name):
+    return directory() / name / ASSETS[name][1]
 
 
 def install():
-    root = directory()
-    root.mkdir(parents=True, exist_ok=True)
-    manifest = root/'manifest.json'
-    if manifest.exists():
-        files = json.loads(manifest.read_text())
-    else:
-        with urllib.request.urlopen(f'https://huggingface.co/api/models/{REPO}/tree/{REVISION}?recursive=true&limit=1000', timeout=60) as response:
-            files = [f for f in json.load(response) if f['type']=='file' and (f['path'].startswith('espeak-ng-data/') or f['path'] in ['model.onnx','voices.bin','tokens.txt','lexicon-gb-en.txt','LICENSE','README.md'])]
-        manifest.write_text(json.dumps(files))
-    def fetch(item):
-        name = item['path']
-        dest = root/name
-        if dest.resolve().is_relative_to(root.resolve()) is False:
-            raise ValueError('Invalid asset path')
-        def valid(path):
-            if not path.is_file(): return False
-            data = path.read_bytes()
-            if 'lfs' in item: return hashlib.sha256(data).hexdigest()==item['lfs']['oid']
-            return hashlib.sha1(b'blob '+str(len(data)).encode()+b'\0'+data).hexdigest()==item['oid']
-        if valid(dest): return
-        dest.parent.mkdir(parents=True,exist_ok=True)
-        temporary=dest.with_suffix(dest.suffix+'.download')
-        try:
-            url=f'https://huggingface.co/{REPO}/resolve/{REVISION}/'+urllib.parse.quote(name)
-            urllib.request.urlretrieve(url,temporary)
-            if not valid(temporary): raise RuntimeError(f'Voice asset checksum failed: {name}')
-            temporary.replace(dest)
-        finally: temporary.unlink(missing_ok=True)
-    with ThreadPoolExecutor(max_workers=8) as pool:
-        list(pool.map(fetch, files))
-    print(f'Voice model installed: {root}')
+    from huggingface_hub import snapshot_download
+    for name, (repo, revision, files) in ASSETS.items():
+        snapshot_download(repo, revision=revision, allow_patterns=files, local_dir=asset(name), token=False)
+    print(f'American Lower installed: {directory()}')
 
 
-if __name__=='__main__': install()
+if __name__ == '__main__':
+    install()

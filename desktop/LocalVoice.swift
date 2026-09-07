@@ -16,7 +16,7 @@ final class LocalVoice {
         stop()
         guard let settings = Bundle.main.infoDictionary,
               let root = settings["AssistantRoot"] as? String,
-              let python = settings["AssistantPython"] as? String else { onError?("Rebuild the app to configure voice."); return }
+              let python = settings["AssistantVoicePython"] as? String else { onError?("Rebuild the app to configure voice."); return }
         let token = generation
         let child = Process(), stdin = Pipe(), stdout = Pipe()
         child.executableURL = URL(fileURLWithPath: python)

@@ -1,4 +1,4 @@
-"""Local British speech over JSON lines. Cancellation never reloads the model."""
+"""Local American speech over JSON lines. Cancellation never reloads the model."""
 import base64
 import json
 import queue
@@ -6,19 +6,8 @@ import sys
 import threading
 
 import numpy as np
-import sherpa_onnx
-from engine.voice.tts_models import directory
-
-
-def create_voice():
-    root=directory()
-    config=sherpa_onnx.OfflineTtsConfig(model=sherpa_onnx.OfflineTtsModelConfig(
-        kokoro=sherpa_onnx.OfflineTtsKokoroModelConfig(
-            model=str(root/'model.onnx'), voices=str(root/'voices.bin'),
-            tokens=str(root/'tokens.txt'), data_dir=str(root/'espeak-ng-data'),
-            lexicon=str(root/'lexicon-gb-en.txt'), lang='en'), num_threads=2), max_num_sentences=1)
-    if not config.validate(): raise RuntimeError('Voice model is missing. Rebuild the app.')
-    return sherpa_onnx.OfflineTts(config)
+from engine.voice.csm import create_voice, generate
+from engine.voice.tts_models import PLAYBACK_RATE
 
 
 def main():
@@ -50,13 +39,21 @@ def main():
             def current():
                 with lock: return not cancelled.is_set() and token==generation
             if not current(): continue
-            def audio(samples,progress):
-                if not current(): return 0
-                emit({'type':'audio','id':request['id'],'rate':voice.sample_rate,
-                      'pcm':base64.b64encode(np.asarray(samples,dtype='<f4').tobytes()).decode()})
-                return 1  # sherpa's native callback: 1 continues, 0 cancels.
-            result=voice.generate(request['text'],sid=26,speed=1.0,callback=audio)
-            if current() and not len(result.samples): raise RuntimeError('No speech generated')
+            produced = False
+            stream = generate(voice, request['text'])
+            try:
+                for result in stream:
+                    if not current(): break
+                    samples = np.asarray(result.audio, dtype='<f4').reshape(-1)
+                    if not len(samples): continue
+                    if not np.isfinite(samples).all(): raise RuntimeError('Invalid speech audio')
+                    produced = True
+                    emit({'type':'audio','id':request['id'],'rate':PLAYBACK_RATE,
+                          'pcm':base64.b64encode(samples.tobytes()).decode()})
+            finally:
+                stream.close()
+            if current() and request['text'].strip() and not produced:
+                raise RuntimeError('No speech generated')
             if current(): emit({'type':'done','id':request['id']})
     except Exception:
         emit({'type':'error','text':'Local voice failed. Check the voice model installation.'})

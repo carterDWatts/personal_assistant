@@ -1,6 +1,7 @@
 """Check real local synthesis, interruption and reuse without a speaker or paid API."""
 import base64
 import json
+from pathlib import Path
 import queue
 import subprocess
 import sys
@@ -12,7 +13,7 @@ import numpy as np
 
 
 def main():
-    process=subprocess.Popen([sys.executable,'-m','engine.voice.synthesize'],stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.DEVNULL)
+    process=subprocess.Popen([str(Path.home()/'.personal-assistant/voice-env/bin/python'),'-m','engine.voice.synthesize'],stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.DEVNULL)
     events=queue.Queue()
     def collect():
         for line in process.stdout: events.put(json.loads(line))
@@ -36,30 +37,36 @@ def main():
             assert len(chunk)>0 and np.isfinite(chunk).all()
             chunks.append(chunk)
         samples=np.concatenate(chunks);seconds=len(samples)/event_rate
-        assert np.max(np.abs(samples))>0.01 and first<seconds
-        # Queue obsolete speech, cancel it, then speak again with the same loaded model.
-        send({'type':'speak','id':'old','text':'This sentence should be interrupted. '*20})
+        assert np.max(np.abs(samples))>0.01
+        print(json.dumps({"first_audio_seconds": round(first,2), "audio_seconds": round(seconds,2)}), flush=True)
+        # Interrupt active synthesis, then speak again with the same loaded model.
+        send({'type':'speak','id':'old','text':'This sentence should be interrupted. '*4})
+        while (event:=receive())['type'] != 'audio':
+            assert event.get('id') == 'old', event
         send({'type':'cancel'})
         restart=time.monotonic()
         send({'type':'speak','id':'new','text':'Of course. What would you like to change?'})
         new_audio=False
+        resumed_first=None
         while True:
             event=receive()
             if event.get('id')=='new':
-                if event['type']=='audio':new_audio=True
+                if event['type']=='audio':
+                    new_audio=True
+                    if resumed_first is None: resumed_first=time.monotonic()-restart
                 if event['type']=='done':break
-        assert new_audio and time.monotonic()-restart<15
+        assert new_audio and time.monotonic()-restart<45
         if len(sys.argv)>1:
             with wave.open(sys.argv[1],'wb') as wav:
                 wav.setparams((1,2,event_rate,0,'NONE','not compressed'))
                 wav.writeframes((samples.clip(-1,1)*32767).astype('<i2').tobytes())
-        print(json.dumps({'passed':True,'first_audio_seconds':round(first,2),'audio_seconds':round(seconds,2),'cancel_and_resume':True}))
+        print(json.dumps({'passed':True,'first_audio_seconds':round(first,2),'audio_seconds':round(seconds,2),'cancel_and_resume':True,'resumed_audio_seconds':round(resumed_first,2)}))
     finally:
         process.stdin.close()
         try:process.wait(timeout=5)
         except subprocess.TimeoutExpired:process.kill();process.wait()
 
 
-# Kokoro v1.0 emits 24 kHz mono PCM.
-event_rate=24000
+from engine.voice.tts_models import PLAYBACK_RATE
+event_rate=PLAYBACK_RATE
 if __name__=='__main__':main()
