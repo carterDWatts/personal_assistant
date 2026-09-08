@@ -64,7 +64,6 @@ func plain(_ value: Any?) -> String {
     var spokenDraft: String {
         [voiceTurn.pending, liveVoice.transcript.isEmpty ? nil : liveVoice.transcript].compactMap { $0 }.joined(separator: " ")
     }
-    private(set) var voiceStartIndex = 0
     private var voiceTurn = VoiceTurn()
     private var voiceSubscription: AnyCancellable?
     private let transport: Transport
@@ -249,11 +248,12 @@ func plain(_ value: Any?) -> String {
 
     func toggleVoice() {
         if voice { stop(); return }
-        voiceStartIndex = messages.count
         voice = true
         transport.foreground(true)
         liveVoice.start()
     }
+
+    func toggleMute() { liveVoice.setMuted(!liveVoice.muted) }
 
     private func speakSentences(flush: Bool) {
         guard voice else { speechBuffer = ""; return }

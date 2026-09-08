@@ -36,6 +36,7 @@ private final class Capture: @unchecked Sendable {
     @Published private(set) var active = false
     @Published private(set) var speaking = false
     @Published private(set) var transcript = ""
+    @Published private(set) var muted = false
     var onSpeech: (() -> Void)?
     var onUtterance: ((String) -> Void)?
     var onError: ((String) -> Void)?
@@ -66,7 +67,7 @@ private final class Capture: @unchecked Sendable {
 
     init() {
         capture.onLevel = { [weak self] level in
-            Task { @MainActor [weak self] in self?.inputLevel = level }
+            Task { @MainActor [weak self] in if self?.muted == false { self?.inputLevel = level } }
         }
         capture.onSample = { [weak self] count, rms, format in
             Task { @MainActor [weak self] in self?.log.notice("microphone buffer \(count) rms \(rms, privacy: .public) \(format, privacy: .public)") }
@@ -207,6 +208,21 @@ private final class Capture: @unchecked Sendable {
         if !text.isEmpty { onUtterance?(text) }
     }
 
+    /// Muting drops the microphone from the recognizer; playback continues and the level meter rests.
+    func setMuted(_ value: Bool) {
+        guard active, value != muted else { return }
+        muted = value
+        if value {
+            endpoint?.cancel()
+            listening = UUID(); task?.cancel(); task = nil
+            request?.endAudio(); request = nil
+            capture.attach(nil)
+            transcript = ""; inputLevel = 0
+        } else {
+            listen()
+        }
+    }
+
     func speak(_ text: String) {
         guard active else { return }
         queue.append(text)
@@ -271,7 +287,7 @@ private final class Capture: @unchecked Sendable {
         engine.inputNode.removeTap(onBus: 0)
         engine.stop()
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
-        transcript = ""; inputLevel = 0
+        transcript = ""; inputLevel = 0; muted = false
     }
 
     // The best installed English voice unless one was chosen in Settings. Premium voices are downloads in
