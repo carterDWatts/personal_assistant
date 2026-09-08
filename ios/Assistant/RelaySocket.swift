@@ -1,6 +1,9 @@
 import Foundation
 
 @MainActor final class RelaySocket {
+    private let region: String?
+    init(region: String? = Relay.region) { self.region = region }
+
     private(set) var responses = 0
     private var socket: URLSessionWebSocketTask?
     private var tokenAtOpen: String?
@@ -36,6 +39,7 @@ import Foundation
         var request = URLRequest(url: components.url!)
         request.setValue("Bearer " + token, forHTTPHeaderField: "Authorization")
         request.setValue(Relay.key, forHTTPHeaderField: "apikey")
+        if let region { request.setValue(region, forHTTPHeaderField: "x-region") }
         let connection = URLSession.shared.webSocketTask(with: request)
         connection.maximumMessageSize = 10_000_000
         socket = connection

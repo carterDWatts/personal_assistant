@@ -363,6 +363,7 @@ private final class Capture: @unchecked Sendable {
         let generation = playback
         playbackText = text
         download = Task { [weak self] in
+            let started = Date()
             var buffer: AVAudioPCMBuffer?
             do {
                 let data: Data
@@ -399,7 +400,12 @@ private final class Capture: @unchecked Sendable {
             guard let self else { return }
             guard generation == self.playback, !Task.isCancelled else { return }
             self.fetching = false
-            if let buffer { self.received(buffer, generation) }
+            if let buffer {
+                self.received(buffer, generation)
+                #if DEBUG
+                print("Phone audio preparation:", Date().timeIntervalSince(started))
+                #endif
+            }
             if self.hosted.isEmpty && self.playing == 0 && !self.rendering && buffer == nil { self.speaking = false; self.echo.finished() }
             self.fetch()
         }

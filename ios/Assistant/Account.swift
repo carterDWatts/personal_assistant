@@ -31,6 +31,8 @@ enum Keychain {
 }
 
 enum Relay {
+    // Keep live event reads near the database; HTTP fallback uses automatic routing.
+    static let region = "us-east-1"
     static let url = URL(string: "https://koauvyfxewczcajnlrfp.supabase.co")!
     static let key = "sb_publishable_Xdsr05lmo4XjfYRiT3qnBQ_r0CGUqiI"
 }

@@ -3,6 +3,26 @@ import AVFoundation
 @testable import Assistant
 
 @MainActor final class VoiceTests: XCTestCase {
+    func testRelayRegionTiming() async throws {
+        let account = Account.shared
+        let token = try await account.accessToken()
+        for region: String? in [nil, "us-east-1"] {
+            let socket = RelaySocket(region: region)
+            defer { socket.close() }
+            let (status, boot) = try await socket.request(
+                ["action": "bootstrap", "device_id": account.deviceID, "args": [:]], token: token)
+            XCTAssertEqual(status, 200)
+            let cursor = boot["cursor"] ?? 0
+            for _ in 0..<5 {
+                let start = Date()
+                let (status, _) = try await socket.request(
+                    ["action": "events", "device_id": account.deviceID, "args": ["after": cursor]], token: token)
+                XCTAssertEqual(status, 200)
+                print("Relay round trip:", region ?? "automatic", Date().timeIntervalSince(start))
+            }
+        }
+    }
+
     func testRecordedSpeechIsRecognizedAsOneUtterance() async throws {
         let voice = LiveVoice()
         defer { voice.stop() }
