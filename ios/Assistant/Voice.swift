@@ -366,7 +366,7 @@ private final class Capture: @unchecked Sendable {
             var buffer: AVAudioPCMBuffer?
             do {
                 let data: Data
-                let prefix = "data:audio/mp4;base64,"
+                let prefix = url.absoluteString.hasPrefix("data:audio/wav;base64,") ? "data:audio/wav;base64," : "data:audio/mp4;base64,"
                 #if DEBUG
                 let replayFile = url.isFileURL && ProcessInfo.processInfo.environment["ASSISTANT_VOICE_TEST"] == "1"
                 #else
@@ -384,7 +384,8 @@ private final class Capture: @unchecked Sendable {
                     data = downloaded
                 }
                 guard data.count <= 5_000_000 else { throw URLError(.dataLengthExceedsMaximum) }
-                let file = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + "." + (url.pathExtension.isEmpty ? "m4a" : url.pathExtension))
+                let suffix = prefix.contains("/wav;") ? "wav" : (url.pathExtension.isEmpty ? "m4a" : url.pathExtension)
+                let file = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + "." + suffix)
                 try data.write(to: file)
                 defer { try? FileManager.default.removeItem(at: file) }
                 let audio = try AVAudioFile(forReading: file)

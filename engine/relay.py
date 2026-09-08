@@ -51,12 +51,33 @@ class Relay:
             self.map.execute('update assistant.host set capabilities=%s where worker_id=%s', (jsonb(value), self.worker_id))
 
     def publish_speech(self, turn, payload):
+        return self.publish_batch(turn, [payload], speech=True)
+
+    def publish_batch(self, turn, payloads, speech=False):
+        # Send independent statements together, while preserving the owner lock and
+        # a fresh READ COMMITTED snapshot after it. A single CTE would read a stale
+        # cancellation state if it waited behind a cancelling transaction.
+        states = ['running', 'completed'] if speech else ['running']
         with self.map.conn.transaction():
-            owner = self.owner_lock()
-            self.check()
-            allowed = self.map.value("select exists(select 1 from assistant.turns where id=%s and worker_id=%s"
-                                     " and status in ('running','completed') and not cancel_requested)", (turn, self.worker_id))
-            if allowed: self.emit(owner, turn, payload)
+            with self.map.conn.pipeline():
+                owner = self.map.conn.execute('select user_id from assistant.owner for update')
+                lease = self.map.conn.execute(
+                    'select exists(select 1 from assistant.host where worker_id=%s'
+                    ' and lease_until>clock_timestamp()) as valid', (self.worker_id,))
+                events = self.map.conn.execute(
+                    "select assistant.emit(o.user_id,%s,p.payload) from assistant.owner o"
+                    " cross join jsonb_array_elements(%s) with ordinality as p(payload,n)"
+                    " where exists(select 1 from assistant.host where worker_id=%s and lease_until>clock_timestamp())"
+                    " and exists(select 1 from assistant.turns where id=%s and worker_id=%s"
+                    " and status=any(%s) and (not %s or not cancel_requested)) order by p.n",
+                    (turn, jsonb(payloads), self.worker_id, turn, self.worker_id, states, speech))
+            if not owner.fetchone():
+                raise RuntimeError('Bind an authenticated owner before starting the worker.')
+            if not lease.fetchone()['valid']:
+                raise LeaseLost('Worker lease expired.')
+            allowed = bool(events.fetchall())
+            if not allowed and not speech:
+                raise LeaseLost('Turn no longer belongs to this worker.')
             return allowed
 
     def heartbeat(self):
@@ -98,19 +119,15 @@ class Relay:
             self.emit(owner, None, {'type': 'memory', 'text': text})
 
     def publish(self, turn, payloads):
-        with self.map.conn.transaction():
-            owner = self.owner_lock()
-            self.check()
-            active = self.map.value("select exists(select 1 from assistant.turns where id=%s"
-                                    " and worker_id=%s and status='running')", (turn, self.worker_id))
-            if not active:
-                raise LeaseLost('Turn no longer belongs to this worker.')
-            for payload in payloads:
-                self.emit(owner, turn, payload)
+        if payloads: self.publish_batch(turn, payloads)
 
     def cancelled(self, turn):
-        self.check()
-        return bool(self.map.value('select cancel_requested from assistant.turns where id=%s', (turn,)))
+        state = self.map.row(
+            'select exists(select 1 from assistant.host where worker_id=%s'
+            ' and lease_until>clock_timestamp()) as valid,'
+            ' (select cancel_requested from assistant.turns where id=%s) as cancelled', (self.worker_id, turn))
+        if not state['valid']: raise LeaseLost('Worker lease expired.')
+        return bool(state['cancelled'])
 
     def finish(self, turn, status):
         if status not in ('completed', 'cancelled', 'failed'):

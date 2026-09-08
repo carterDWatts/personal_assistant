@@ -82,3 +82,37 @@ test('unauthenticated and expired sockets cannot upgrade or call SQL', async () 
   assert.equal((await socket(req, config, auth)).status, 401);
   assert.equal(calls, 1);
 });
+
+
+test('live event waits preserve the cursor and return the first available page', async () => {
+  const { receive } = await import('../supabase/functions/assistant/socket.ts');
+  let calls = 0;
+  const result = await receive(config, owner, { action: 'events', device_id: device, args: { after: 42, wait: true } },
+    async (_url, options) => {
+      const body = JSON.parse(String(options?.body));
+      assert.equal(body.p_user, owner);
+      assert.equal(body.p_args.after, 42);
+      return Response.json({ events: ++calls < 3 ? [] : [{ cursor: 43 }], has_more: false });
+    });
+  assert.equal(calls, 3);
+  assert.deepEqual(result.body.events, [{ cursor: 43 }]);
+});
+
+test('revocation stops a live event wait without exposing the SQL error', async () => {
+  const { receive } = await import('../supabase/functions/assistant/socket.ts');
+  let calls = 0;
+  const result = await receive(config, owner, { action: 'events', device_id: device, args: { wait: true } },
+    async () => ++calls === 1 ? Response.json({ events: [] }) :
+      Response.json({ message: 'device_denied' }, { status: 403 }));
+  assert.equal(calls, 2);
+  assert.deepEqual(result, { status: 403, body: { error: 'device_denied' } });
+});
+
+test('idle reads and closed sockets do not wait', async () => {
+  const { receive } = await import('../supabase/functions/assistant/socket.ts');
+  let calls = 0;
+  const read = async () => { calls++; return Response.json({ events: [] }); };
+  await receive(config, owner, { action: 'events', device_id: device }, read);
+  await receive(config, owner, { action: 'events', device_id: device, args: { wait: true } }, read, () => false);
+  assert.equal(calls, 2);
+});

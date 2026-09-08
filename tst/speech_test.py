@@ -3,7 +3,7 @@ import base64
 import threading
 import unittest
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 from engine.speech import chunk, Speech
 
 class speech_test(unittest.TestCase):
@@ -35,6 +35,24 @@ class speech_test(unittest.TestCase):
             finally:
                 await speech.close()
         asyncio.run(check())
+
+    def test_short_audio_skips_encoder_and_preserves_samples(self):
+        import io
+        import wave
+        import numpy as np
+        voice = SimpleNamespace(generate=lambda *args, **kwargs:
+            SimpleNamespace(samples=np.array([-.5, 0, .5] * 100), sample_rate=24000))
+        speech = Speech(SimpleNamespace())
+        speech.voice = voice
+        with patch('engine.speech.subprocess.run') as encoder:
+            data, duration = speech.render('Hello.', threading.Event())
+        encoder.assert_not_called()
+        with wave.open(io.BytesIO(data)) as wav:
+            self.assertEqual(wav.getframerate(), 24000)
+            self.assertEqual(wav.getnframes(), 300)
+            pcm = np.frombuffer(wav.readframes(300), dtype='<i2') / 32767
+            np.testing.assert_allclose(pcm, voice.generate().samples, atol=1 / 32767)
+        self.assertEqual(duration, 12)
 
     def test_chunks_preserve_words_and_flush_remainder(self):
         source = 'Morning. ' + 'Here is a longer sentence with enough words to split safely before it goes on too long. ' * 4

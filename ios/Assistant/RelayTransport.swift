@@ -20,7 +20,7 @@ struct RelayError: LocalizedError {
 }
 
 /// The conversation through the Supabase gateway: durable commands in, persisted events replayed in cursor order.
-/// Polls while the app is in front; Realtime will replace the polling when the channel exists.
+/// A live socket waits for events at the gateway; HTTP polling remains the reconnect fallback.
 @MainActor final class RelayTransport: Transport {
     let events: AsyncStream<[String: Any]>
     private let emit: ([String: Any]) -> Void
@@ -90,7 +90,7 @@ struct RelayError: LocalizedError {
         draining = true
         defer { draining = false }
         while true {
-            let page = try await call("events", ["after": cursor])
+            let page = try await call("events", ["after": cursor, "wait": !replaying && (activeTurn != nil || audioTurn != nil)])
             for envelope in page["events"] as? [[String: Any]] ?? [] {
                 guard let next = number(envelope["cursor"]), next > cursor else { continue }
                 cursor = next
@@ -133,7 +133,7 @@ struct RelayError: LocalizedError {
                 let busy = self.activeTurn != nil || self.audioTurn != nil
                 // A submitted turn must wake an idle poll immediately.
                 for _ in 0..<(busy ? 1 : 60) {
-                    try? await Task.sleep(for: .milliseconds(50))
+                    try? await Task.sleep(for: .milliseconds(busy ? 10 : 50))
                     if Task.isCancelled { return }
                     if !busy && (self.activeTurn != nil || self.audioTurn != nil) { break }
                 }
@@ -166,7 +166,11 @@ struct RelayError: LocalizedError {
                 var args: [String: Any] = ["client_message_id": id.uuidString.lowercased(), "text": text]
                 if speech { args["speech"] = true }
                 if let model, !model.isEmpty { args["model"] = model }
+                let started = Date()
                 let result = try await call("submit", args)
+                #if DEBUG
+                print("Submit round trip:", Date().timeIntervalSince(started))
+                #endif
                 activeTurn = result["turn_id"] as? String
                 if speech { audioTurn = activeTurn }
                 if let turn = activeTurn { emit(["type": "submitted", "turn_id": turn, "speech": speech]) }

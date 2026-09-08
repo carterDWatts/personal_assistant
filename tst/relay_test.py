@@ -68,6 +68,32 @@ class relay_test(MapTest):
         self.assertNotIn('url', payload)
         self.assertEqual(payload['text'], 'Hello')
 
+    def test_publication_waiting_for_cancel_does_not_send_audio(self):
+        from concurrent.futures import ThreadPoolExecutor
+        import time
+        self.relay.acquire()
+        self.submit()
+        turn = self.relay.claim()
+        other = Map(self.map.url)
+        publisher = Relay(other, self.relay.worker_id)
+        try:
+            with ThreadPoolExecutor(max_workers=1) as pool:
+                with self.map.conn.transaction():
+                    self.map.execute('select user_id from assistant.owner for update')
+                    pending = pool.submit(publisher.publish_speech, turn['id'], {'type': 'speech', 'seq': 1})
+                    # Confirm the publisher actually reached the locked row before cancelling.
+                    for _ in range(100):
+                        waiting = self.map.value("select cardinality(pg_blocking_pids(%s))>0",
+                                                 (other.conn.info.backend_pid,))
+                        if waiting: break
+                        time.sleep(.01)
+                    self.assertTrue(waiting)
+                    self.client('cancel', {'turn_id': str(turn['id'])})
+                self.assertFalse(pending.result(timeout=3))
+            self.assertNotIn('speech', [e['payload']['type'] for e in self.client('events')['events']])
+        finally:
+            other.close()
+
     def test_owner_and_revocation_are_enforced(self):
         with self.assertRaisesRegex(psycopg.Error, 'account_denied'):
             self.client('bootstrap', owner=uuid.uuid4())

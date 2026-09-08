@@ -1,4 +1,4 @@
-import { Config, execute } from "./handler.ts";
+import { type Config, execute } from "./handler.ts";
 
 // Keep one authenticated connection open for live turns. Device authorization is
 // still checked by the RPC on every request; no client-supplied user ID is used.
@@ -32,12 +32,27 @@ export async function socket(req: Request, config: Config, fetcher: typeof fetch
     try {
       const input = JSON.parse(message.data);
       if (typeof input.id !== "string" || input.id.length > 64) { socket.close(1008); return; }
-      const result = await execute(config, user.id, input, fetcher);
-      if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ id: input.id, status: result.status, body: await result.json() }));
+      const result = await receive(config, user.id, input, fetcher, () => socket.readyState === WebSocket.OPEN);
+      if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ id: input.id, ...result }));
       if (result.status === 403) socket.close(1008, "Access denied");
     } catch {
       if (socket.readyState === WebSocket.OPEN) socket.close(1011, "Request failed");
     } finally { pending -= 1; }
   };
   return response;
+}
+
+// Wait near the database for live events, rather than making the phone complete
+// an empty round trip before it can ask again. Every read rechecks device access.
+export async function receive(config: Config, userId: string, input: any,
+  fetcher: typeof fetch = fetch, connected = () => true) {
+  const deadline = Date.now() + (input.action === "events" && input.args?.wait === true ? 1000 : 0);
+  while (true) {
+    const response = await execute(config, userId, input, fetcher);
+    const body = await response.json();
+    if (!response.ok || body.events?.length || Date.now() >= deadline || !connected()) {
+      return { status: response.status, body };
+    }
+    await new Promise(resolve => setTimeout(resolve, 30));
+  }
 }

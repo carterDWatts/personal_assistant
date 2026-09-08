@@ -2,6 +2,8 @@
 import asyncio
 import base64
 import json
+import io
+import wave
 import os
 import re
 import subprocess
@@ -83,7 +85,7 @@ class Speech:
             # Audio is transient delivery data, never conversation memory.
             await self.host.call(self.host.relay.map.execute,
                 "update assistant.events set payload=payload-'url' "
-                "where created_at<now()-interval '10 minutes' and payload->>'url' like 'data:audio/mp4;base64,%'")
+                "where created_at<now()-interval '10 minutes' and payload->>'url' like 'data:audio/%;base64,%'")
             self.last_audio_cleanup = time.monotonic()
         if time.monotonic() - self.last_cleanup < 3600: return
         names = await self.host.call(self.host.relay.map.rows,
@@ -149,17 +151,31 @@ class Speech:
             return self.render_locked(text, cancelled)
 
     def render_locked(self, text, cancelled):
+        started = time.monotonic()
         result = self.voice.generate(text, sid=self.settings.get('speaker', 16), speed=self.settings.get('speed', 1.1),
                                      callback=lambda samples, progress: int(not cancelled.is_set()))
+        generated = time.monotonic()
         if cancelled.is_set() or len(result.samples) == 0: return None
         import numpy as np
         samples = np.asarray(result.samples, dtype='<f4')
+        # Opening phrases fit in a small PCM WAV. No encoder process or codec delay.
+        # Longer clips stay compressed to keep network and replay payloads bounded.
+        if len(samples) * 2 + 44 <= 64_000:
+            output = io.BytesIO()
+            with wave.open(output, 'wb') as wav:
+                wav.setnchannels(1)
+                wav.setsampwidth(2)
+                wav.setframerate(result.sample_rate)
+                wav.writeframes((np.clip(samples, -1, 1) * 32767).astype('<i2').tobytes())
+            print(f'Synthesis timing: generate_seconds={generated-started:.3f} encode_seconds={time.monotonic()-generated:.3f} format=wav', flush=True)
+            return output.getvalue(), round(len(samples) / result.sample_rate * 1000)
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory) / 'speech.m4a'
             subprocess.run(['ffmpeg', '-v', 'error', '-f', 'f32le', '-ar', str(result.sample_rate), '-ac', '1',
                             '-i', 'pipe:0', '-c:a', 'aac', '-b:a', '48k', '-movflags', '+faststart', str(output)],
                            input=samples.tobytes(), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                            check=True, timeout=20)
+            print(f'Synthesis timing: generate_seconds={generated-started:.3f} encode_seconds={time.monotonic()-generated:.3f} format=aac', flush=True)
             return output.read_bytes(), round(len(samples) / result.sample_rate * 1000)
 
     async def run(self, turn, cancelled, queue):
@@ -169,7 +185,6 @@ class Speech:
             await self.cleanup()
             seq = 0
             while not cancelled.is_set():
-                if await self.host.call(self.host.relay.cancelled, turn): break
                 try: text = await asyncio.wait_for(queue.get(), .3)
                 except asyncio.TimeoutError: continue
                 if text is None: break
@@ -181,10 +196,11 @@ class Speech:
                 rendered = time.monotonic()
                 if cancelled.is_set(): break
                 if result is None: continue
-                if await self.host.call(self.host.relay.cancelled, turn): break
+                # publish_speech checks cancellation atomically with publication.
                 seq += 1
                 if len(result[0]) <= 64_000:
-                    url = 'data:audio/mp4;base64,' + base64.b64encode(result[0]).decode('ascii')
+                    mime = 'wav' if result[0].startswith(b'RIFF') else 'mp4'
+                    url = f'data:audio/{mime};base64,' + base64.b64encode(result[0]).decode('ascii')
                 else:
                     name = f'{turn}/{seq}.m4a'
                     await self.host.call(self.host.relay.map.execute,
