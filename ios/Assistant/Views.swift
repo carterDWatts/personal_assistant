@@ -62,9 +62,10 @@ struct DayMarker: View {
     }
 }
 
-struct MessageRow: View {
+struct MessageRow: View, Equatable {
     let message: ChatMessage
     let palette: Palette
+    static func == (a: MessageRow, b: MessageRow) -> Bool { a.message.id == b.message.id && a.message.text == b.message.text }
     var body: some View {
         if message.role == "user" {
             HStack(alignment: .top) {
@@ -169,31 +170,35 @@ struct DayPanel: View {
 /// Voice lives in the same conversation: words build here, land as bubbles, and replies stream above.
 struct VoiceBar: View {
     @ObservedObject var chat: Chat
+    @ObservedObject var voice: LiveVoice
     let palette: Palette
     @Binding var typing: Bool
     private var title: String {
-        if chat.liveVoice.speaking { return "Speaking" }
+        if voice.speaking { return "Speaking" }
         if chat.busy { return "Thinking" }
-        if chat.liveVoice.muted { return "Muted" }
-        if !chat.liveVoice.transcript.isEmpty { return "Listening" }
-        return chat.liveVoice.active ? "Go ahead" : "Starting"
+        if voice.muted { return "Muted" }
+        if !voice.transcript.isEmpty { return "Listening" }
+        return voice.active ? "Go ahead" : "Starting"
+    }
+    private var draft: String {
+        [chat.pendingSpeech, voice.transcript.isEmpty ? nil : voice.transcript].compactMap { $0 }.joined(separator: " ")
     }
     var body: some View {
         VStack(spacing: 10) {
             Group {
-                if chat.spokenDraft.isEmpty {
+                if draft.isEmpty {
                     Text(title).font(.subheadline).foregroundStyle(palette.muted)
                 } else {
-                    Text(chat.spokenDraft).font(.body).italic().lineSpacing(3).foregroundStyle(palette.ink).lineLimit(3)
+                    Text(draft).font(.body).italic().lineSpacing(3).foregroundStyle(palette.ink).lineLimit(3)
                 }
             }
             .multilineTextAlignment(.center).frame(maxWidth: .infinity, minHeight: 24)
             HStack(spacing: 12) {
-                Button { chat.toggleMute() } label: { Image(systemName: chat.liveVoice.muted ? "mic.slash.fill" : "mic.slash") }
-                    .buttonStyle(SquareButton(palette: palette, prominent: chat.liveVoice.muted))
-                    .accessibilityLabel(chat.liveVoice.muted ? "Unmute" : "Mute")
+                Button { chat.toggleMute() } label: { Image(systemName: voice.muted ? "mic.slash.fill" : "mic.slash") }
+                    .buttonStyle(SquareButton(palette: palette, prominent: voice.muted))
+                    .accessibilityLabel(voice.muted ? "Unmute" : "Mute")
                 Spacer()
-                VoicePresence(level: chat.liveVoice.inputLevel, moving: chat.liveVoice.speaking || chat.busy, palette: palette, compact: true)
+                VoicePresence(level: voice.inputLevel, moving: voice.speaking || chat.busy, palette: palette, compact: true)
                 Spacer()
                 Button { typing.toggle() } label: { Image(systemName: "keyboard") }
                     .buttonStyle(SquareButton(palette: palette)).accessibilityLabel("Type instead")
@@ -206,11 +211,10 @@ struct VoiceBar: View {
 
 /// A breath of olive under the conversation while voice is on, stronger when either side is speaking.
 struct VoiceGlow: View {
-    let level: Double
-    let speaking: Bool
+    @ObservedObject var voice: LiveVoice
     let palette: Palette
     var body: some View {
-        let strength = 0.28 + (speaking ? 0.3 : 0) + min(1, level) * 0.35
+        let strength = 0.28 + (voice.speaking ? 0.3 : 0) + min(1, voice.inputLevel) * 0.35
         LinearGradient(colors: [palette.accent.opacity(0), palette.accent.opacity(strength)], startPoint: .top, endPoint: .bottom)
             .frame(height: 260)
             .animation(.easeOut(duration: 0.25), value: strength)
@@ -325,11 +329,11 @@ struct ConversationView: View {
             header
             conversation
                 .overlay(alignment: .bottom) {
-                    if chat.voice { VoiceGlow(level: chat.liveVoice.inputLevel, speaking: chat.liveVoice.speaking, palette: palette) }
+                    if chat.voice { VoiceGlow(voice: chat.liveVoice, palette: palette) }
                 }
             if chat.voice {
                 if typing { Composer(chat: chat, palette: palette).padding(.horizontal, 16).padding(.bottom, 10) }
-                VoiceBar(chat: chat, palette: palette, typing: $typing).padding(.horizontal, 16).padding(.bottom, 10)
+                VoiceBar(chat: chat, voice: chat.liveVoice, palette: palette, typing: $typing).padding(.horizontal, 16).padding(.bottom, 10)
             } else {
                 if chat.busy || !chat.connected {
                     Text(chat.status).font(.caption).foregroundStyle(palette.muted).frame(maxWidth: .infinity, alignment: .leading)
@@ -339,7 +343,7 @@ struct ConversationView: View {
             }
         }
         .animation(.easeInOut(duration: 0.2), value: chat.voice)
-        .background(Concrete(palette: palette).ignoresSafeArea())
+        .background(Concrete(palette: palette).equatable().ignoresSafeArea())
         .tint(palette.accent)
         .sheet(isPresented: $showDay) {
             DayPanel(chat: chat, palette: palette).presentationDetents([.medium, .large]).presentationDragIndicator(.visible)
@@ -396,7 +400,7 @@ struct ConversationView: View {
                         if index == 0 || !Calendar.current.isDate(chat.messages[index - 1].at, inSameDayAs: message.at) {
                             DayMarker(date: message.at, palette: palette)
                         }
-                        MessageRow(message: message, palette: palette).id(message.id)
+                        MessageRow(message: message, palette: palette).equatable().id(message.id)
                     }
                     if let prompt = chat.connectionPrompt {
                         ConnectionCard(chat: chat, prompt: prompt, palette: palette)

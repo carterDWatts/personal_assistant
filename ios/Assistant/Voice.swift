@@ -64,12 +64,17 @@ private final class Capture: @unchecked Sendable {
     private var playing = 0
     private var playback = UUID()
     private var echo = PlaybackEcho()
+    private var spokenWords: [String] = []
+    private var spokeUntil = Date.distantPast
     private var observers: [NSObjectProtocol] = []
     private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "assistant", category: "voice")
 
     init() {
         capture.onLevel = { [weak self] level in
-            Task { @MainActor [weak self] in if self?.muted == false { self?.inputLevel = level } }
+            Task { @MainActor [weak self] in
+                guard let self, !self.muted, abs(self.inputLevel - level) > 0.03 else { return }
+                self.inputLevel = level
+            }
         }
         capture.onSample = { [weak self] count, rms, format in
             Task { @MainActor [weak self] in self?.log.notice("microphone buffer \(count) rms \(rms, privacy: .public) \(format, privacy: .public)") }
@@ -167,8 +172,8 @@ private final class Capture: @unchecked Sendable {
         if let result {
             let text = result.bestTranscription.formattedString
             if !text.isEmpty {
-                if echo.matches(text) {
-                    log.info("ignored playback echo")
+                if echo.matches(text) || soundsLikeEcho(text) {
+                    log.notice("ignored playback echo: \(text, privacy: .public)")
                     if result.isFinal { listen() }
                     return
                 }
@@ -191,6 +196,20 @@ private final class Capture: @unchecked Sendable {
                 self.listen()
             }
         }
+    }
+
+    /// While a reply plays, and for a moment after, words that mostly repeat it are the speaker, not the user.
+    private func soundsLikeEcho(_ text: String) -> Bool {
+        guard speaking || Date() < spokeUntil else { return false }
+        let heard = text.lowercased().split(whereSeparator: { !$0.isLetter && !$0.isNumber }).map(String.init)
+        guard heard.count >= 2 else { return true }
+        let spoken = Set(spokenWords)
+        let overlap = heard.filter { spoken.contains($0) }.count
+        return overlap * 10 >= heard.count * 6
+    }
+
+    private func remember(_ text: String) {
+        spokenWords = Array((spokenWords + text.lowercased().split(whereSeparator: { !$0.isLetter && !$0.isNumber }).map(String.init)).suffix(200))
     }
 
     private func armEndpoint() {
@@ -243,7 +262,7 @@ private final class Capture: @unchecked Sendable {
         let (url, text) = hosted.removeFirst()
         fetching = true
         let generation = playback
-        echo.record(text); echo.resumed(); speaking = true
+        echo.record(text); echo.resumed(); remember(text); speaking = true
         Task { [weak self] in
             var buffer: AVAudioPCMBuffer?
             do {
@@ -275,7 +294,7 @@ private final class Capture: @unchecked Sendable {
         let utterance = AVSpeechUtterance(string: text)
         utterance.voice = LiveVoice.voice
         let generation = playback
-        echo.record(text); echo.resumed(); speaking = true
+        echo.record(text); echo.resumed(); remember(text); speaking = true
         synthesizer.write(utterance) { [weak self] buffer in
             Task { @MainActor [weak self] in self?.received(buffer, generation) }
         }
@@ -303,7 +322,7 @@ private final class Capture: @unchecked Sendable {
     private func played(_ generation: UUID) {
         guard generation == playback else { return }
         playing -= 1
-        if playing == 0 && !rendering && queue.isEmpty && !fetching && hosted.isEmpty { speaking = false; echo.finished() }
+        if playing == 0 && !rendering && queue.isEmpty && !fetching && hosted.isEmpty { speaking = false; echo.finished(); spokeUntil = Date().addingTimeInterval(1.5) }
     }
 
     func silencePlayback() {
@@ -312,7 +331,7 @@ private final class Capture: @unchecked Sendable {
         queue.removeAll(); rendering = false; playing = 0
         hosted.removeAll(); fetching = false
         if player.engine != nil { player.stop() }
-        if speaking { speaking = false; echo.finished() }
+        if speaking { speaking = false; echo.finished(); spokeUntil = Date().addingTimeInterval(1.5) }
     }
 
     func stop() {

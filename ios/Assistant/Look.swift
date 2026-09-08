@@ -42,8 +42,9 @@ private let grainImage: UIImage = {
     return UIImage(cgImage: image)
 }()
 
-struct Concrete: View {
+struct Concrete: View, Equatable {
     let palette: Palette
+    static func == (a: Concrete, b: Concrete) -> Bool { true }
     var body: some View {
         ZStack {
             palette.background

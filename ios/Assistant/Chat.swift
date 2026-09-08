@@ -64,11 +64,9 @@ func plain(_ value: Any?) -> String {
     private var spokenTurns: Set<String> = []
     private var playedChunks: Set<String> = []
     let liveVoice = LiveVoice()
-    var spokenDraft: String {
-        [voiceTurn.pending, liveVoice.transcript.isEmpty ? nil : liveVoice.transcript].compactMap { $0 }.joined(separator: " ")
-    }
+    /// Words captured while a reply was still being interrupted; the voice bar joins them with the live transcript.
+    var pendingSpeech: String? { voiceTurn.pending }
     private var voiceTurn = VoiceTurn()
-    private var voiceSubscription: AnyCancellable?
     private let transport: Transport
     private var receiving: Task<Void, Never>?
     private var speechBuffer = ""
@@ -77,7 +75,6 @@ func plain(_ value: Any?) -> String {
     init(transport: Transport? = nil) {
         let transport = transport ?? (ProcessInfo.processInfo.arguments.contains("--sample") ? MockTransport() : RelayTransport())
         self.transport = transport
-        voiceSubscription = liveVoice.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }
         liveVoice.onSpeech = { [weak self] in self?.interruptForSpeech() }
         liveVoice.onUtterance = { [weak self] text in self?.sendVoice(text) }
         liveVoice.onError = { [weak self] text in self?.voice = false; self?.status = text }
