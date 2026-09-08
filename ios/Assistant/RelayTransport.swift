@@ -166,8 +166,10 @@ struct RelayError: LocalizedError {
                 var args: [String: Any] = ["client_message_id": id.uuidString.lowercased(), "text": text]
                 if speech { args["speech"] = true }
                 if let model, !model.isEmpty { args["model"] = model }
+                VoiceDiagnostics.record("request_started")
                 let started = Date()
                 let result = try await call("submit", args)
+                VoiceDiagnostics.record("request_accepted", ["seconds": Date().timeIntervalSince(started)])
                 #if DEBUG
                 print("Submit round trip:", Date().timeIntervalSince(started))
                 #endif

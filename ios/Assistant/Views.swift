@@ -178,7 +178,7 @@ struct VoiceBar: View {
         if chat.busy { return "Thinking" }
         if voice.muted { return "Muted" }
         if !voice.transcript.isEmpty { return "Listening" }
-        return voice.active ? "Go ahead" : "Starting"
+        return voice.ready ? "Go ahead" : "Starting"
     }
     private var draft: String {
         [chat.pendingSpeech, voice.transcript.isEmpty ? nil : voice.transcript].compactMap { $0 }.joined(separator: " ")

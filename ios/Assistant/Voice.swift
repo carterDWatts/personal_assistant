@@ -34,6 +34,7 @@ private final class Capture: @unchecked Sendable {
 @MainActor final class LiveVoice: ObservableObject {
     @Published private(set) var inputLevel: Double = 0
     @Published private(set) var active = false
+    @Published private(set) var ready = false
     @Published private(set) var speaking = false
     @Published private(set) var transcript = ""
     @Published private(set) var muted = false
@@ -83,6 +84,10 @@ private final class Capture: @unchecked Sendable {
             Task { @MainActor [weak self] in
                 guard let self, self.active else { return }
                 self.lastBuffer = Date()
+                if !self.ready {
+                    self.ready = true
+                    VoiceDiagnostics.record("capture_ready")
+                }
                 guard !self.muted else { return }
                 self.inputLevel = level
                 if level > 0.04 && !self.speaking { self.signalAt = Date() }
@@ -100,6 +105,14 @@ private final class Capture: @unchecked Sendable {
                 self.onError?("Voice stopped for another sound.")
             }
         })
+        observers.append(NotificationCenter.default.addObserver(forName: .AVAudioEngineConfigurationChange, object: engine, queue: .main) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                // Route negotiation can stop the engine just after a successful start.
+                try? await Task.sleep(for: .milliseconds(100))
+                guard let self, self.active, self.usesMicrophone, !self.engine.isRunning else { return }
+                self.recoverCapture()
+            }
+        })
     }
 
     func start() {
@@ -107,6 +120,7 @@ private final class Capture: @unchecked Sendable {
         guard ProcessInfo.processInfo.environment["ASSISTANT_VOICE_TEST"] != "1" else { return }
         #endif
         guard !active else { return }
+        VoiceDiagnostics.record("talk_pressed")
         let token = UUID(); startToken = token
         Task { [weak self] in
             let microphone = await AVAudioApplication.requestRecordPermission()
@@ -127,14 +141,17 @@ private final class Capture: @unchecked Sendable {
         guard !active else { return }
         let session = AVAudioSession.sharedInstance()
         usesMicrophone = true
-        let input = engine.inputNode
         do {
             try session.setCategory(.playAndRecord, mode: .voiceChat, options: [.defaultToSpeaker, .allowBluetooth])
             try session.setActive(true)
-            // The voice-processing unit gives echo cancellation, so speech playback goes through this engine too.
-            try input.setVoiceProcessingEnabled(true)
+            // Creating the I/O node before activation can bind it to the previous route.
+            try engine.inputNode.setVoiceProcessingEnabled(true)
         } catch {
             failed("Voice couldn’t start: \(error.localizedDescription)"); return
+        }
+        let input = engine.inputNode
+        guard input.outputFormat(forBus: 0).sampleRate > 0, input.outputFormat(forBus: 0).channelCount > 0 else {
+            failed("The microphone has no active audio route."); return
         }
         if player.engine == nil { engine.attach(player) }
         let format = playbackFormat ?? AVAudioFormat(standardFormatWithSampleRate: 24000, channels: 1)!
@@ -145,14 +162,18 @@ private final class Capture: @unchecked Sendable {
         input.installTap(onBus: 0, bufferSize: 2048, format: input.outputFormat(forBus: 0)) { buffer, _ in
             capture.consume(buffer)
         }
-        engine.prepare()
-        do { try engine.start() } catch { input.removeTap(onBus: 0); failed("The microphone couldn’t start: \(error.localizedDescription)"); return }
+        // Attach recognition before any microphone buffers arrive.
         active = true
+        ready = false
+        listen()
+        guard active else { return }
+        engine.prepare()
+        do { try engine.start() } catch { failed("The microphone couldn’t start: \(error.localizedDescription)"); return }
+        VoiceDiagnostics.record("engine_started")
         lastBuffer = Date()
         watchCapture()
         let route = session.currentRoute.inputs.map(\.portType.rawValue).joined(separator: ",")
         log.notice("voice started, input \(route, privacy: .public), format \(input.outputFormat(forBus: 0).description, privacy: .public), on-device \(self.onDevice)")
-        listen()
         refresh = Task { [weak self] in
             // The recognizer stops after about a minute of audio; start a fresh request between utterances.
             while !Task.isCancelled {
@@ -196,20 +217,26 @@ private final class Capture: @unchecked Sendable {
                 try? await Task.sleep(for: .milliseconds(500))
                 guard !Task.isCancelled, let self, self.active else { return }
                 guard !self.muted, Date().timeIntervalSince(self.lastBuffer) > 2 else { continue }
-                guard self.captureRestarts < 2 else {
-                    self.failed("The microphone stopped delivering audio. Please reconnect your microphone.")
-                    return
-                }
-                self.captureRestarts += 1
-                self.log.notice("restarting stalled microphone")
-                self.stop()
-                self.begin()
+                self.recoverCapture()
                 return
             }
         }
     }
 
+    private func recoverCapture() {
+        guard active else { return }
+        guard captureRestarts < 2 else {
+            failed("The microphone stopped delivering audio."); return
+        }
+        captureRestarts += 1
+        VoiceDiagnostics.record("capture_restarted")
+        log.notice("restarting stalled microphone")
+        stop()
+        begin()
+    }
+
     private func failed(_ text: String) {
+        VoiceDiagnostics.record("capture_failed")
         log.error("voice failed: \(text, privacy: .public)")
         stop()
         onError?(text)
@@ -271,6 +298,7 @@ private final class Capture: @unchecked Sendable {
         }
         if let error {
             let failure = error as NSError
+            VoiceDiagnostics.record("recognition_error", ["code": Double(failure.code)])
             log.error("recognition ended: \(failure.domain, privacy: .public) \(failure.code) \(failure.localizedDescription, privacy: .public)")
             if !transcript.isEmpty { commitUtterance(); return }
             recognitionFailures += 1
@@ -323,6 +351,7 @@ private final class Capture: @unchecked Sendable {
         endpoint?.cancel()
         finalResult?.cancel()
         let text = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !text.isEmpty { VoiceDiagnostics.record("utterance_submitted", ["since_sound": Date().timeIntervalSince(signalAt), "since_words": Date().timeIntervalSince(heardAt)]) }
         request?.endAudio()
         listen()
         if !text.isEmpty { log.notice("utterance submitted"); onUtterance?(text) }
@@ -352,6 +381,7 @@ private final class Capture: @unchecked Sendable {
     /// Speech synthesized on the host: fetched in order, decoded, and scheduled on the same player as local speech.
     func play(_ url: URL, text: String) {
         guard active else { return }
+        VoiceDiagnostics.record("audio_received")
         hosted.append((url, text))
         fetch()
     }
@@ -438,7 +468,7 @@ private final class Capture: @unchecked Sendable {
         player.scheduleBuffer(converted, completionCallbackType: .dataPlayedBack) { [weak self] _ in
             Task { @MainActor [weak self] in self?.played(generation) }
         }
-        if !player.isPlaying { player.play(); onPlaybackStarted?() }
+        if !player.isPlaying { player.play(); VoiceDiagnostics.record("playback_started"); onPlaybackStarted?() }
     }
 
     private func convert(_ input: AVAudioPCMBuffer, to format: AVAudioFormat) -> AVAudioPCMBuffer? {
@@ -477,6 +507,7 @@ private final class Capture: @unchecked Sendable {
         startToken = UUID()
         let wasActive = active
         active = false
+        ready = false
         silencePlayback()
         endpoint?.cancel(); finalResult?.cancel(); finalizing = false; refresh?.cancel(); watchdog?.cancel()
         listening = UUID()
@@ -512,5 +543,22 @@ private final class Capture: @unchecked Sendable {
         case .enhanced: return "Enhanced"
         default: return "Compact"
         }
+    }
+}
+
+
+/// Bounded development diagnostics. No recordings, transcripts, tokens, or account data.
+@MainActor enum VoiceDiagnostics {
+    #if DEBUG
+    private static var entries: [[String: Any]] = []
+    #endif
+    static func record(_ event: String, _ values: [String: Double] = [:]) {
+        #if DEBUG
+        entries.append(["event": event, "time": Date().timeIntervalSince1970, "values": values])
+        if entries.count > 100 { entries.removeFirst(entries.count - 100) }
+        guard let data = try? JSONSerialization.data(withJSONObject: entries),
+              let directory = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first else { return }
+        try? data.write(to: directory.appendingPathComponent("voice-diagnostics.json"), options: .atomic)
+        #endif
     }
 }
