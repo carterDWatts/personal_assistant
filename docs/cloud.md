@@ -172,3 +172,13 @@ and continuation offsets. It checks every redirect and pins connections to a
 validated public address; no private networks, cookies or credentials are exposed.
 It cannot run JavaScript, bypass access restrictions, or read binary documents.
 Fetched page text is untrusted source material and is not automatically saved as memory.
+
+## Background work and messages
+
+The conversational runtime can call `job_start`, `jobs_list`, and `job_cancel`. Jobs are durable, tied to the requesting conversation message, and retry-safe by task key. One worker runs one job at a time, with four pending jobs at most. Each uses the selected subscription provider/model in a separate context, with a five-minute deadline and at most 60 tool calls. Child jobs cannot spawn other jobs.
+
+Research jobs have explicit read-only memory and web/mail/calendar tools. Code jobs additionally edit an in-memory copy of the deployed assistant source, inspect database schema metadata, and retain a reviewable patch. They have no shell, credentials, external send tools, production writes, test execution, or deployment path. A completed code job means the draft is prepared; it does not mean a live fix was deployed. `jobs_list` retrieves the patch in bounded pages. Cancellation discards unfinished output; interrupted work is marked failed rather than silently replayed.
+
+A job can send two brief progress messages, at least a minute apart. Its final message is persisted in the same conversation as ordinary replies, with the result and patch kept separately from the model's working context. It does not automatically turn its scratch work into memory facts.
+
+Alerts and reminder follow-ups also become assistant messages. The push is a delivery mechanism for that message. Tapping one selects its original message, including a stable message ID, so a short reply carries the right context even after reconnecting or a newer reminder follow-up. Repeated delivery never duplicates the same conversation message. Existing deduplication, evidence checks and push pacing remain in place. New messages do not start audio playback or interrupt an active reply.

@@ -119,3 +119,9 @@ Host capabilities include `models` (id, name, runtime, model) discovered from th
 Voice submits opt into speech. The host uses the voice in identity.json, preloads it before advertising speech, and emits `speech` (seq, text, duration_ms, signed URL) plus `speech_end` (success/error). Audio is generated concurrently with text; `end` still completes text and may precede speech_end. Clients play only their own voice-submitted turns, dedupe by turn_id/seq, and suppress bootstrap recovery audio. Keep polling until speech_end. Cancel remains valid after text end and stops later speech publication. New turns stop prior synthesis. Audio download and playback must stop immediately on interruption, independently of network cancellation. Speech failures preserve the text.
 
 Audio lives in a private speech bucket, signed for ten minutes, and is deleted after one day by the worker (hourly cleanup). Upload tracking lives in assistant.speech_objects, never in the knowledge map. Provision with `python scripts/cloud.py speech`; no storage credentials belong in clients.
+
+### Messages initiated by the assistant
+
+`proactive` events contain a `message` row (`id`, `role`, `content`, `created_at`, `payload`). Render it as an assistant chat message, deduplicated by database ID, without taking ownership of the active streamed reply or playing audio. Bootstrap history includes the same payload. `payload.reference` links a notice or reminder.
+
+Notification replies send `notification: {kind, id, message_id?}`. `notification_message` accepts that reference and returns the persisted message, including older messages outside the bootstrap tail. The gateway verifies owner and device; submit validates that the message belongs to that reference. After sending, clear the reply selection; the response and future conversation preserve the discussion naturally.

@@ -34,6 +34,8 @@ The hosted runtime stays warm between turns. The phone sends durable requests th
 
 Typed and interruptible voice conversations, a morning review that learns my preferences, calendar planning, contextual reminders, email triage, and importing large blocks of existing context. A background reviewer looks across the map for emerging needs. Alerts carry evidence, are deduplicated and paced, and can be opened directly into a conversation about that notification.
 
+I can also hand off research or a code investigation while keeping the conversation going. A bounded background worker messages me its result in the same chat. Code changes stay as reviewable drafts; they do not modify the running service.
+
 The phone streams Pocket TTS from the host. The Mac has local speech. Google Calendar remains authoritative for calendar events; reminders track commitments and completion separately.
 
 ## Stack and verification
