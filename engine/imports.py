@@ -1,17 +1,21 @@
 """Bounded extraction of preserved source material, separate from live chat."""
 from datetime import datetime
+from engine.tools import ToolError
 
 HISTORY_WRITES = {'entity_upsert', 'attribute_register', 'question_add', 'fact_assert'}
 
 
 def validate_history(tool, args):
     if tool not in HISTORY_WRITES:
-        raise ValueError('Historical imports cannot change current rules, plans or relationships.')
+        raise ToolError('Historical imports cannot change current rules, plans or relationships.')
     if tool == 'fact_assert':
-        start = datetime.fromisoformat(args.get('valid_from', ''))
-        end = datetime.fromisoformat(args.get('valid_to', ''))
+        try:
+            start = datetime.fromisoformat(args.get('valid_from', ''))
+            end = datetime.fromisoformat(args.get('valid_to', ''))
+        except ValueError:
+            raise ToolError('Historical facts require known valid_from and valid_to timestamps; otherwise use question_add.') from None
         if not start.tzinfo or not end.tzinfo or not start < end <= datetime.now().astimezone():
-            raise ValueError('Historical facts need explicit past validity bounds. Queue a question when unknown.')
+            raise ToolError('Historical facts need explicit past validity bounds. Queue a question when unknown.')
 
 
 INSTRUCTIONS = '''

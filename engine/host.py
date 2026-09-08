@@ -277,12 +277,22 @@ async def memory_loop(url, host):
     await host.ready.wait()
     map_ = Map(url)
     try:
+        from engine.background import Background
+        background = Background(map_)
         worker = MemoryWorker(map_)
         while not host.stopping.is_set():
             def idle():
                 return host.active is None and (not host.speech or not host.speech.task or host.speech.task.done())
             if idle():
-                host.memory_work = asyncio.create_task(worker.drain(on_processed=host.refresh_day, can_process=idle))
+                async def maintain():
+                    await worker.drain(on_processed=host.refresh_day, can_process=idle)
+                    if not idle(): return
+                    try: await background.triage()
+                    except asyncio.CancelledError: raise
+                    except Exception: pass
+                    if idle(): await background.nightly()
+                    if idle(): await worker.drain(on_processed=host.refresh_day, can_process=idle)
+                host.memory_work = asyncio.create_task(maintain())
                 try:
                     await host.memory_work
                 except asyncio.CancelledError:
@@ -307,6 +317,8 @@ async def main():
     for sig in (signal.SIGTERM, signal.SIGINT):
         loop.add_signal_handler(sig, host.stopping.set)
     listener = asyncio.create_task(commands(relay_map.url, host))
+    from engine.background import gather_sources
+    sources = asyncio.create_task(gather_sources(relay_map.url,host))
     from engine.notifications import run as notify
     notifications = asyncio.create_task(notify(relay_map.url, host))
     memory = asyncio.create_task(memory_loop(relay_map.url, host))
@@ -319,10 +331,11 @@ async def main():
         host.stopping.set()
         memory.cancel()
         notifications.cancel()
+        sources.cancel()
         listener.cancel()
         with contextlib.suppress(Exception, asyncio.CancelledError):
             await asyncio.wait_for(running, 10)
-        await asyncio.gather(memory, listener, notifications, return_exceptions=True)
+        await asyncio.gather(memory, listener, notifications, sources, return_exceptions=True)
         relay_map.close()
         session_map.close()
 

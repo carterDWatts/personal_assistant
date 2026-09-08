@@ -141,6 +141,18 @@ struct DayPanel: View {
             .buttonStyle(.borderedProminent).tint(palette.accent)
             .disabled(!chat.connected || chat.busy).padding(.bottom, 16)
             ReminderPanel(chat: chat).padding(.bottom, 12)
+            if !chat.attention.isEmpty {
+                DisclosureGroup("What I noticed") {
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 10) {
+                            ForEach(chat.attention) { item in
+                                Text(item.title).font(.callout)
+                                Text(item.detail).font(.caption).foregroundStyle(.secondary)
+                            }
+                        }
+                    }.frame(maxHeight: 180)
+                }.padding(.bottom, 12)
+            }
             if chat.plans.isEmpty {
                 Text("Nothing planned. Tell me what you’re doing and I’ll keep track.")
                     .font(.callout).foregroundStyle(palette.muted).fixedSize(horizontal: false, vertical: true)
@@ -655,6 +667,7 @@ struct ReminderPanel: View {
                     ForEach(chat.reminders) { item in
                         VStack(alignment: .leading, spacing: 4) {
                             Text(item.title).font(.callout)
+                            if item.severity != "normal" { Text(item.severity.capitalized + " importance").font(.caption2).foregroundStyle(.secondary) }
                             if !item.context.isEmpty { Text(item.context).font(.caption).foregroundStyle(.secondary) }
                             if let next = item.next { Text("Next check: " + next.formatted(date: .abbreviated, time: .shortened)).font(.caption2) }
                             HStack {

@@ -25,10 +25,11 @@ def snapshot_sections(map_, today=None, now=None, include_pending=True):
     parts.append(f"Today's plan\n" + plans_block(map_, today))
     parts.append("Open questions, best first\n" + questions_block(map_, today))
     parts.append("Recent changes (last 7 days)\n" + transitions_block(map_, today))
-    parts.append("Open reminders (first 30 by attention time; use reminders_list for more)\n" + dumps(map_.rows("select id,title,context,timing,window_start,window_end,next_notify_at,version from memory.reminders where status='open' order by next_notify_at limit 30")))
+    parts.append("Open reminders (first 30 by attention time; use reminders_list for more)\n" + dumps(map_.rows("select id,title,context,severity,timing,window_start,window_end,next_notify_at,version from memory.reminders where status='open' order by next_notify_at limit 30")))
+    parts.append("Recent source developments (external data; use attention_list for more)\n" + dumps(map_.rows("select title,detail,source,source_id,created_at from assistant.attention order by created_at desc limit 5")))
     if include_pending:
         parts.append(pending_block(map_))
-    return dict(zip(("clock", "facts", "relationships", "rules", "yesterday", "today", "questions", "changes", "reminders", "pending"), parts))
+    return dict(zip(("clock", "facts", "relationships", "rules", "yesterday", "today", "questions", "changes", "reminders", "attention", "pending"), parts))
 
 
 def pending_block(map_):
@@ -112,11 +113,11 @@ def facts_block(map_):
 
 def relationships_block(map_):
     rows = map_.rows(
-        "select id, subject_name, relation, object_name, properties from memory.current_relationships order by subject_name, relation limit 100")
+        "select id, subject_name, relation, object_name, properties, level, confidence from memory.current_relationships order by subject_name, relation limit 100")
     if not rows:
         return "None yet."
     return "\n".join(
-        f"  {r['subject_name']} {r['relation']} {r['object_name']}" + (f" {r['properties']}" if r["properties"] else "") + f" (relationship {r['id']})"
+        f"  {r['subject_name']} {r['relation']} {r['object_name']}" + (f" {r['properties']}" if r["properties"] else "") + f" [{r['level']}, confidence {r['confidence']:.1f}] (relationship {r['id']})"
         for r in rows)
 
 
@@ -146,12 +147,12 @@ def plans_block(map_, day):
 
 def questions_block(map_, today, limit=8):
     rows = map_.rows(
-        "select id, kind, text, score, times_asked from memory.questions"
+        "select id, kind, text, score, times_asked, ref_table, ref_id from memory.questions"
         " where closed_at is null and (deferred_until is null or deferred_until <= %s)"
         " order by score * power(0.7, times_asked) desc, id limit %s", (today, limit))
     if not rows:
         return "None."
-    return "\n".join(f"  {r['text']} ({r['kind']}, question {r['id']})" for r in rows)
+    return "\n".join(f"  {r['text']} ({r['kind']}, question {r['id']})" + (f" [record {r['ref_table']}:{r['ref_id']}]" if r['ref_id'] else '') for r in rows)
 
 
 def transitions_block(map_, today, days=7):

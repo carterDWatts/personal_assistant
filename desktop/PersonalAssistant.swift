@@ -795,13 +795,14 @@ struct SettingsPopover: View {
             ToolbarItemGroup(placement: .primaryAction) {
                 HStack(spacing: 6) {
                     Circle().fill(chat.connected ? palette.accent : Color.secondary.opacity(0.5)).frame(width: 7, height: 7)
-                    Text(chat.status).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                    Text(chat.status).font(.caption).foregroundStyle(.secondary).lineLimit(1).frame(maxWidth: 160).help(chat.status)
                     if !chat.connected && !chat.busy { Button("Reconnect") { chat.connect() }.controlSize(.small) }
                 }
                 Button { showConnections.toggle() } label: { Image(systemName: "link") }
                     .help("Connections")
                     .popover(isPresented: $showConnections) { ConnectionsView(chat: chat) }
-                Button("Import context") { showImport = true }
+                Button { showImport = true } label: { Image(systemName: "tray.and.arrow.down") }
+                    .help("Import context")
                     .sheet(isPresented: $showImport) { ContextImportView(upload: chat.importPart, refresh: chat.imports, runtime: chat.runtime) }
                 Button("Clear") {
                     chat.draft = ""

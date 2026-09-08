@@ -36,6 +36,8 @@ class Push:
         host = 'api.sandbox.push.apple.com' if row['environment']=='sandbox' else 'api.push.apple.com'
         payload = {'aps':{'alert':{'title':config.ASSISTANT_NAME,'body':row['title']},'sound':'default','category':'REMINDER','thread-id':'reminders'},
                    'reminder_id':str(row['reminder_id']),'version':row['version']}
+        if row.get('notice'):
+            payload = {'aps':{'alert':{'title':config.ASSISTANT_NAME,'body':row['title']},'sound':'default','thread-id':'attention'}, 'notice_id':str(row['reminder_id'])}
         async with httpx.AsyncClient(http2=True, timeout=10) as client:
             result = await client.post(f"https://{host}/3/device/{row['token']}", json=payload, headers={
                 'authorization':'bearer '+self.token(),'apns-topic':'com.carterwatts.assistant',
@@ -84,6 +86,34 @@ class Dispatcher:
             return True
 
 
+    async def attention(self):
+        self.map.execute("insert into assistant.attention_deliveries(notice_id,device_id) select a.id,p.device_id from assistant.attention a cross join assistant.push_devices p join assistant.devices d on d.id=p.device_id where a.notify and a.created_at>now()-interval '1 day' and p.enabled and d.revoked_at is null on conflict do nothing")
+        with self.map.conn.transaction():
+            row=self.map.row("select n.id,n.notice_id as reminder_id,n.device_id,p.token,p.environment,a.title,a.detail,a.source,a.source_id from assistant.attention_deliveries n join assistant.attention a on a.id=n.notice_id join assistant.push_devices p on p.device_id=n.device_id join assistant.devices d on d.id=n.device_id where n.sent_at is null and n.cancelled_at is null and n.retry_at<=now() and p.enabled and d.revoked_at is null order by n.retry_at for update of n skip locked limit 1")
+            if not row: return False
+            try:
+                if row['source']=='gmail':
+                    from engine.integrations.google import _get, GoogleRequestError
+                    try:
+                        fresh=await asyncio.to_thread(_get,'gmail/v1/users/me/messages/'+row['source_id'],{'format':'minimal'})
+                        unread='UNREAD' in fresh.get('labelIds',[])
+                    except GoogleRequestError as error:
+                        if error.status != 404: raise
+                        unread=False
+                    if not unread:
+                        self.map.execute('update assistant.attention_deliveries set cancelled_at=now() where id=%s',(row['id'],)); return True
+                row.update(notice=True,version=1,title=(row['title']+' — '+row['detail'])[:500])
+                status,reason=await self.push.send(row)
+            except Exception: status,reason=503,'transport_unavailable'
+            if status==200:
+                self.map.execute('update assistant.attention_deliveries set sent_at=now(),last_error=null where id=%s',(row['id'],))
+            else:
+                self.map.execute("update assistant.attention_deliveries set last_error=%s,retry_at=now()+interval '5 minutes' where id=%s",(reason[:100],row['id']))
+                if reason in ('BadDeviceToken','Unregistered','DeviceTokenNotForTopic'):
+                    self.map.execute('update assistant.push_devices set enabled=false where device_id=%s and token=%s',(row['device_id'],row['token']))
+            return True
+
+
 async def run(url, host):
     await host.ready.wait()
     map_=Map(url)
@@ -95,6 +125,8 @@ async def run(url, host):
                     dispatcher.queue()
                     for _ in range(20):
                         if not await dispatcher.deliver(): break
+                    for _ in range(10):
+                        if not await dispatcher.attention(): break
                     await host.refresh_day()
             except Exception:
                 # The queue remains durable; host logs show failure without notification contents.

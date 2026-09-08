@@ -52,3 +52,19 @@ class reminders_test(MapTest):
         self.assertEqual(result,datetime(2026,9,10,12,tzinfo=timezone.utc))
         result=next_time('someday',now,168,'UTC',now)
         self.assertEqual(result.day,14)
+
+    def test_severity_does_not_invent_a_deadline(self):
+        now=datetime.now(timezone.utc)
+        item=self.run_async(self.api.save({'title':'Renew documents','context':'Needed before travel next month','timing':'week','window_start':(now+timedelta(days=7)).isoformat(),'severity':'high'}))
+        self.assertEqual(item['severity'],'high')
+        self.assertIsNone(item['window_end'])
+        self.assertGreater(item['next_notify_at'],now+timedelta(days=6))
+
+    def test_read_email_cancels_notice_before_delivery(self):
+        from unittest.mock import patch
+        self.map.execute("insert into assistant.attention(source,source_id,title,detail,notify) values('gmail','read-email','A change','You already read it',true)")
+        class Push:
+            async def send(self,row): raise AssertionError('Must not notify for read mail')
+        with patch('engine.integrations.google._get',return_value={'labelIds':[]}):
+            self.assertTrue(self.run_async(Dispatcher(self.map,Push()).attention()))
+        self.assertEqual(self.map.value('select count(*) from assistant.attention_deliveries where cancelled_at is not null'),1)

@@ -101,6 +101,12 @@ def disconnect(action="google_connect"):
     return status()
 
 
+class GoogleRequestError(ToolError):
+    def __init__(self, status):
+        super().__init__("Google could not provide that data. Check the connection and try again.")
+        self.status = status
+
+
 def _request(method, path, params=None, body=None, headers=None, required_scope=None):
     with _LOCK:
         credentials = _credentials()
@@ -135,7 +141,7 @@ def _request(method, path, params=None, body=None, headers=None, required_scope=
         if response.status_code == 204:
             return {}
         if not response.ok:
-            raise ToolError("Google could not provide that data. Check the connection and try again.")
+            raise GoogleRequestError(response.status_code)
         return response.json()
 
 

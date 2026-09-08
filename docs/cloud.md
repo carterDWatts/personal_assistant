@@ -97,6 +97,30 @@ and `ASSISTANT_APNS_TEAM_ID`; the key stays outside git. Enable notifications in
 phone's day panel once. Notification actions open the app, persist locally until
 synced, and use the same versioned completion/snooze path as conversation tools.
 
-Morning preparation fetches public NYT RSS headlines alongside calendar/mail.
-Headlines carry dates and links, with a five-minute cache; no NYT account or article
-scraping is involved. Morning preferences use the existing standing-rule store.
+Morning preparation fetches calendar/mail. Optional briefing content, including whether
+to include news at all, comes from active standing preferences. No publisher or topic
+is a default. Explicit preferences save inline and atomically retire replaced rules.
+The NYT RSS tool remains available on request; it is not automatically called.
+
+Background gathering scans Gmail every two minutes, with a persisted time cursor
+and replay-safe source IDs. A scan advances only after all pages are saved. New
+messages are triaged in batches of five by the cheaper subscription model while
+conversation is idle. Empty polls use no inference. Only consequential unread mail
+is eligible for an alert; unread state is checked again just before dispatch.
+Sent mail can supply context but cannot trigger an alert about itself. Relevant
+source material is preserved and may queue structured extraction. External sources
+cannot use reminder or rule-writing tools. Failures retry with backoff.
+
+Nightly maintenance runs once per local day after 03:00, when idle. It retires exact
+duplicate active rules without deleting provenance, then makes a bounded review of
+the current map for stale facts, uncertain identity matches and missing relationships.
+Evidence-backed relationships and facts are recorded as inferred, with at least two
+current stated/synced premises. They cannot overwrite known beliefs. Changed premises
+invalidate their dependent inferences immediately. Corrected claims cannot be inferred
+again without review. Uncertain changes and logical inconsistencies become linked
+questions; the nightly model cannot authoritatively rewrite user statements. Direct
+user corrections use memory_clarify: updates and question closure commit together.
+Never-true claims are deprecated with a reason; ended states retain their validity
+interval and explanation. Original observations and revision history remain auditable. Completion and errors are recorded in
+`assistant.maintenance_runs`. The first deployment performs a catch-up review if
+that day's scheduled time has already passed.

@@ -1,6 +1,7 @@
 import uuid
 from engine.db import jsonb
 from engine.imports import validate_history
+from engine.tools import ToolError
 from engine.memory_worker import Worker
 from engine.context import pending_block
 from engine.conversation import Conversation
@@ -34,7 +35,7 @@ class imports_test(MapTest):
 
     def test_historical_import_cannot_claim_current_state(self):
         for tool, args in [('fact_assert', {}), ('rule_add', {}), ('plan_add', {}), ('fact_deprecate', {})]:
-            with self.assertRaises(ValueError): validate_history(tool, args)
+            with self.assertRaises(ToolError): validate_history(tool, args)
         validate_history('fact_assert', {'valid_from':'2020-01-01T00:00:00Z','valid_to':'2021-01-01T00:00:00Z'})
         validate_history('question_add', {'text':'Is your bicycle still blue?'})
 

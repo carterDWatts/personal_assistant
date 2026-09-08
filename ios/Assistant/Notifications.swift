@@ -47,7 +47,7 @@ import UserNotifications
         guard let id = info["reminder_id"] as? String, let version = info["version"] as? Int else { return }
         if ["done","snooze"].contains(response.actionIdentifier) {
             var pending = UserDefaults.standard.array(forKey: "reminderActions") as? [[String: Any]] ?? []
-            var action: [String: Any] = ["id":id,"version":version,"action":response.actionIdentifier]
+            var action: [String: Any] = ["id":id,"version":version,"action":response.actionIdentifier,"request_id":UUID().uuidString]
             if response.actionIdentifier == "snooze" { action["until"] = isoDate(Date().addingTimeInterval(3600)) }
             pending.append(action)
             UserDefaults.standard.set(pending, forKey: "reminderActions")
@@ -58,13 +58,14 @@ import UserNotifications
 
 struct ReminderItem: Identifiable {
     let id: String
-    let title, context: String
+    let title, context, severity: String
     let version: Int
     let next: Date?
     init(_ row: [String: Any]) {
         id = row["id"] as? String ?? ""
         title = row["title"] as? String ?? ""
         context = row["context"] as? String ?? ""
+        severity = row["severity"] as? String ?? "normal"
         version = row["version"] as? Int ?? 1
         next = parseDate(row["next_notify_at"])
     }

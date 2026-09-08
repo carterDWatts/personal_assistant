@@ -43,6 +43,7 @@ func plain(_ value: Any?) -> String {
     }
     @Published var status = "Starting…"
     @Published var memoryStatus = ""
+    @Published var attention: [AttentionItem] = []
     @Published var reminders: [ReminderItem] = []
     @Published var reminderStatus = ""
     @Published var plans: [PlanItem] = []
@@ -85,24 +86,32 @@ func plain(_ value: Any?) -> String {
     }
     func reminderAction(_ item: ReminderItem, action: String) {
         var pending = UserDefaults.standard.array(forKey: "reminderActions") as? [[String: Any]] ?? []
-        var args: [String: Any] = ["id":item.id,"version":item.version,"action":action]
+        var args: [String: Any] = ["id":item.id,"version":item.version,"action":action,"request_id":UUID().uuidString]
         if action == "snooze" { args["until"] = isoDate(Date().addingTimeInterval(3600)) }
         pending.append(args); UserDefaults.standard.set(pending, forKey: "reminderActions")
         flushReminderActions()
+    }
+    private func removeReminderAction(_ args: [String: Any]) {
+        var latest = UserDefaults.standard.array(forKey: "reminderActions") as? [[String: Any]] ?? []
+        if let index = latest.firstIndex(where: {
+            if let id = args["request_id"] as? String { return $0["request_id"] as? String == id }
+            return $0["id"] as? String == args["id"] as? String && $0["version"] as? Int == args["version"] as? Int && $0["action"] as? String == args["action"] as? String
+        }) { latest.remove(at: index) }
+        UserDefaults.standard.set(latest, forKey: "reminderActions")
     }
     func flushReminderActions() {
         guard connected, !flushingReminders else { return }
         flushingReminders = true
         Task {
             defer { flushingReminders = false }
-            while var pending = UserDefaults.standard.array(forKey: "reminderActions") as? [[String: Any]], let args = pending.first {
+            while let pending = UserDefaults.standard.array(forKey: "reminderActions") as? [[String: Any]], let args = pending.first {
                 do {
                     let result = try await transport.reminderRequest("reminder_action", args)
                     reminders = (result["reminders"] as? [[String: Any]] ?? []).map(ReminderItem.init)
-                    pending.removeFirst(); UserDefaults.standard.set(pending, forKey: "reminderActions")
+                    removeReminderAction(args)
                     reminderStatus = ""
                 } catch let error as RelayError where error.code == "idempotency_conflict" {
-                    pending.removeFirst(); UserDefaults.standard.set(pending, forKey: "reminderActions")
+                    removeReminderAction(args)
                     reminderStatus = "That reminder changed. Check it before updating it."
                 } catch { reminderStatus = "Update saved on this phone; waiting to sync."; return }
             }
@@ -191,6 +200,7 @@ func plain(_ value: Any?) -> String {
             connections = (event["providers"] as? [[String: Any]] ?? []).map(Connection.init)
         case "memory": memoryStatus = text
         case "map":
+            attention = (event["attention"] as? [[String: Any]] ?? []).map(AttentionItem.init)
             reminders = (event["reminders"] as? [[String: Any]] ?? []).map(ReminderItem.init)
             plans = (event["plans"] as? [[String: Any]] ?? []).map { PlanItem(item: plain($0["item"]), status: plain($0["status"])) }
             openQuestions = (event["questions"] as? NSNumber)?.intValue ?? 0
@@ -351,5 +361,14 @@ struct ModelChoice: Identifiable {
     init?(_ row: [String: Any]) {
         guard let id = row["id"] as? String, let name = row["name"] as? String else { return nil }
         self.id = id; self.name = name
+    }
+}
+
+struct AttentionItem: Identifiable {
+    let id, title, detail: String
+    init(_ row: [String: Any]) {
+        id = row["id"] as? String ?? ""
+        title = row["title"] as? String ?? ""
+        detail = row["detail"] as? String ?? ""
     }
 }
