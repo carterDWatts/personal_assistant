@@ -70,3 +70,15 @@ test('clear is dispatched with the verified owner and stable request ID', async 
   assert.equal(response.status, 200);
   assert.equal((await response.json()).status, 'cleared');
 });
+
+test('unauthenticated and expired sockets cannot upgrade or call SQL', async () => {
+  const { socket } = await import('../supabase/functions/assistant/socket.ts');
+  let calls = 0;
+  const auth = async () => { calls++; return Response.json({ id: owner }); };
+  assert.equal((await socket(new Request('https://example.invalid'), config, auth)).status, 401);
+  assert.equal(calls, 0);
+  const expired = 'header.' + btoa(JSON.stringify({ exp: 1 })) + '.signature';
+  const req = new Request('https://example.invalid', { headers: { authorization: 'Bearer ' + expired } });
+  assert.equal((await socket(req, config, auth)).status, 401);
+  assert.equal(calls, 1);
+});

@@ -38,11 +38,9 @@ private final class Capture: @unchecked Sendable {
     @Published private(set) var transcript = ""
     @Published private(set) var muted = false
     var onSpeech: (() -> Void)?
+    var onPlaybackStarted: (() -> Void)?
     var onUtterance: ((String) -> Void)?
     var onError: ((String) -> Void)?
-
-    /// Silence that ends an utterance. Long enough to think mid-sentence, short enough to feel answered.
-    static let pause: TimeInterval = 1.0
 
     private let engine = AVAudioEngine()
     private let player = AVAudioPlayerNode()
@@ -55,10 +53,13 @@ private final class Capture: @unchecked Sendable {
     private var heardAt = Date()
     private var signalAt = Date.distantPast
     private var endpoint: Task<Void, Never>?
+    private var finalizing = false
+    private var finalResult: Task<Void, Never>?
     private var refresh: Task<Void, Never>?
     private var watchdog: Task<Void, Never>?
     private var lastBuffer = Date.distantPast
     private var captureRestarts = 0
+    private var usesMicrophone = false
     private var onDevice = true
     private var recognitionFailures = 0
     private var startToken = UUID()
@@ -73,6 +74,7 @@ private final class Capture: @unchecked Sendable {
     private var playback = UUID()
     private var echo = PlaybackEcho()
     private var interruption = PlaybackInterruption()
+    private var heardEcho = false
     private var observers: [NSObjectProtocol] = []
     private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "assistant", category: "voice")
 
@@ -101,6 +103,9 @@ private final class Capture: @unchecked Sendable {
     }
 
     func start() {
+        #if DEBUG
+        guard ProcessInfo.processInfo.environment["ASSISTANT_VOICE_TEST"] != "1" else { return }
+        #endif
         guard !active else { return }
         let token = UUID(); startToken = token
         Task { [weak self] in
@@ -121,6 +126,7 @@ private final class Capture: @unchecked Sendable {
     private func begin() {
         guard !active else { return }
         let session = AVAudioSession.sharedInstance()
+        usesMicrophone = true
         let input = engine.inputNode
         do {
             try session.setCategory(.playAndRecord, mode: .voiceChat, options: [.defaultToSpeaker, .allowBluetooth])
@@ -157,6 +163,32 @@ private final class Capture: @unchecked Sendable {
         }
     }
 
+    #if DEBUG
+    var lastInputSound: Date { signalAt }
+
+    func beginReplay() async throws {
+        stop()
+        let permission = await withCheckedContinuation { continuation in
+            SFSpeechRecognizer.requestAuthorization { continuation.resume(returning: $0) }
+        }
+        guard permission == .authorized else { throw NSError(domain: "VoiceReplay", code: 1) }
+        usesMicrophone = false
+        try AVAudioSession.sharedInstance().setCategory(.playback)
+        try AVAudioSession.sharedInstance().setActive(true)
+        if player.engine == nil { engine.attach(player) }
+        let format = AVAudioFormat(standardFormatWithSampleRate: 24000, channels: 1)!
+        playbackFormat = format
+        engine.connect(player, to: engine.mainMixerNode, format: format)
+        engine.prepare()
+        try engine.start()
+        active = true
+        onDevice = true
+        listen()
+    }
+
+    func feedReplay(_ buffer: AVAudioPCMBuffer) { capture.consume(buffer) }
+    #endif
+
     private func watchCapture() {
         watchdog?.cancel()
         watchdog = Task { [weak self] in
@@ -185,6 +217,7 @@ private final class Capture: @unchecked Sendable {
 
     private func listen() {
         guard active, !muted else { return }
+        finalResult?.cancel(); finalizing = false
         listening = UUID()
         task?.cancel(); task = nil
         guard let recognizer, recognizer.isAvailable else { failed("Speech recognition isn’t available right now."); return }
@@ -199,6 +232,7 @@ private final class Capture: @unchecked Sendable {
         listening = token
         transcript = ""
         interruption = PlaybackInterruption()
+        heardEcho = false
         heardAt = Date()
         task = recognizer.recognitionTask(with: request) { [weak self] result, error in
             Task { @MainActor [weak self] in self?.recognized(token, result, error) }
@@ -212,11 +246,13 @@ private final class Capture: @unchecked Sendable {
             let text = result.bestTranscription.formattedString
             if !text.isEmpty {
                 if echo.suppressDuringPlayback(text, final: result.isFinal) {
+                    heardEcho = true
                     interruption = PlaybackInterruption()
                     log.notice("ignored playback echo")
                     if result.isFinal { listen() }
                     return
                 }
+                heardEcho = false
                 if !interruption.accept(text, guarded: echo.isRecent(), final: result.isFinal) {
                     if result.isFinal { listen() }
                     return
@@ -225,15 +261,18 @@ private final class Capture: @unchecked Sendable {
                 let first = transcript.isEmpty
                 if text != transcript { transcript = text; heardAt = Date() }
                 if first { log.notice("heard speech"); onSpeech?() }
-                if result.isFinal { finish() } else { armEndpoint() }
+                if result.isFinal { commitUtterance() } else if !finalizing { armEndpoint() }
                 return
             }
-            if result.isFinal { listen(); return }
+            if result.isFinal {
+                if transcript.isEmpty { listen() } else { commitUtterance() }
+                return
+            }
         }
         if let error {
             let failure = error as NSError
             log.error("recognition ended: \(failure.domain, privacy: .public) \(failure.code) \(failure.localizedDescription, privacy: .public)")
-            if !transcript.isEmpty { finish(); return }
+            if !transcript.isEmpty { commitUtterance(); return }
             recognitionFailures += 1
             guard recognitionFailures <= 4 else {
                 failed("Speech recognition stopped. Tap Talk to reconnect."); return
@@ -256,7 +295,9 @@ private final class Capture: @unchecked Sendable {
                 guard !Task.isCancelled, let self, self.active else { return }
                 let sinceWords = Date().timeIntervalSince(self.heardAt)
                 let sinceSound = Date().timeIntervalSince(self.signalAt)
-                if sinceWords >= Self.pause && (sinceSound >= Self.pause || sinceWords >= 3) {
+                let sentenceEnded = self.transcript.last.map { ".!?".contains($0) } ?? false
+                let silence = sentenceEnded ? 0.5 : 1.0
+                if sinceWords >= 0.2 && (sinceSound >= silence || sinceWords >= 3) {
                     self.finish(); return
                 }
             }
@@ -264,7 +305,23 @@ private final class Capture: @unchecked Sendable {
     }
 
     private func finish() {
+        guard !finalizing else { return }
         endpoint?.cancel()
+        finalizing = true
+        capture.attach(nil)
+        request?.endAudio()
+        // Give the recognizer its final correction before replacing the request.
+        let token = listening
+        finalResult = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(250))
+            guard !Task.isCancelled, let self, self.active, self.listening == token else { return }
+            self.commitUtterance()
+        }
+    }
+
+    private func commitUtterance() {
+        endpoint?.cancel()
+        finalResult?.cancel()
         let text = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
         request?.endAudio()
         listen()
@@ -276,7 +333,7 @@ private final class Capture: @unchecked Sendable {
         guard active, value != muted else { return }
         muted = value
         if value {
-            endpoint?.cancel()
+            endpoint?.cancel(); finalResult?.cancel(); finalizing = false
             listening = UUID(); task?.cancel(); task = nil
             request?.endAudio(); request = nil
             capture.attach(nil)
@@ -310,7 +367,14 @@ private final class Capture: @unchecked Sendable {
             do {
                 let data: Data
                 let prefix = "data:audio/mp4;base64,"
-                if url.absoluteString.hasPrefix(prefix) {
+                #if DEBUG
+                let replayFile = url.isFileURL && ProcessInfo.processInfo.environment["ASSISTANT_VOICE_TEST"] == "1"
+                #else
+                let replayFile = false
+                #endif
+                if replayFile {
+                    data = try Data(contentsOf: url)
+                } else if url.absoluteString.hasPrefix(prefix) {
                     let encoded = String(url.absoluteString.dropFirst(prefix.count))
                     guard encoded.count <= 86_000, let decoded = Data(base64Encoded: encoded) else { throw URLError(.cannotDecodeContentData) }
                     data = decoded
@@ -367,7 +431,7 @@ private final class Capture: @unchecked Sendable {
         player.scheduleBuffer(converted, completionCallbackType: .dataPlayedBack) { [weak self] _ in
             Task { @MainActor [weak self] in self?.played(generation) }
         }
-        if !player.isPlaying { player.play() }
+        if !player.isPlaying { player.play(); onPlaybackStarted?() }
     }
 
     private func convert(_ input: AVAudioPCMBuffer, to format: AVAudioFormat) -> AVAudioPCMBuffer? {
@@ -386,7 +450,10 @@ private final class Capture: @unchecked Sendable {
     private func played(_ generation: UUID) {
         guard generation == playback else { return }
         playing -= 1
-        if playing == 0 && !rendering && queue.isEmpty && !fetching && hosted.isEmpty { speaking = false; echo.finished();  }
+        if playing == 0 && !rendering && queue.isEmpty && !fetching && hosted.isEmpty {
+            speaking = false; echo.finished()
+            if heardEcho && transcript.isEmpty { listen() }
+        }
     }
 
     func silencePlayback() {
@@ -404,12 +471,12 @@ private final class Capture: @unchecked Sendable {
         let wasActive = active
         active = false
         silencePlayback()
-        endpoint?.cancel(); refresh?.cancel(); watchdog?.cancel()
+        endpoint?.cancel(); finalResult?.cancel(); finalizing = false; refresh?.cancel(); watchdog?.cancel()
         listening = UUID()
         task?.cancel(); task = nil
         request?.endAudio(); request = nil
         capture.attach(nil)
-        if wasActive { engine.inputNode.removeTap(onBus: 0) }
+        if wasActive && usesMicrophone { engine.inputNode.removeTap(onBus: 0) }
         engine.stop()
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
         transcript = ""; inputLevel = 0; muted = false

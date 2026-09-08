@@ -49,3 +49,35 @@ targets:
         script: |
           name=$(/usr/bin/plutil -extract name raw -o - "$SRCROOT/../identity.json")
           /usr/bin/plutil -replace CFBundleDisplayName -string "$name" "$TARGET_BUILD_DIR/$INFOPLIST_PATH"
+
+  AssistantTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: AssistantTests
+    dependencies:
+      - target: Assistant
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+  AssistantUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources: [AssistantUITests]
+    dependencies:
+      - target: Assistant
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+schemes:
+  Assistant:
+    build:
+      targets:
+        Assistant: all
+        AssistantTests: [test]
+        AssistantUITests: [test]
+    test:
+      environmentVariables:
+        ASSISTANT_VOICE_TEST: "1"
+        ASSISTANT_TEST_MODEL: "$(ASSISTANT_TEST_MODEL)"
+      targets: [AssistantUITests, AssistantTests]

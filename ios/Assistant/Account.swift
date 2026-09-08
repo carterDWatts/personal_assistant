@@ -65,6 +65,15 @@ struct AccountError: LocalizedError {
             deviceID = UUID().uuidString.lowercased()
             Keychain.set("device", Data(deviceID.utf8))
         }
+        #if DEBUG && targetEnvironment(simulator)
+        if ProcessInfo.processInfo.environment["ASSISTANT_VOICE_TEST"] == "1" {
+            let fixture = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0].appendingPathComponent("replay-session.json")
+            if let data = try? Data(contentsOf: fixture), (try? JSONDecoder().decode(Session.self, from: data)) != nil {
+                Keychain.set("session", data)
+                try? FileManager.default.removeItem(at: fixture)
+            }
+        }
+        #endif
         session = Keychain.get("session").flatMap { try? JSONDecoder().decode(Session.self, from: $0) }
         signedIn = session != nil
     }

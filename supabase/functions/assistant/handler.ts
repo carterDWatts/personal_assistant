@@ -1,5 +1,5 @@
 // Authentication is checked with Auth before the privileged RPC receives a user ID.
-type Config = { url: string; anonKey: string; serviceKey: string; identity?: { name: string } };
+export type Config = { url: string; anonKey: string; serviceKey: string; identity?: { name: string } };
 const actions = new Set(["register", "bootstrap", "submit", "cancel", "events", "revoke", "clear"]);
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const headers = {
@@ -25,7 +25,7 @@ async function body(req: Request) {
     }
     chunks.push(part.value);
   }
-  return JSON.parse(await new Blob(chunks).text());
+  return JSON.parse(await new Blob(chunks.map(chunk => new Uint8Array(chunk).buffer)).text());
 }
 
 export function handler(config: Config, fetcher: typeof fetch = fetch) {
@@ -42,27 +42,7 @@ export function handler(config: Config, fetcher: typeof fetch = fetch) {
       const user = await auth.json();
       if (!uuid.test(user.id) || user.is_anonymous) return reply({ error: "sign_in_required" }, 401);
       const input = await body(req);
-      if (!input || !actions.has(input.action) || !uuid.test(input.device_id) ||
-          (input.args !== undefined && (!input.args || typeof input.args !== "object" || Array.isArray(input.args)))) {
-        return reply({ error: "invalid_request" }, 400);
-      }
-      const response = await fetcher(`${config.url}/rest/v1/rpc/assistant_client`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", apikey: config.serviceKey,
-          authorization: `Bearer ${config.serviceKey}` },
-        body: JSON.stringify({ p_user: user.id, p_device: input.device_id, p_action: input.action, p_args: input.args || {} }),
-        signal: AbortSignal.timeout(15_000),
-      });
-      const result = await response.json();
-      if (response.ok) return reply(input.action === 'bootstrap' && config.identity ?
-        { ...result, identity: config.identity } : result);
-      const code = result.message;
-      if (["account_denied", "device_denied"].includes(code)) return reply({ error: code }, 403);
-      if (["conversation_busy", "idempotency_conflict"].includes(code)) return reply({ error: code }, 409);
-      if (code === "turn_not_found") return reply({ error: code }, 404);
-      if (["model_unavailable", "speech_unavailable"].includes(code)) return reply({ error: code }, 400);
-      if (["22P02", "23502", "23514", "22023"].includes(result.code)) return reply({ error: "invalid_request" }, 400);
-      return reply({ error: "service_unavailable" }, 503);
+      return await execute(config, user.id, input, fetcher);
     } catch (error) {
       if (error instanceof SyntaxError) return reply({ error: "invalid_request" }, 400);
       if (error instanceof Error && ["request_too_large", "invalid_request"].includes(error.message)) {
@@ -71,4 +51,28 @@ export function handler(config: Config, fetcher: typeof fetch = fetch) {
       return reply({ error: "service_unavailable" }, 503);
     }
   };
+}
+
+export async function execute(config: Config, userId: string, input: any, fetcher: typeof fetch = fetch): Promise<Response> {
+  if (!input || !actions.has(input.action) || !uuid.test(input.device_id) ||
+      (input.args !== undefined && (!input.args || typeof input.args !== "object" || Array.isArray(input.args)))) {
+    return reply({ error: "invalid_request" }, 400);
+  }
+  const response = await fetcher(`${config.url}/rest/v1/rpc/assistant_client`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", apikey: config.serviceKey,
+      authorization: `Bearer ${config.serviceKey}` },
+    body: JSON.stringify({ p_user: userId, p_device: input.device_id, p_action: input.action, p_args: input.args || {} }),
+    signal: AbortSignal.timeout(15_000),
+  });
+  const result = await response.json();
+  if (response.ok) return reply(input.action === 'bootstrap' && config.identity ?
+    { ...result, identity: config.identity } : result);
+  const code = result.message;
+  if (["account_denied", "device_denied"].includes(code)) return reply({ error: code }, 403);
+  if (["conversation_busy", "idempotency_conflict"].includes(code)) return reply({ error: code }, 409);
+  if (code === "turn_not_found") return reply({ error: code }, 404);
+  if (["model_unavailable", "speech_unavailable"].includes(code)) return reply({ error: code }, 400);
+  if (["22P02", "23502", "23514", "22023"].includes(result.code)) return reply({ error: "invalid_request" }, 400);
+  return reply({ error: "service_unavailable" }, 503);
 }

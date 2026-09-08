@@ -33,6 +33,8 @@ struct RelayError: LocalizedError {
     private var failures = 0
     private var replaying = false
     private var draining = false
+    private let socket = RelaySocket()
+    var socketResponses: Int { socket.responses }
 
     init() {
         var continuation: AsyncStream<[String: Any]>.Continuation!
@@ -183,10 +185,11 @@ struct RelayError: LocalizedError {
 
     func foreground(_ active: Bool) {
         inFront = active
+        if !active { socket.close() }
         if active, poller != nil { Task { try? await drain() } }
     }
 
-    func close() { poller?.cancel() }
+    func close() { poller?.cancel(); socket.close() }
 
     func connections() async throws -> [[String: Any]] {
         try await call("connections")["providers"] as? [[String: Any]] ?? []
@@ -226,6 +229,18 @@ struct RelayError: LocalizedError {
 
     private func call(_ action: String, _ args: [String: Any] = [:]) async throws -> [String: Any] {
         let token = try await account.accessToken()
+        let input: [String: Any] = ["action": action, "device_id": account.deviceID, "args": args]
+        if ["register", "bootstrap", "submit", "cancel", "events", "clear"].contains(action) {
+            do {
+                let (status, body) = try await socket.request(input, token: token)
+                guard (200..<300).contains(status) else { throw RelayError(status: status, code: body["error"] as? String ?? "service_unavailable") }
+                return body
+            } catch let error as RelayError {
+                if error.status == 401 { account.signOut() }
+                throw error
+            }
+            catch { /* Replay-safe HTTP fallback while the persistent connection recovers. */ }
+        }
         var request = URLRequest(url: Relay.url.appendingPathComponent("functions/v1/assistant"))
         request.httpMethod = "POST"
         request.timeoutInterval = 20
