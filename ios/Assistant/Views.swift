@@ -224,14 +224,29 @@ struct VoiceGlow: View {
 }
 
 struct SettingsView: View {
+    @ObservedObject var chat: Chat
     let palette: Palette
     @AppStorage("voice") private var voice = ""
-    @AppStorage("onDeviceRecognition") private var onDevice = false
+    @AppStorage("onDeviceRecognition") private var onDevice = true
     @Environment(\.dismiss) private var dismiss
     @State private var preview = AVSpeechSynthesizer()
     var body: some View {
         NavigationStack {
             List {
+                Section("Model") {
+                    Picker("Model", selection: $chat.selectedModel) {
+                        Text("Host default").tag("")
+                        ForEach(chat.models) { model in Text(model.name).tag(model.id) }
+                    }.disabled(chat.busy)
+                    Text("Available subscription models. Changes apply to your next message; memory stays shared.")
+                        .font(.footnote).foregroundStyle(.secondary)
+                    if !chat.models.contains(where: { $0.id.hasPrefix("claude-agent-sdk/") }) {
+                        Text("Claude isn’t signed in on the host yet.").font(.footnote).foregroundStyle(.secondary)
+                    }
+                }
+                if chat.hostSpeaks {
+                    Section("Speech") { Text("Michael · natural American voice, generated on your host.") }
+                } else {
                 Section {
                     Picker("Voice", selection: $voice) {
                         Text("Best available").tag("")
@@ -248,10 +263,11 @@ struct SettingsView: View {
                 } header: { Text("Speech") } footer: {
                     Text("Premium voices are downloads under Settings › Accessibility › Spoken Content › Voices. They sound far better than the built-in ones.")
                 }
+                }
                 Section {
                     Toggle("Recognize speech on this phone", isOn: $onDevice)
                 } footer: {
-                    Text("On by default when there is no network. Recognition over the network is more accurate.")
+                    Text("On-device recognition avoids network delays. Turn this off to try network recognition. Applies when you next start Talk.")
                 }
             }
             .scrollContentBackground(.hidden)
@@ -348,7 +364,7 @@ struct ConversationView: View {
         .sheet(isPresented: $showDay) {
             DayPanel(chat: chat, palette: palette).presentationDetents([.medium, .large]).presentationDragIndicator(.visible)
         }
-        .sheet(isPresented: $showSettings) { SettingsView(palette: palette) }
+        .sheet(isPresented: $showSettings) { SettingsView(chat: chat, palette: palette) }
         .sheet(isPresented: $showConnections) { ConnectionsView(chat: chat, palette: palette) }
         .sheet(isPresented: Binding(get: { chat.tokenForm != nil }, set: { if !$0 { chat.tokenForm = nil } })) {
             if let provider = chat.tokenForm { TokenForm(chat: chat, provider: provider, palette: palette) }
@@ -365,7 +381,17 @@ struct ConversationView: View {
     private var header: some View {
         HStack(spacing: 10) {
             Mark(palette: palette, thinking: chat.busy).frame(width: 24, height: 24)
-            Text(AssistantIdentity.name).font(.headline).foregroundStyle(palette.ink)
+            Menu {
+                Picker("Model", selection: $chat.selectedModel) {
+                    Text("Host default").tag("")
+                    ForEach(chat.models) { model in Text(model.name).tag(model.id) }
+                }
+            } label: {
+                HStack(spacing: 4) {
+                    Text(AssistantIdentity.name).font(.headline)
+                    Image(systemName: "chevron.down").font(.caption2)
+                }.foregroundStyle(palette.ink)
+            }.disabled(chat.busy || chat.models.isEmpty).accessibilityLabel("Choose model")
             Text(Date().formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day())).font(.subheadline).foregroundStyle(palette.muted)
             Spacer()
             Circle().fill(chat.connected ? palette.accent : palette.muted).frame(width: 7, height: 7).accessibilityLabel(chat.status).padding(.trailing, 4)

@@ -18,11 +18,13 @@ from engine.runtime import load
 class Stream:
     def __init__(self):
         self.pending = []
+        self.audio = None
 
     def start_turn(self):
         pass  # Claiming the durable request already emitted start.
 
     def delta(self, text):
+        if self.audio: self.audio(text)
         if self.pending and self.pending[-1]['type'] == 'delta':
             self.pending[-1]['text'] += text
         else:
@@ -56,6 +58,10 @@ class Host:
     def __init__(self, relay, map_, runtime_factory=None):
         self.relay, self.map = relay, map_
         self.factory = runtime_factory or load(config.RUNTIME)
+        self.custom_factory = runtime_factory is not None
+        self.model_id = None
+        self.models = []
+        self.speech = None
         self.stream = Stream()
         self.session = None
         self.active = None
@@ -92,10 +98,15 @@ class Host:
             await self.call(self.relay.publish, self.active, batch)
 
     async def answer(self, turn):
-        if self.session and self.session.conv.cutoff() > self.session.seen_message:
+        if self.session and (self.session.conv.cutoff() > self.session.seen_message or turn.get("model") != self.model_id):
             await self.close_session()
         if self.session is None:
-            self.session = Session(self.map, self.factory(), self.stream, 'cloud',
+            choice = next((m for m in self.models if m['id'] == turn.get('model')), None)
+            if turn.get('model') and not choice and not self.custom_factory:
+                raise RuntimeError('The selected model is no longer available on this host.')
+            runtime = load(choice['runtime'])(model=choice['model']) if choice else self.factory()
+            self.model_id = turn.get('model')
+            self.session = Session(self.map, runtime, self.stream, 'cloud',
                                    auto_memory=False, before_tool=self.before_tool)
             await self.session.open()
         await self.session.send(turn['text'])
@@ -120,6 +131,9 @@ class Host:
 
     async def process(self, turn):
         self.active = turn['id']
+        if self.speech:
+            await self.speech.begin(turn)
+            self.stream.audio = self.speech.feed if turn.get('speech') else None
         task = asyncio.create_task(self.answer(turn))
         status = 'completed'
         heartbeat = asyncio.get_running_loop().time()
@@ -144,6 +158,8 @@ class Host:
             await self.flush()
             await self.refresh_day()
             await self.call(self.relay.finish, self.active, status)
+            if self.speech:
+                self.speech.finish(status)
         finally:
             if not task.done():
                 await self.interrupt(task)
@@ -162,6 +178,12 @@ class Host:
                 await asyncio.sleep(2)
             if not acquired:
                 return
+            from engine.models import available
+            from engine.speech import Speech
+            self.models = await available()
+            self.speech = Speech(self)
+            speech_ready = await self.speech.start()
+            await self.call(self.relay.capabilities, {'models': self.models, 'speech': speech_ready})
             print('Host connected.', flush=True)
             await self.refresh_day()
             self.ready.set()
@@ -170,6 +192,7 @@ class Host:
                 if asyncio.get_running_loop().time() - heartbeat >= 20:
                     await self.call(self.relay.heartbeat)
                     await self.refresh_day()
+                    if self.speech and self.speech.storage: await self.speech.cleanup()
                     heartbeat = asyncio.get_running_loop().time()
                 turn = await self.call(self.relay.claim)
                 if turn:
@@ -178,6 +201,7 @@ class Host:
                     await asyncio.sleep(1)
         finally:
             await self.close_session()
+            if self.speech: await self.speech.close()
             if acquired:
                 with contextlib.suppress(Exception):
                     await self.call(self.relay.release)

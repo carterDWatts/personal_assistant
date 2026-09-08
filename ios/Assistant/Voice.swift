@@ -42,7 +42,7 @@ private final class Capture: @unchecked Sendable {
     var onError: ((String) -> Void)?
 
     /// Silence that ends an utterance. Long enough to think mid-sentence, short enough to feel answered.
-    static let pause: TimeInterval = 1.1
+    static let pause: TimeInterval = 1.4
 
     private let engine = AVAudioEngine()
     private let player = AVAudioPlayerNode()
@@ -55,7 +55,11 @@ private final class Capture: @unchecked Sendable {
     private var heardAt = Date()
     private var endpoint: Task<Void, Never>?
     private var refresh: Task<Void, Never>?
-    private var onDevice = UserDefaults.standard.bool(forKey: "onDeviceRecognition")
+    private var onDevice = true
+    private var recognitionFailures = 0
+    private var startToken = UUID()
+    private var download: Task<Void, Never>?
+    private var playbackText = ""
     private var queue: [String] = []
     private var rendering = false
     private var hosted: [(URL, String)] = []
@@ -64,8 +68,6 @@ private final class Capture: @unchecked Sendable {
     private var playing = 0
     private var playback = UUID()
     private var echo = PlaybackEcho()
-    private var spokenWords: [String] = []
-    private var spokeUntil = Date.distantPast
     private var observers: [NSObjectProtocol] = []
     private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "assistant", category: "voice")
 
@@ -92,14 +94,17 @@ private final class Capture: @unchecked Sendable {
 
     func start() {
         guard !active else { return }
+        let token = UUID(); startToken = token
         Task { [weak self] in
             let microphone = await AVAudioApplication.requestRecordPermission()
             let speech = await withCheckedContinuation { continuation in
                 SFSpeechRecognizer.requestAuthorization { continuation.resume(returning: $0) }
             }
-            guard let self else { return }
+            guard let self, self.startToken == token else { return }
             guard microphone else { self.onError?("Allow the microphone in Settings to talk."); return }
             guard speech == .authorized else { self.onError?("Allow speech recognition in Settings to talk."); return }
+            self.onDevice = UserDefaults.standard.object(forKey: "onDeviceRecognition") as? Bool ?? true
+            self.recognitionFailures = 0
             self.begin()
         }
     }
@@ -109,7 +114,7 @@ private final class Capture: @unchecked Sendable {
         let session = AVAudioSession.sharedInstance()
         let input = engine.inputNode
         do {
-            try session.setCategory(.playAndRecord, mode: .voiceChat, options: [.defaultToSpeaker, .allowBluetooth, .allowBluetoothA2DP])
+            try session.setCategory(.playAndRecord, mode: .voiceChat, options: [.defaultToSpeaker, .allowBluetooth])
             try session.setActive(true)
             // The voice-processing unit gives echo cancellation, so speech playback goes through this engine too.
             try input.setVoiceProcessingEnabled(true)
@@ -117,7 +122,7 @@ private final class Capture: @unchecked Sendable {
             failed("Voice couldn’t start: \(error.localizedDescription)"); return
         }
         if player.engine == nil { engine.attach(player) }
-        let format = playbackFormat ?? AVAudioFormat(standardFormatWithSampleRate: 22050, channels: 1)!
+        let format = playbackFormat ?? AVAudioFormat(standardFormatWithSampleRate: 24000, channels: 1)!
         playbackFormat = format
         engine.connect(player, to: engine.mainMixerNode, format: format)
         let capture = capture
@@ -135,7 +140,7 @@ private final class Capture: @unchecked Sendable {
             // The recognizer stops after about a minute of audio; start a fresh request between utterances.
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(45))
-                guard let self, self.active, self.transcript.isEmpty else { continue }
+                guard let self, self.active, !self.muted, self.transcript.isEmpty else { continue }
                 self.listen()
             }
         }
@@ -148,6 +153,8 @@ private final class Capture: @unchecked Sendable {
     }
 
     private func listen() {
+        guard active, !muted else { return }
+        listening = UUID()
         task?.cancel(); task = nil
         guard let recognizer, recognizer.isAvailable else { failed("Speech recognition isn’t available right now."); return }
         let request = SFSpeechAudioBufferRecognitionRequest()
@@ -168,15 +175,16 @@ private final class Capture: @unchecked Sendable {
     }
 
     private func recognized(_ token: UUID, _ result: SFSpeechRecognitionResult?, _ error: Error?) {
-        guard active, listening == token else { return }
+        guard active, !muted, listening == token else { return }
         if let result {
             let text = result.bestTranscription.formattedString
             if !text.isEmpty {
-                if echo.matches(text) || soundsLikeEcho(text) {
-                    log.notice("ignored playback echo: \(text, privacy: .public)")
+                if text.split(separator: " ").count >= 3 && echo.matches(text) {
+                    log.notice("ignored playback echo")
                     if result.isFinal { listen() }
                     return
                 }
+                recognitionFailures = 0
                 let first = transcript.isEmpty
                 if text != transcript { transcript = text; heardAt = Date() }
                 if first { log.notice("heard speech"); onSpeech?() }
@@ -189,27 +197,18 @@ private final class Capture: @unchecked Sendable {
             let failure = error as NSError
             log.error("recognition ended: \(failure.domain, privacy: .public) \(failure.code) \(failure.localizedDescription, privacy: .public)")
             if !transcript.isEmpty { finish(); return }
-            if !onDevice, recognizer?.supportsOnDeviceRecognition == true { onDevice = true }
+            recognitionFailures += 1
+            guard recognitionFailures <= 4 else {
+                failed("Speech recognition stopped. Tap Talk to reconnect."); return
+            }
+            if recognitionFailures == 2 { onDevice.toggle() }
+            let delay = min(2.0, Double(recognitionFailures) * 0.4)
             Task { [weak self] in
-                try? await Task.sleep(for: .milliseconds(300))
+                try? await Task.sleep(for: .seconds(delay))
                 guard let self, self.active, self.listening == token else { return }
                 self.listen()
             }
         }
-    }
-
-    /// While a reply plays, and for a moment after, words that mostly repeat it are the speaker, not the user.
-    private func soundsLikeEcho(_ text: String) -> Bool {
-        guard speaking || Date() < spokeUntil else { return false }
-        let heard = text.lowercased().split(whereSeparator: { !$0.isLetter && !$0.isNumber }).map(String.init)
-        guard heard.count >= 2 else { return true }
-        let spoken = Set(spokenWords)
-        let overlap = heard.filter { spoken.contains($0) }.count
-        return overlap * 10 >= heard.count * 6
-    }
-
-    private func remember(_ text: String) {
-        spokenWords = Array((spokenWords + text.lowercased().split(whereSeparator: { !$0.isLetter && !$0.isNumber }).map(String.init)).suffix(200))
     }
 
     private func armEndpoint() {
@@ -262,11 +261,13 @@ private final class Capture: @unchecked Sendable {
         let (url, text) = hosted.removeFirst()
         fetching = true
         let generation = playback
-        echo.record(text); echo.resumed(); remember(text); speaking = true
-        Task { [weak self] in
+        playbackText = text
+        download = Task { [weak self] in
             var buffer: AVAudioPCMBuffer?
             do {
-                let (data, _) = try await URLSession.shared.data(from: url)
+                let (data, response) = try await URLSession.shared.data(from: url)
+                if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) { throw URLError(.badServerResponse) }
+                guard data.count <= 5_000_000 else { throw URLError(.dataLengthExceedsMaximum) }
                 let file = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + "." + (url.pathExtension.isEmpty ? "m4a" : url.pathExtension))
                 try data.write(to: file)
                 defer { try? FileManager.default.removeItem(at: file) }
@@ -279,8 +280,8 @@ private final class Capture: @unchecked Sendable {
                 self?.log.error("host speech failed: \(error.localizedDescription, privacy: .public)")
             }
             guard let self else { return }
+            guard generation == self.playback, !Task.isCancelled else { return }
             self.fetching = false
-            guard generation == self.playback else { return }
             if let buffer { self.received(buffer, generation) }
             if self.hosted.isEmpty && self.playing == 0 && !self.rendering && buffer == nil { self.speaking = false; self.echo.finished() }
             self.fetch()
@@ -294,7 +295,7 @@ private final class Capture: @unchecked Sendable {
         let utterance = AVSpeechUtterance(string: text)
         utterance.voice = LiveVoice.voice
         let generation = playback
-        echo.record(text); echo.resumed(); remember(text); speaking = true
+        playbackText = text
         synthesizer.write(utterance) { [weak self] buffer in
             Task { @MainActor [weak self] in self?.received(buffer, generation) }
         }
@@ -308,34 +309,47 @@ private final class Capture: @unchecked Sendable {
             render()
             return
         }
-        if playbackFormat != pcm.format {
-            playbackFormat = pcm.format
-            engine.connect(player, to: engine.mainMixerNode, format: pcm.format)
-        }
+        guard let format = playbackFormat, let converted = convert(pcm, to: format) else { return }
+        echo.record(playbackText); speaking = true
         playing += 1
-        player.scheduleBuffer(pcm, completionCallbackType: .dataPlayedBack) { [weak self] _ in
+        player.scheduleBuffer(converted, completionCallbackType: .dataPlayedBack) { [weak self] _ in
             Task { @MainActor [weak self] in self?.played(generation) }
         }
         if !player.isPlaying { player.play() }
     }
 
+    private func convert(_ input: AVAudioPCMBuffer, to format: AVAudioFormat) -> AVAudioPCMBuffer? {
+        if input.format == format { return input }
+        guard let converter = AVAudioConverter(from: input.format, to: format),
+              let output = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(Double(input.frameLength) * format.sampleRate / input.format.sampleRate) + 32) else { return nil }
+        var supplied = false
+        var error: NSError?
+        converter.convert(to: output, error: &error) { _, status in
+            if supplied { status.pointee = .endOfStream; return nil }
+            supplied = true; status.pointee = .haveData; return input
+        }
+        return error == nil && output.frameLength > 0 ? output : nil
+    }
+
     private func played(_ generation: UUID) {
         guard generation == playback else { return }
         playing -= 1
-        if playing == 0 && !rendering && queue.isEmpty && !fetching && hosted.isEmpty { speaking = false; echo.finished(); spokeUntil = Date().addingTimeInterval(1.5) }
+        if playing == 0 && !rendering && queue.isEmpty && !fetching && hosted.isEmpty { speaking = false; echo.finished();  }
     }
 
     func silencePlayback() {
+        download?.cancel(); download = nil
         playback = UUID()
         synthesizer.stopSpeaking(at: .immediate)
         queue.removeAll(); rendering = false; playing = 0
         hosted.removeAll(); fetching = false
         if player.engine != nil { player.stop() }
-        if speaking { speaking = false; echo.finished(); spokeUntil = Date().addingTimeInterval(1.5) }
+        if speaking { speaking = false; echo.finished();  }
     }
 
     func stop() {
-        guard active else { return }
+        startToken = UUID()
+        let wasActive = active
         active = false
         silencePlayback()
         endpoint?.cancel(); refresh?.cancel()
@@ -343,7 +357,7 @@ private final class Capture: @unchecked Sendable {
         task?.cancel(); task = nil
         request?.endAudio(); request = nil
         capture.attach(nil)
-        engine.inputNode.removeTap(onBus: 0)
+        if wasActive { engine.inputNode.removeTap(onBus: 0) }
         engine.stop()
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
         transcript = ""; inputLevel = 0; muted = false

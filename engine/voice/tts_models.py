@@ -2,6 +2,7 @@
 from concurrent.futures import ThreadPoolExecutor
 import hashlib
 import json
+import os
 from pathlib import Path
 import urllib.request
 
@@ -10,7 +11,7 @@ REVISION = '7e9b67b79bfdcbd2b4bc144370345fcceac3cb0c'
 
 
 def directory():
-    return Path.home()/'.personal-assistant'/'models'/REVISION
+    return Path(os.environ['ASSISTANT_VOICE_MODEL_DIR']) if os.environ.get('ASSISTANT_VOICE_MODEL_DIR') else Path.home()/'.personal-assistant'/'models'/REVISION
 
 
 def install():

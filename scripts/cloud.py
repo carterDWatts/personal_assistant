@@ -86,6 +86,27 @@ def configure():
     print('Worker credentials configured. No credentials were written to the repository.')
 
 
+def configure_speech():
+    keys = json.loads(command(['supabase', 'projects', 'api-keys', '--project-ref', PROJECT, '-o', 'json']))
+    key = next(k['api_key'] for k in keys if k['name'] == 'service_role')
+    url = f'https://{PROJECT}.supabase.co'
+    headers = {'apikey': key, 'Authorization': f'Bearer {key}', 'Content-Type': 'application/json'}
+    request = urllib.request.Request(url + '/storage/v1/bucket', headers=headers)
+    with urllib.request.urlopen(request, timeout=20) as response:
+        buckets = json.load(response)
+    bucket = next((b for b in buckets if b['id'] == 'speech'), None)
+    if bucket and bucket.get('public'):
+        raise RuntimeError('Speech bucket must be private.')
+    if not bucket:
+        request = urllib.request.Request(url + '/storage/v1/bucket', headers=headers,
+            data=json.dumps({'id': 'speech', 'name': 'speech', 'public': False,
+                             'file_size_limit': 5000000, 'allowed_mime_types': ['audio/mp4']}).encode())
+        with urllib.request.urlopen(request, timeout=20) as response: response.read()
+    for name, value in [('ASSISTANT_STORAGE_KEY', key), ('ASSISTANT_SUPABASE_URL', url)]:
+        command([RAILWAY, 'variable', 'set', name, '--stdin', '--skip-deploys', '--service', 'worker'], input=value)
+    print('Private speech storage configured. Worker credentials stay on the host.')
+
+
 def configure_auth():
     import keyring
     token = (os.environ.get('SUPABASE_ACCESS_TOKEN') or keyring.get_password('Supabase CLI', 'supabase')
@@ -118,10 +139,13 @@ if __name__ == '__main__':
     owner.add_argument('email')
     commands.add_parser('configure')
     commands.add_parser('auth')
+    commands.add_parser('speech')
     args = parser.parse_args()
     try:
         if args.action == 'bind-owner':
             bind_owner(args.email)
+        elif args.action == 'speech':
+            configure_speech()
         elif args.action == 'auth':
             configure_auth()
         else:

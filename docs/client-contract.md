@@ -94,7 +94,7 @@ The gateway verifies the user with Supabase Auth. Never call `assistant_client` 
 | --- | --- | --- |
 | register | name | device_id |
 | bootstrap | none | conversation_id, history, cursor, replay_after, host {online, seen_at}, active_turn, day, identity |
-| submit | client_message_id, text | turn_id, status |
+| submit | client_message_id, text, optional model (catalog id), speech (boolean) | turn_id, status |
 | events | after (cursor, initially 0) | events, has_more |
 | cancel | turn_id | status (cancellation_requested is not completion) |
 | clear | optional request_id (UUID, reuse on retry) | status cleared, cutoff |
@@ -113,3 +113,9 @@ Clear refuses queued or running turns with conversation_busy. It writes a chat_c
 Paginated older history, reminder delivery, host Google authorization and Realtime subscriptions are not implemented in this transport yet. The existing Mac bridge remains usable independently.
 
 `tst/fixtures/relay.jsonl` contains event envelopes for a completed and cancelled turn and a separate HTTP busy response. Speech is not exercised by this fixture.
+
+Host capabilities include `models` (id, name, runtime, model) discovered from the signed-in subscription harness and `speech`. A model is selected per turn, rejected if absent from that catalog, and is part of the retry identity. Switching opens the appropriate runtime against the same memory and conversation history. Claude choices appear only when the host has its subscription token.
+
+Voice submits opt into speech. The host uses the voice in identity.json, preloads it before advertising speech, and emits `speech` (seq, text, duration_ms, signed URL) plus `speech_end` (success/error). Audio is generated concurrently with text; `end` still completes text and may precede speech_end. Clients play only their own voice-submitted turns, dedupe by turn_id/seq, and suppress bootstrap recovery audio. Keep polling until speech_end. Cancel remains valid after text end and stops later speech publication. New turns stop prior synthesis. Audio download and playback must stop immediately on interruption, independently of network cancellation. Speech failures preserve the text.
+
+Audio lives in a private speech bucket, signed for ten minutes, and is deleted after one day by the worker (hourly cleanup). Upload tracking lives in assistant.speech_objects, never in the knowledge map. Provision with `python scripts/cloud.py speech`; no storage credentials belong in clients.

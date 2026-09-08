@@ -60,6 +60,7 @@ export function handler(config: Config, fetcher: typeof fetch = fetch) {
       if (["account_denied", "device_denied"].includes(code)) return reply({ error: code }, 403);
       if (["conversation_busy", "idempotency_conflict"].includes(code)) return reply({ error: code }, 409);
       if (code === "turn_not_found") return reply({ error: code }, 404);
+      if (["model_unavailable", "speech_unavailable"].includes(code)) return reply({ error: code }, 400);
       if (["22P02", "23502", "23514", "22023"].includes(result.code)) return reply({ error: "invalid_request" }, 400);
       return reply({ error: "service_unavailable" }, 503);
     } catch (error) {

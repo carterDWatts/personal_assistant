@@ -1,6 +1,8 @@
 """Fast local American speech. Finish each sentence before handing it to playback."""
 from types import SimpleNamespace
 import re
+import json
+from engine import config
 import sherpa_onnx
 from engine.voice.tts_models import directory
 
@@ -17,10 +19,11 @@ def create_voice():
 
 
 def generate(voice, text, current=lambda: True):
+    settings = json.loads((config.ROOT / 'identity.json').read_text()).get('voice', {})
     # Michael is speaker 16 in the pinned multilingual Kokoro v1.0 model.
     for sentence in re.split(r'(?<=[.!?])\s+', text.strip()):
         if not current(): return
-        result = voice.generate(sentence, sid=16, speed=1.1,
+        result = voice.generate(sentence, sid=settings.get("speaker", 16), speed=settings.get("speed", 1.1),
                                 callback=lambda samples, progress: int(current()))
         if current():
             yield SimpleNamespace(audio=result.samples)

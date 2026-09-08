@@ -6,7 +6,7 @@ import AVFoundation
 @MainActor protocol Transport: AnyObject {
     var events: AsyncStream<[String: Any]> { get }
     func connect(clear: Bool)
-    func send(_ text: String, id: UUID, speech: Bool)
+    func send(_ text: String, id: UUID, speech: Bool, model: String?)
     func stop()
     func foreground(_ active: Bool)
     func close()
@@ -67,7 +67,7 @@ func isoDate(_ date: Date) -> String {
         }
     }
 
-    func send(_ text: String, id: UUID, speech: Bool) {
+    func send(_ text: String, id: UUID, speech: Bool, model: String?) {
         history.append(["role": "user", "content": text, "created_at": isoDate(Date())])
         reply?.cancel()
         let answer = Self.answers[turn % Self.answers.count]

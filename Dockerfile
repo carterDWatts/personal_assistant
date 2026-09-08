@@ -3,6 +3,7 @@ RUN npm install --global @openai/codex@0.153.4
 
 FROM python:3.12.12-slim-bookworm
 COPY deploy/supabase-ca.crt /usr/local/share/ca-certificates/supabase.crt
+RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg && rm -rf /var/lib/apt/lists/*
 RUN update-ca-certificates
 COPY --from=codex /usr/local/bin/node /usr/local/bin/node
 COPY --from=codex /usr/local/lib/node_modules/@openai /usr/local/lib/node_modules/@openai
@@ -13,6 +14,8 @@ WORKDIR /app
 COPY requirements-host.txt .
 RUN pip install --no-cache-dir -r requirements-host.txt
 COPY engine ./engine
+ENV ASSISTANT_VOICE_MODEL_DIR=/opt/assistant-voice
+RUN python -m engine.voice.tts_models
 COPY prompts ./prompts
 COPY identity.json .
 COPY scripts/host-entry.py ./scripts/host-entry.py

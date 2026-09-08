@@ -8,6 +8,8 @@ struct RelayError: LocalizedError {
         switch code {
         case "conversation_busy": return "Busy answering on another device. Try again in a moment."
         case "invalid_request": return "Connecting from the phone isn’t available on the host yet."
+        case "model_unavailable": return "That model isn’t available on this host. Choose another model."
+        case "speech_unavailable": return "The host voice is starting. Reconnect in a moment."
         case "invalid_token": return "That token was not accepted."
         case "provider_unreachable": return "The service couldn’t be reached. Try again in a moment."
         case "account_denied", "device_denied": return "This phone isn’t allowed on the account."
@@ -25,10 +27,12 @@ struct RelayError: LocalizedError {
     private let account = Account.shared
     private var cursor: Int64 = 0
     private var activeTurn: String?
+    private var audioTurn: String?
     private var poller: Task<Void, Never>?
     private var inFront = true
     private var failures = 0
     private var replaying = false
+    private var draining = false
 
     init() {
         var continuation: AsyncStream<[String: Any]>.Continuation!
@@ -60,7 +64,8 @@ struct RelayError: LocalizedError {
             cursor = number(boot["replay_after"]) ?? number(boot["cursor"]) ?? 0
             activeTurn = (boot["active_turn"] as? [String: Any])?["turn_id"] as? String
             presence(boot["host"])
-            emit(["type": "capabilities", "speech": (boot["capabilities"] as? [String: Any])?["speech"] as? Bool == true])
+            var capabilities = boot["capabilities"] as? [String: Any] ?? [:]
+            capabilities["type"] = "capabilities"; emit(capabilities)
             if var day = boot["day"] as? [String: Any] { day["type"] = "map"; emit(day) }
             replaying = true
             try await drain()
@@ -79,6 +84,9 @@ struct RelayError: LocalizedError {
     }
 
     private func drain() async throws {
+        guard !draining else { return }
+        draining = true
+        defer { draining = false }
         while true {
             let page = try await call("events", ["after": cursor])
             for envelope in page["events"] as? [[String: Any]] ?? [] {
@@ -106,6 +114,7 @@ struct RelayError: LocalizedError {
         case "speech", "speech_end":
             // Audio is for the live turn only; a reconnect keeps the text and skips the sound.
             if !replaying { payload["turn_id"] = envelope["turn_id"]; emit(payload) }
+            if type == "speech_end", envelope["turn_id"] as? String == audioTurn { audioTurn = nil }
         default:
             emit(payload)
         }
@@ -117,7 +126,7 @@ struct RelayError: LocalizedError {
             var sincePresence = 0
             while !Task.isCancelled {
                 guard let self else { return }
-                let busy = self.activeTurn != nil
+                let busy = self.activeTurn != nil || self.audioTurn != nil
                 try? await Task.sleep(for: busy ? .milliseconds(250) : .seconds(3))
                 guard !Task.isCancelled, self.inFront else { continue }
                 do {
@@ -142,13 +151,15 @@ struct RelayError: LocalizedError {
         }
     }
 
-    func send(_ text: String, id: UUID, speech: Bool) {
+    func send(_ text: String, id: UUID, speech: Bool, model: String?) {
         Task {
             do {
                 var args: [String: Any] = ["client_message_id": id.uuidString.lowercased(), "text": text]
                 if speech { args["speech"] = true }
+                if let model, !model.isEmpty { args["model"] = model }
                 let result = try await call("submit", args)
                 activeTurn = result["turn_id"] as? String
+                if speech { audioTurn = activeTurn }
                 if let turn = activeTurn { emit(["type": "submitted", "turn_id": turn, "speech": speech]) }
                 try await drain()
             } catch {
@@ -158,7 +169,8 @@ struct RelayError: LocalizedError {
     }
 
     func stop() {
-        guard let turn = activeTurn else { return }
+        guard let turn = activeTurn ?? audioTurn else { return }
+        audioTurn = nil
         Task { _ = try? await call("cancel", ["turn_id": turn]) }
     }
 

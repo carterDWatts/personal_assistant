@@ -31,6 +31,26 @@ class relay_test(MapTest):
     def submit(self, text='Hello', message=None):
         return self.client('submit', {'client_message_id': str(message or uuid.uuid4()), 'text': text})
 
+    def test_model_and_speech_selection_are_validated_and_retry_safe(self):
+        self.relay.acquire()
+        self.relay.capabilities({'models': [{'id': 'codex/test', 'runtime': 'codex', 'model': 'test'}], 'speech': True})
+        self.assertTrue(self.client('bootstrap')['capabilities']['speech'])
+        args = {'text': 'Hello', 'client_message_id': str(uuid.uuid4()), 'model': 'missing'}
+        with self.assertRaisesRegex(psycopg.Error, 'model_unavailable'):
+            self.client('submit', args)
+        args.update(model='codex/test', speech=True)
+        first = self.client('submit', args)
+        self.assertEqual(first, self.client('submit', args))
+        with self.assertRaisesRegex(psycopg.Error, 'idempotency_conflict'):
+            self.client('submit', {**args, 'speech': False})
+        turn = self.relay.claim()
+        self.assertEqual(turn['model'], 'codex/test')
+        self.assertTrue(turn['speech'])
+        self.relay.finish(turn['id'], 'completed')
+        self.assertTrue(self.relay.publish_speech(turn['id'], {'type': 'speech', 'seq': 1}))
+        self.client('cancel', first)
+        self.assertFalse(self.relay.publish_speech(turn['id'], {'type': 'speech', 'seq': 2}))
+
     def test_owner_and_revocation_are_enforced(self):
         with self.assertRaisesRegex(psycopg.Error, 'account_denied'):
             self.client('bootstrap', owner=uuid.uuid4())

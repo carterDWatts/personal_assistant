@@ -60,7 +60,11 @@ func plain(_ value: Any?) -> String {
     @Published var connectionPrompt: ConnectionPrompt? = nil
     @Published var connections: [Connection] = []
     @Published var tokenForm: String? = nil
-    private var hostSpeaks = false
+    @Published private(set) var hostSpeaks = false
+    @Published var models: [ModelChoice] = []
+    @Published var selectedModel = UserDefaults.standard.string(forKey: "assistantModel") ?? "" {
+        didSet { UserDefaults.standard.set(selectedModel, forKey: "assistantModel") }
+    }
     private var spokenTurns: Set<String> = []
     private var playedChunks: Set<String> = []
     let liveVoice = LiveVoice()
@@ -98,6 +102,7 @@ func plain(_ value: Any?) -> String {
         let text = event["text"] as? String ?? event["message"] as? String ?? ""
         switch type {
         case "history":
+            liveVoice.silencePlayback(); spokenTurns.removeAll(); playedChunks.removeAll()
             messages = (event["messages"] as? [[String: Any]] ?? []).compactMap { row in
                 guard let role = row["role"] as? String, let content = row["content"] as? String else { return nil }
                 return ChatMessage(role: role, text: content, at: parseDate(row["created_at"]) ?? Date())
@@ -111,6 +116,8 @@ func plain(_ value: Any?) -> String {
             streamingID = item.id; messages.append(item); status = "Thinking…"
         case "capabilities":
             hostSpeaks = event["speech"] as? Bool == true
+            models = (event["models"] as? [[String: Any]] ?? []).compactMap(ModelChoice.init)
+            if !models.contains(where: { $0.id == selectedModel }) { selectedModel = "" }
         case "delta":
             if let i = messages.firstIndex(where: { $0.id == streamingID }) { messages[i].text += text }
             if hostSpeaks { status = "Replying…" }
@@ -156,18 +163,21 @@ func plain(_ value: Any?) -> String {
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard connected, !busy, !text.isEmpty else { return }
         draft = ""
-        submit(text)
+        submit(text, speak: false)
     }
 
-    private func submit(_ text: String) {
+    private func submit(_ text: String, speak: Bool = true) {
         liveVoice.silencePlayback()
+        spokenTurns.removeAll(); playedChunks.removeAll()
         speechBuffer = ""
         messages.append(ChatMessage(role: "user", text: text)); busy = true
-        transport.send(text, id: UUID(), speech: voice && hostSpeaks)
+        transport.send(text, id: UUID(), speech: speak && voice && hostSpeaks, model: selectedModel.isEmpty ? nil : selectedModel)
     }
 
     private func interruptForSpeech() {
         liveVoice.silencePlayback(); speechBuffer = ""
+        spokenTurns.removeAll(); playedChunks.removeAll()
+        transport.stop()
         voiceTurn.pausePlayback(busy: busy)
         status = "Listening…"
     }
@@ -184,7 +194,7 @@ func plain(_ value: Any?) -> String {
 
     func stop() {
         liveVoice.stop(); speechBuffer = ""; voice = false; voiceTurn.discardPending()
-        if voiceTurn.interrupt(busy: busy) { transport.stop() }
+        if voiceTurn.interrupt(busy: busy) || hostSpeaks { transport.stop() }
         transport.foreground(inFront)
     }
 
@@ -278,4 +288,13 @@ func plain(_ value: Any?) -> String {
 struct ConnectionFailure: LocalizedError {
     let errorDescription: String?
     init(_ text: String) { errorDescription = text }
+}
+
+struct ModelChoice: Identifiable {
+    let id: String
+    let name: String
+    init?(_ row: [String: Any]) {
+        guard let id = row["id"] as? String, let name = row["name"] as? String else { return nil }
+        self.id = id; self.name = name
+    }
 }

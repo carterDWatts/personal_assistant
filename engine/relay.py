@@ -44,6 +44,21 @@ class Relay:
                 self.emit(owner, turn['id'], {'type': 'end', 'status': 'failed'})
             return True
 
+    def capabilities(self, value):
+        with self.map.conn.transaction():
+            self.owner_lock()
+            self.check()
+            self.map.execute('update assistant.host set capabilities=%s where worker_id=%s', (jsonb(value), self.worker_id))
+
+    def publish_speech(self, turn, payload):
+        with self.map.conn.transaction():
+            owner = self.owner_lock()
+            self.check()
+            allowed = self.map.value("select exists(select 1 from assistant.turns where id=%s and worker_id=%s"
+                                     " and status in ('running','completed') and not cancel_requested)", (turn, self.worker_id))
+            if allowed: self.emit(owner, turn, payload)
+            return allowed
+
     def heartbeat(self):
         with self.map.conn.transaction():
             self.owner_lock()
