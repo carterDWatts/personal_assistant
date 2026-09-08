@@ -189,8 +189,8 @@ struct VoiceBar: View {
             }
             .multilineTextAlignment(.center).frame(maxWidth: .infinity, minHeight: 24)
             HStack(spacing: 12) {
-                Button { chat.toggleMute() } label: { Image(systemName: chat.liveVoice.muted ? "mic.slash.fill" : "mic.fill") }
-                    .buttonStyle(SquareButton(palette: palette, prominent: !chat.liveVoice.muted))
+                Button { chat.toggleMute() } label: { Image(systemName: chat.liveVoice.muted ? "mic.slash.fill" : "mic.slash") }
+                    .buttonStyle(SquareButton(palette: palette, prominent: chat.liveVoice.muted))
                     .accessibilityLabel(chat.liveVoice.muted ? "Unmute" : "Mute")
                 Spacer()
                 VoicePresence(level: chat.liveVoice.inputLevel, moving: chat.liveVoice.speaking || chat.busy, palette: palette, compact: true)
