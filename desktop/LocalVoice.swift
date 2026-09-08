@@ -12,6 +12,13 @@ final class LocalVoice {
     private var generation = UUID()
     private var streams: [String: AsyncStream<AVAudioPCMBuffer>.Continuation] = [:]
 
+    init(input: FileHandle? = nil) { self.input = input }
+
+    private func fail(_ text: String) {
+        stop() // Detach the failed pipe before callbacks can cancel playback.
+        onError?(text)
+    }
+
     func start() {
         stop()
         guard let settings = Bundle.main.infoDictionary,
@@ -48,28 +55,28 @@ final class LocalVoice {
                             if let address = raw.baseAddress { memcpy(pcm.floatChannelData![0],address,bytes.count) }
                         }
                         continuation.yield(pcm)
-                    case "error": self.onError?(event["text"] as? String ?? "Local voice failed.")
+                    case "error": self.fail(event["text"] as? String ?? "Local voice failed."); return
                     default: break
                     }
                 }
             }
             guard let self, self.generation == token else { return }
-            self.onError?("Local voice stopped. Start voice to retry.")
+            self.fail("Local voice stopped. Start voice to retry.")
         }
         do {
             try child.run(); process = child
             watchdog = Task { @MainActor [weak self] in
                 try? await Task.sleep(nanoseconds: 30_000_000_000)
                 guard !Task.isCancelled, let self, self.generation == token else { return }
-                self.onError?("Local voice did not start. Rebuild the app to check its model.")
+                self.fail("Local voice did not start. Rebuild the app to check its model.")
             }
-        } catch { onError?("Could not start local voice.") }
+        } catch { fail("Could not start local voice.") }
     }
 
     private func send(_ event: [String:Any]) {
         guard let input, let data = try? JSONSerialization.data(withJSONObject: event) else { return }
         do { try input.write(contentsOf: data + Data([10])) }
-        catch { onError?("Could not send text to local voice.") }
+        catch { fail("Could not send text to local voice.") }
     }
 
     func render(_ text: String) -> AsyncStream<AVAudioPCMBuffer> {

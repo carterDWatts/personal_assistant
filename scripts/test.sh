@@ -52,4 +52,6 @@ if [[ "$(uname)" == Darwin ]] && command -v swiftc >/dev/null; then
   "$ROOT/build/voice-check"
   swiftc -parse-as-library "$ROOT/ios/Assistant/ReplyState.swift" "$ROOT/tst/swift/ReplyStateCheck.swift" -o "$ROOT/build/reply-check"
   "$ROOT/build/reply-check"
+  swiftc -parse-as-library "$ROOT/desktop/LocalVoice.swift" "$ROOT/desktop/OutputStream.swift" "$ROOT/tst/swift/LocalVoiceCheck.swift" -o "$ROOT/build/local-voice-check" -framework AVFoundation
+  "$ROOT/build/local-voice-check"
 fi

@@ -79,8 +79,8 @@ final class LiveVoice: ObservableObject {
 
     private func failed(_ text: String) {
         let requested = starting || captureRequested || active
-        stop()
         speech.stop(); synth.stop()
+        stop()
         prepared = false; recognitionReady = false; voiceReady = false
         if requested { onError?(text) }
     }

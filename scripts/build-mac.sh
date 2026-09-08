@@ -1,7 +1,16 @@
 #!/usr/bin/env bash
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-PYTHON="${PYTHON:-python3}"
+if [[ -z "${PYTHON:-}" ]]; then
+  for candidate in "$ROOT/.venv/bin/python3" "$HOME/.pyenv/shims/python3" "$(command -v python3)"; do
+    if [[ -x "$candidate" ]] && "$candidate" -c 'import psycopg, sherpa_onnx, numpy, jsonschema' 2>/dev/null; then
+      PYTHON="$candidate"
+      break
+    fi
+  done
+fi
+: "${PYTHON:?Set PYTHON to an interpreter with the app requirements installed}"
+"$PYTHON" -c 'import psycopg, sherpa_onnx, numpy, jsonschema' 
 PYTHON="$($PYTHON -c 'import sys; print(sys.executable)')"
 (cd "$ROOT" && "$PYTHON" -m engine.voice.models && "$PYTHON" -m engine.voice.final_models)
 VOICE_PYTHON="$PYTHON"
