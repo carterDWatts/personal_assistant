@@ -96,15 +96,15 @@ class speech_test(unittest.TestCase):
                 return b'audio', 500
             speech.render = render
             await speech.begin({'id': 'turn', 'speech': True})
-            speech.feed('... **. First sentence. Second sentence. ')
+            speech.feed('... **. ' + 'First sentence. Second sentence. ' * 30)
             speech.finish('completed')
             await asyncio.to_thread(started.wait, 2)
             self.assertFalse(speech.task.done())
             self.assertEqual(events, [])
             release.set()
             await speech.task
-            self.assertEqual([event['type'] for event in events], ['speech', 'speech', 'speech_end'])
-            self.assertEqual([event['seq'] for event in events[:-1]], [1, 2])
+            self.assertEqual([event['type'] for event in events], ['speech'] * 60 + ['speech_end'])
+            self.assertEqual([event['seq'] for event in events[:-1]], list(range(1, 61)))
             self.assertEqual(events[-1]['status'], 'success')
             self.assertEqual(base64.b64decode(events[0]['url'].split(',', 1)[1]), b'audio')
         asyncio.run(check())

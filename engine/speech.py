@@ -58,6 +58,7 @@ class Speech:
         self.cancel = threading.Event()
         self.buffer = ''
         self.first_chunk = True
+        self.chunks_queued = 0
         self.first_flush = None
         self.queue = None
         self.overflow = False
@@ -101,6 +102,7 @@ class Speech:
         self.turn = turn['id']
         self.buffer = ''
         self.first_chunk = True
+        self.chunks_queued = 0
         self.overflow = False
         self.cancel = threading.Event()
         # Queue text only; audio is rendered one clip at a time. Long replies
@@ -113,7 +115,9 @@ class Speech:
         if not self.task or self.task.done(): return
         self.buffer += text
         while True:
-            part, self.buffer = chunk(self.buffer, limit=36 if self.first_chunk else 180)
+            # The second clip must be ready before the short opening finishes.
+            limit = 36 if self.first_chunk else 90 if self.chunks_queued == 1 else 180
+            part, self.buffer = chunk(self.buffer, limit=limit)
             if part is None: break
             if any(c.isalnum() for c in part): self.first_chunk = False
             self.enqueue(part)
@@ -134,7 +138,9 @@ class Speech:
         self.enqueue(opening)
 
     def enqueue(self, part):
-        try: self.queue.put_nowait(part)
+        try:
+            self.queue.put_nowait(part)
+            if part and any(c.isalnum() for c in part): self.chunks_queued += 1
         except asyncio.QueueFull:
             self.overflow = True
             self.cancel.set()
