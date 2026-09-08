@@ -14,3 +14,4 @@ build/
 # Google app registration belongs to the developer, not customer setup.
 google-client.json
 node_modules/
+xcuserdata/
