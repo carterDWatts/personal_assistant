@@ -22,13 +22,17 @@ def ease(t):
 def lerp(a,b,t):
     return tuple(x+(y-x)*t for x,y in zip(a,b))
 
-def frame(t):
+def frame(t, variant="blocks"):
     t = t * 22 / SECONDS
     im = Image.new('RGB', (W,H), BG)
     d = ImageDraw.Draw(im)
     def text(x,y,s,size=15,color=INK,bold=False,anchor=None):
         d.text((x,y),s,font=ImageFont.truetype(BOLD if bold else FONT,size),fill=color,anchor=anchor)
     def cube(x,y,w=38,depth=26,h=25,c=GREEN):
+        if variant=='rounded' and w<=40 and depth<=30 and h>=10:
+            d.rounded_rectangle((x-depth/2,y-h,w+x-depth/2,y+depth/2),w/2,fill=shade(c,.7))
+            d.ellipse((x-depth/2,y-h-depth/3,x+w-depth/2,y-h+depth/3),fill=c)
+            return
         # A solid object with three independently lit faces.
         a=(x,y-h); b=(x+w,y+w*.35-h); cc=(x+w-depth,y+(w+depth)*.35-h); e=(x-depth,y+depth*.35-h)
         d.polygon([e,cc,(cc[0],cc[1]+h),(e[0],e[1]+h)],fill=shade(c,.77))
@@ -50,11 +54,15 @@ def frame(t):
     # Ground plane and a solid map table.
     d.ellipse((270,342,860,491),fill='#E4E5DA')
     for x in [395,680]: cube(x,457,15,15,74,'#C5CBBE')
-    cube(523,320,300,235,15,'#D6DDCB')
-    # Recessed tiles make the map a place objects occupy, not a text diagram.
-    for a in range(7):
-        for b in range(5):
-            cube(525+a*39-b*40,322+a*13.65+b*14,30,30,16,'#DBE2D2')
+    if variant=='rounded':
+        d.ellipse((292,295,832,477),fill='#AEBBA5')
+        d.ellipse((292,281,832,459),fill='#D6DDCB')
+        for inset in [20,60,100]:d.ellipse((292+inset,281+inset*.3,832-inset,459-inset*.3),outline='#B8C7AD',width=2)
+    else:
+        cube(523,320,300,235,15,'#D6DDCB')
+        for a in range(7):
+            for b in range(5):
+                cube(525+a*39-b*40,322+a*13.65+b*14,30,30,16,'#DBE2D2')
     nodes=[(525,320),(610,350),(440,350),(525,382),(690,379),(610,411),(445,407)]
     # Evidence conveyor and its retained paper spool.
     cube(135,347,150,32,13,'#C4CABF')
@@ -125,7 +133,7 @@ def frame(t):
     plaque(590,181,'SHARED KNOWLEDGE MAP · POSTGRES')
     text(590,200,'Entities + attributes + typed relationships',13,MUTED,anchor='mm')
     if t>=4.7:
-        labels=[('You',525,264),('Home: Seattle' if t<10 else 'Home: Tacoma',633,299),('Alex',412,305),('Project',523,341),('Nearby?',721,328),('Office',638,375),('Morning rule',428,371)]
+        labels=[('You',525,264),('Home',633,299),('Alex',412,305),('Project',523,341),('Nearby?',721,328),('Office',638,375),('Morning rule',428,371)]
         for i,(label,x,y) in enumerate(labels):
             if i==4 and t>=11.7:continue
             text(x,y,label,12,INK,True,anchor='mm')
@@ -182,6 +190,26 @@ def frame(t):
             for j in range(4):
                 x,y=lerp((848,355),(921,322),((t-20)*.6+j*.25)%1)
                 d.ellipse((x-2,y-2,x+2,y+2),fill=GREEN)
+    def transport(points,color,phase,reverse=False):
+        d.line(points,fill=shade(color,1.12),width=2)
+        path=list(reversed(points)) if reverse else points
+        lengths=[math.dist(a,b) for a,b in zip(path,path[1:])]
+        distance=((t*.22+phase)%1)*sum(lengths)
+        for a,b,length in zip(path,path[1:],lengths):
+            if distance<=length:
+                x,y=lerp(a,b,distance/length)
+                cube(x,y,9,7,5,color)
+                break
+            distance-=length
+    # Chat talks to the session; it is not just an import chute.
+    transport([(106,208),(106,157),(953,157),(953,240)],'#748F99',0)
+    transport([(114,208),(114,169),(965,169),(965,240)],GREEN,.5,True)
+    text(775,141,'CONVERSATION ↔ SESSION',11,MUTED,True,anchor='mm')
+    # Read context and write updates continue throughout the session, in both directions.
+    transport([(795,356),(873,315),(918,315)],GREEN,.3)
+    transport([(920,337),(862,383),(744,404)],GOLD,.7)
+    text(867,300,'READ',11,GREEN,True,anchor='mm')
+    text(879,390,'UPDATE',11,'#96743D',True,anchor='mm')
     # Evidence threads anchor facts to retained observations.
     if t>=5:
         d.line([(point(2)[0]-10,point(2)[1]+40),(355,478)],fill='#A8B8A0',width=1)
@@ -195,8 +223,8 @@ def frame(t):
              '“I moved.” The current home changes. Its prior value stays in history with both clocks.',
              'A dependent inference is invalidated when its support changes. Corrections keep an audit trail.'),
             (15,'04   Carry understanding forward',
-             'The agent process changes; the shared map and conversation record remain.',
-             'A bounded current snapshot, updates and retrieval tools keep the whole store out of every prompt.')]
+             'Conversation and memory flow both ways: the session reads context and writes updates.',
+             'Switch the agent process and keep the same map. Retrieve a bounded slice, not the whole store.')]
     _,title,caption,detail=next(p for p in reversed(phases) if t>=p[0])
     d.line((48,611,1052,611),fill='#D8DDCF',width=1)
     text(48,628,title,20,INK,True)
@@ -206,12 +234,18 @@ def frame(t):
     return im
 
 if __name__=='__main__':
-    video=OUT/'memory.mp4'
+    import argparse
+    parser=argparse.ArgumentParser()
+    parser.add_argument('--variant',choices=['blocks','rounded'],default='blocks')
+    variant=parser.parse_args().variant
+    name='memory' if variant=='blocks' else 'memory-rounded'
+    video=OUT/(name+'.mp4')
     cmd=['ffmpeg','-y','-loglevel','error','-f','rawvideo','-pix_fmt','rgb24','-s',f'{W}x{H}','-r',str(FPS),'-i','-','-an','-c:v','libx264','-crf','21','-pix_fmt','yuv420p','-movflags','+faststart',str(video)]
     process=subprocess.Popen(cmd,stdin=subprocess.PIPE)
-    for i in range(FPS*SECONDS):process.stdin.write(frame(i/FPS).tobytes())
+    for i in range(FPS*SECONDS):process.stdin.write(frame(i/FPS,variant).tobytes())
     process.stdin.close()
     if process.wait():raise RuntimeError('Video encoding failed')
-    frame(25).save(OUT/'architecture.png')
+    frame(25,variant).save(OUT/('architecture.png' if variant=='blocks' else 'memory-rounded.png'))
+    if variant=='rounded':raise SystemExit(0)
     subprocess.run(['ffmpeg','-y','-loglevel','error','-i',str(video),'-filter_complex','fps=25,scale=990:-1:flags=lanczos,split[a][b];[a]palettegen=max_colors=96[p];[b][p]paletteuse=dither=bayer:bayer_scale=4','-loop','0',str(OUT/'memory.gif')],check=True)
     print('Rendered memory.mp4, memory.gif and architecture.png')
