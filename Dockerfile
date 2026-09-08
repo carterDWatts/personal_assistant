@@ -13,9 +13,10 @@ RUN ln -s /usr/local/lib/node_modules/@openai/codex/bin/codex.js /usr/local/bin/
 WORKDIR /app
 COPY requirements-host.txt .
 RUN pip install --no-cache-dir -r requirements-host.txt
-COPY engine ./engine
+COPY engine/voice/tts_models.py /tmp/install_voice.py
 ENV ASSISTANT_VOICE_MODEL_DIR=/opt/assistant-voice
-RUN python -m engine.voice.tts_models
+RUN python /tmp/install_voice.py && rm /tmp/install_voice.py
+COPY engine ./engine
 COPY prompts ./prompts
 COPY identity.json .
 COPY scripts/host-entry.py ./scripts/host-entry.py

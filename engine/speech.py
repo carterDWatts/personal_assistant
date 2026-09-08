@@ -16,10 +16,11 @@ from engine import config
 def chunk(buffer, flush=False):
     # Prefer whole sentences; bound latency without splitting words.
     match = re.search(r'[.!?\n](?:\s|$)', buffer)
-    if match: return buffer[:match.end()].strip(), buffer[match.end():]
+    if match and match.end() <= 180: return buffer[:match.end()].strip(), buffer[match.end():]
     if len(buffer) >= 120:
         end = buffer.rfind(' ', 0, 180)
         if end > 0: return buffer[:end], buffer[end + 1:]
+        if len(buffer) >= 180: return buffer[:180], buffer[180:]
     if flush and buffer.strip(): return buffer.strip(), ''
     return None, buffer
 

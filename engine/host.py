@@ -192,7 +192,8 @@ class Host:
                 if asyncio.get_running_loop().time() - heartbeat >= 20:
                     await self.call(self.relay.heartbeat)
                     await self.refresh_day()
-                    if self.speech and self.speech.storage: await self.speech.cleanup()
+                    if self.speech and self.speech.storage:
+                        with contextlib.suppress(Exception): await self.speech.cleanup()
                     heartbeat = asyncio.get_running_loop().time()
                 turn = await self.call(self.relay.claim)
                 if turn:
