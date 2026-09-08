@@ -61,6 +61,8 @@ func plain(_ value: Any?) -> String {
     @Published var connections: [Connection] = []
     @Published var tokenForm: String? = nil
     private var hostSpeaks = false
+    private var spokenTurns: Set<String> = []
+    private var playedChunks: Set<String> = []
     let liveVoice = LiveVoice()
     var spokenDraft: String {
         [voiceTurn.pending, liveVoice.transcript.isEmpty ? nil : liveVoice.transcript].compactMap { $0 }.joined(separator: " ")
@@ -116,10 +118,17 @@ func plain(_ value: Any?) -> String {
             if let i = messages.firstIndex(where: { $0.id == streamingID }) { messages[i].text += text }
             if hostSpeaks { status = "Replying…" }
             else if !voiceTurn.interrupted { speechBuffer += text; speakSentences(flush: false); status = "Replying…" }
+        case "submitted":
+            // Only turns this phone sent from voice mode are ever spoken aloud.
+            if event["speech"] as? Bool == true, let turn = event["turn_id"] as? String { spokenTurns.insert(turn) }
         case "speech":
-            if voice, !voiceTurn.interrupted, streamingID != nil, let link = event["url"] as? String, let url = URL(string: link) {
-                liveVoice.play(url, text: text)
-            }
+            guard voice, !voiceTurn.interrupted, let turn = event["turn_id"] as? String, spokenTurns.contains(turn),
+                  let link = event["url"] as? String, let url = URL(string: link) else { break }
+            let key = turn + "/" + plain(event["seq"])
+            if playedChunks.insert(key).inserted { liveVoice.play(url, text: text) }
+        case "speech_end":
+            if let turn = event["turn_id"] as? String { spokenTurns.remove(turn) }
+            if event["status"] as? String == "error" { status = "Speech didn’t come through; the text is here." }
         case "replace":
             if let i = messages.firstIndex(where: { $0.id == streamingID }) { messages[i].text = text }
         case "end":
@@ -157,7 +166,7 @@ func plain(_ value: Any?) -> String {
         liveVoice.silencePlayback()
         speechBuffer = ""
         messages.append(ChatMessage(role: "user", text: text)); busy = true
-        transport.send(text, id: UUID())
+        transport.send(text, id: UUID(), speech: voice && hostSpeaks)
     }
 
     private func interruptForSpeech() {

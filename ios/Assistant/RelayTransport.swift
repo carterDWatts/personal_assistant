@@ -103,9 +103,9 @@ struct RelayError: LocalizedError {
         case "error":
             payload["text"] = payload["text"] ?? payload["message"]
             emit(payload)
-        case "speech":
+        case "speech", "speech_end":
             // Audio is for the live turn only; a reconnect keeps the text and skips the sound.
-            if !replaying { emit(payload) }
+            if !replaying { payload["turn_id"] = envelope["turn_id"]; emit(payload) }
         default:
             emit(payload)
         }
@@ -142,11 +142,14 @@ struct RelayError: LocalizedError {
         }
     }
 
-    func send(_ text: String, id: UUID) {
+    func send(_ text: String, id: UUID, speech: Bool) {
         Task {
             do {
-                let result = try await call("submit", ["client_message_id": id.uuidString.lowercased(), "text": text])
+                var args: [String: Any] = ["client_message_id": id.uuidString.lowercased(), "text": text]
+                if speech { args["speech"] = true }
+                let result = try await call("submit", args)
                 activeTurn = result["turn_id"] as? String
+                if let turn = activeTurn { emit(["type": "submitted", "turn_id": turn, "speech": speech]) }
                 try await drain()
             } catch {
                 emit(["type": "error", "text": error.localizedDescription, "unsent": text])

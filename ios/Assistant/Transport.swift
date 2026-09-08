@@ -6,7 +6,7 @@ import AVFoundation
 @MainActor protocol Transport: AnyObject {
     var events: AsyncStream<[String: Any]> { get }
     func connect(clear: Bool)
-    func send(_ text: String, id: UUID)
+    func send(_ text: String, id: UUID, speech: Bool)
     func stop()
     func foreground(_ active: Bool)
     func close()
@@ -67,14 +67,16 @@ func isoDate(_ date: Date) -> String {
         }
     }
 
-    func send(_ text: String, id: UUID) {
+    func send(_ text: String, id: UUID, speech: Bool) {
         history.append(["role": "user", "content": text, "created_at": isoDate(Date())])
         reply?.cancel()
         let answer = Self.answers[turn % Self.answers.count]
         turn += 1
+        let turnID = UUID().uuidString.lowercased()
+        emit(["type": "submitted", "turn_id": turnID, "speech": speech])
         reply = Task { [weak self] in
             guard let self else { return }
-            emit(["type": "start"])
+            emit(["type": "start", "turn_id": turnID])
             try? await Task.sleep(for: .milliseconds(700))
             if text.lowercased().contains("calendar") && (linked["google"] ?? []).isEmpty {
                 emit(["type": "connection_required", "action": "google_connect", "message": "This service needs to be connected on this host."])
@@ -88,12 +90,15 @@ func isoDate(_ date: Date) -> String {
                 try? await Task.sleep(for: .milliseconds(45))
             }
             if !Task.isCancelled { emit(["type": "replace", "text": spoken]) }
-            var rest = spoken, seq = 0
-            while let chunk = nextSpeechChunk(&rest, flush: true), !Task.isCancelled {
-                seq += 1
-                if let file = await Self.render(chunk) {
-                    emit(["type": "speech", "seq": seq, "url": file.absoluteString, "text": chunk])
+            if speech {
+                var rest = spoken, seq = 0
+                while let chunk = nextSpeechChunk(&rest, flush: true), !Task.isCancelled {
+                    seq += 1
+                    if let file = await Self.render(chunk) {
+                        emit(["type": "speech", "turn_id": turnID, "seq": seq, "url": file.absoluteString, "text": chunk])
+                    }
                 }
+                emit(["type": "speech_end", "turn_id": turnID, "status": "success"])
             }
             history.append(["role": "assistant", "content": spoken, "created_at": isoDate(Date())])
             emit(["type": "end"])
