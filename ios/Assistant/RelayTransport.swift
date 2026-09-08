@@ -7,9 +7,11 @@ struct RelayError: LocalizedError {
     var errorDescription: String? {
         switch code {
         case "conversation_busy": return "Busy answering on another device. Try again in a moment."
-        case "invalid_request": return "Connecting from the phone isn’t available on the host yet."
+        case "invalid_request": return "That request could not be completed. Try again."
         case "model_unavailable": return "That model isn’t available on this host. Choose another model."
         case "speech_unavailable": return "The host voice is starting. Reconnect in a moment."
+        case "connections_unavailable": return "Connections are temporarily unavailable. Try again shortly."
+        case "connection_rejected": return "Access wasn’t granted. Check the permissions and try connecting again."
         case "invalid_token": return "That token was not accepted."
         case "provider_unreachable": return "The service couldn’t be reached. Try again in a moment."
         case "account_denied", "device_denied": return "This phone isn’t allowed on the account."
@@ -160,10 +162,11 @@ struct RelayError: LocalizedError {
         }
     }
 
-    func send(_ text: String, id: UUID, speech: Bool, model: String?) {
+    func send(_ text: String, id: UUID, speech: Bool, model: String?, mode: String) {
         Task {
             do {
                 var args: [String: Any] = ["client_message_id": id.uuidString.lowercased(), "text": text]
+                args["mode"] = mode
                 if speech { args["speech"] = true }
                 if let model, !model.isEmpty { args["model"] = model }
                 VoiceDiagnostics.record("request_started")

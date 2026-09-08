@@ -1,5 +1,6 @@
 import asyncio
 import uuid
+from unittest.mock import patch, AsyncMock
 
 import psycopg
 
@@ -207,6 +208,34 @@ class relay_test(MapTest):
                 await host.process(relay.claim())
                 self.assertIs(host.session, prepared)
                 self.assertNotIn('session_open_seconds', host.stream.timings)
+            finally:
+                await host.close_session()
+                relay_map.close()
+        self.run_async(check())
+
+    @patch('engine.morning.prepare', new_callable=AsyncMock, return_value='Fresh morning sources: test fixture')
+    def test_morning_starts_fresh_and_keeps_followup_session(self, prepare):
+        async def check():
+            relay_map = Map(self.map.url)
+            relay = Relay(relay_map)
+            relay.acquire()
+            runtimes = [FakeRuntime([]), FakeRuntime([[say('Good morning')], [say('Let’s plan')]])]
+            host = Host(relay, self.map, lambda: runtimes.pop(0))
+            try:
+                await host.prepare_session()
+                previous = host.session
+                result = self.client('submit', {'client_message_id': str(uuid.uuid4()), 'text': 'Let’s plan my day.', 'mode': 'morning'})
+                await host.process(relay.claim())
+                morning = host.session
+                self.assertIsNot(morning, previous)
+                self.assertIn('morning session', morning.runtime.opened['system_prompt'])
+                self.assertIsNone(morning.runtime.opened['resume'])
+                self.assertEqual(len(morning.runtime.sent), 1)
+                with self.assertRaises(psycopg.Error):
+                    self.client('submit', {'client_message_id': str(self.map.value('select client_message_id from assistant.turns where id=%s', (result['turn_id'],))), 'text': 'Let’s plan my day.', 'mode': 'talk'})
+                self.submit()
+                await host.process(relay.claim())
+                self.assertIs(host.session, morning)
             finally:
                 await host.close_session()
                 relay_map.close()

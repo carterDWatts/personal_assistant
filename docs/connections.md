@@ -23,7 +23,9 @@ The three token-based connections are guided setup, not OAuth. Tokens can have w
 
 These are on-demand readers, not continuous background synchronization. Reading a source does not import its entire account into memory. A cached excerpt is not current truth: tools must read again when a decision depends on current state. Search indexes can lag; pagination and nested blocks can contain more information. Google Tasks due dates are dates rather than appointment times. Notion searches titles only. Drive's text reader does not parse PDFs, images or binary attachments. GitHub issue reads do not include comments or code diffs.
 
-Credential setup currently runs in the Mac app. Cloud-hosted account connection and phone setup forms are still pending. A Mac Keychain connection does not authorize the Railway worker. The cloud stream identifies the missing service so clients can explain this without claiming it is connected.
+On the phone, open Connections from the conversation menu. Google uses the system sign-in sheet; the other services use a secure token form. Cloud credentials are encrypted with AES-GCM in private Supabase tables, bound to the owner and service, and decrypted only by the hosted worker. OAuth intents expire after ten minutes and can be redeemed once. Disconnect invalidates pending sign-ins and removes the stored credential. Mac Keychain connections remain local.
+
+Start morning is available in the day panel and conversation menu. It starts a fresh morning session, loads the knowledge map, and fetches current calendar and email data before planning. Follow-up messages continue that session. Weather is fetched for the location in memory when relevant.
 
 ## Provider references
 

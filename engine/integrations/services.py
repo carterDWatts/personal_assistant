@@ -5,7 +5,7 @@ import threading
 from datetime import datetime, timezone
 from urllib.parse import quote
 
-import keyring
+from engine import credentials as keyring
 import requests
 
 from engine import config

@@ -124,6 +124,7 @@ struct Composer: View {
 struct DayPanel: View {
     @ObservedObject var chat: Chat
     let palette: Palette
+    @Environment(\.dismiss) private var dismiss
     private var state: String {
         if chat.memoryErrors > 0 { return "Memory paused" }
         if chat.memoryPending > 0 { return "Remembering" }
@@ -134,6 +135,11 @@ struct DayPanel: View {
             Text(Date().formatted(.dateTime.weekday(.wide))).font(.title2.weight(.semibold)).foregroundStyle(palette.ink)
             Text(Date().formatted(.dateTime.month(.wide).day())).font(.subheadline).foregroundStyle(palette.muted).padding(.top, 2)
             Rectangle().fill(palette.line).frame(height: 1).padding(.vertical, 12)
+            Button { chat.startMorning(); dismiss() } label: {
+                Label("Start morning", systemImage: "sun.horizon").frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent).tint(palette.accent)
+            .disabled(!chat.connected || chat.busy).padding(.bottom, 16)
             if chat.plans.isEmpty {
                 Text("Nothing planned. Say what you're doing and it will keep track.")
                     .font(.callout).foregroundStyle(palette.muted).fixedSize(horizontal: false, vertical: true)
@@ -432,6 +438,7 @@ struct ConversationView: View {
                 .buttonStyle(SquareButton(palette: palette, size: 36)).accessibilityLabel("Show the day")
             Menu {
                 Button("Clear", systemImage: "eraser") { chat.draft = ""; chat.connect(clear: true) }.disabled(!chat.connected || chat.busy)
+                Button("Start morning", systemImage: "sun.horizon") { chat.startMorning() }.disabled(!chat.connected || chat.busy)
                 Button("Connections", systemImage: "link") { showConnections = true }
                 Button("Settings", systemImage: "gearshape") { showSettings = true }
                 if !chat.connected && !chat.busy { Button("Reconnect", systemImage: "arrow.clockwise") { chat.connect() } }
@@ -556,6 +563,7 @@ struct TokenForm: View {
                             working = true
                             problem = await chat.submitToken(provider: provider, token: token.trimmingCharacters(in: .whitespacesAndNewlines)) ?? ""
                             working = false
+                            if problem.isEmpty { dismiss() }
                         }
                     } label: { Text(working ? "Checking…" : "Save").padding(.horizontal, 10) }
                     .buttonStyle(SquareButton(palette: palette, prominent: true)).disabled(working || token.count < 8)
@@ -578,6 +586,7 @@ struct ConnectionsView: View {
     @State private var working: String? = nil
     @State private var problem = ""
     @Environment(\.dismiss) private var dismiss
+    @State private var tokenProvider: String?
     private func connection(_ provider: String) -> Connection? { chat.connections.first { $0.id == provider } }
     var body: some View {
         NavigationStack {
@@ -594,14 +603,18 @@ struct ConnectionsView: View {
                     ForEach(["todoist", "notion", "github"], id: \.self) { provider in
                         let linked = connection(provider)?.state == "connected"
                         row(Service.name(provider), linked: linked, key: provider) {
-                            if linked { chat.disconnect(provider) } else { chat.tokenForm = provider }
+                            if linked { chat.disconnect(provider) } else { tokenProvider = provider }
                         }
                     }
                 } header: { Text("Tokens") } footer: { Text("Guided setup with a token from each service. The assistant only reads. Disconnect removes the host’s copy; revoke at the service to invalidate it everywhere.") }
+                if !chat.connectionError.isEmpty { Section { Text(chat.connectionError).font(.caption).foregroundStyle(Color.orange) } }
                 if !problem.isEmpty { Section { Text(problem).font(.caption).foregroundStyle(Color.orange) } }
             }
             .scrollContentBackground(.hidden)
             .background(palette.background)
+            .sheet(isPresented: Binding(get: { tokenProvider != nil }, set: { if !$0 { tokenProvider = nil } })) {
+                if let provider = tokenProvider { TokenForm(chat: chat, provider: provider, palette: palette) }
+            }
             .navigationTitle("Connections").navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
             .onAppear { chat.refreshConnections() }
@@ -614,7 +627,7 @@ struct ConnectionsView: View {
             Text(name).foregroundStyle(palette.ink)
             Spacer()
             if working == key { ProgressView().tint(palette.accent) }
-            else { Button(linked ? "Disconnect" : "Connect", action: action).font(.callout).foregroundStyle(linked ? palette.muted : palette.accent) }
+            else { Button(linked ? "Disconnect" : "Connect", action: action).disabled(working != nil).font(.callout).foregroundStyle(linked ? palette.muted : palette.accent) }
         }
     }
 

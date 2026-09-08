@@ -52,6 +52,7 @@ func plain(_ value: Any?) -> String {
     @Published var voice = false
     @Published var connectionPrompt: ConnectionPrompt? = nil
     @Published var connections: [Connection] = []
+    @Published var connectionError = ""
     @Published var tokenForm: String? = nil
     @Published private(set) var hostSpeaks = false
     @Published var models: [ModelChoice] = []
@@ -162,14 +163,19 @@ func plain(_ value: Any?) -> String {
         submit(text, speak: false)
     }
 
-    private func submit(_ text: String, speak: Bool = true) {
+    private func submit(_ text: String, speak: Bool = true, mode: String = "talk") {
         replyState.reset(messages: &messages)
         liveVoice.silencePlayback()
         spokenTurns.removeAll(); playedChunks.removeAll()
         speechBuffer = ""
         if speak && voice { liveVoice.prepareReply() }
         messages.append(ChatMessage(role: "user", text: text)); busy = true
-        transport.send(text, id: UUID(), speech: speak && voice && hostSpeaks, model: selectedModel.isEmpty ? nil : selectedModel)
+        transport.send(text, id: UUID(), speech: speak && voice && hostSpeaks, model: selectedModel.isEmpty ? nil : selectedModel, mode: mode)
+    }
+
+    func startMorning() {
+        guard connected, !busy else { return }
+        submit("Let’s plan my day.", mode: "morning")
     }
 
     private func interruptForSpeech() {
@@ -204,7 +210,10 @@ func plain(_ value: Any?) -> String {
     }
 
     func refreshConnections() {
-        Task { if let rows = try? await transport.connections() { connections = rows.map(Connection.init) } }
+        Task {
+            do { connections = try await transport.connections().map(Connection.init); connectionError = "" }
+            catch { connectionError = error.localizedDescription }
+        }
     }
 
     /// Connect the service a reply asked for. Google opens the host's authorization sheet; the others take a token.

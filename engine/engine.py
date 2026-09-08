@@ -26,7 +26,7 @@ class Session:
         self.context_revision = 0
         self.prepared = context.PreparedContext(map_)
 
-    async def open(self, mode="talk"):
+    async def open(self, mode="talk", *, begin_morning=True):
         self.segment_id, resume, self.seed = self.conv.resolve(mode)
         self.locked = bool(self.map.value("select pg_try_advisory_lock(hashtextextended(%s, 0))", ("conversation:" + str(self.segment_id),)))
         if not self.locked:
@@ -53,10 +53,10 @@ class Session:
         self.prepared.read()
         if self.auto_memory:
             memory_worker.kick(self.runtime.name)
-        if mode == "morning":
+        if mode == "morning" and begin_morning:
             await self.send("Begin the morning session.", role="system")
 
-    async def send(self, text, role="user"):
+    async def send(self, text, role="user", *, extra_context=""):
         # Refresh on every turn, including resumed sessions. Model context is a cache.
         started = time.monotonic()
         sections = self.prepared.read()
@@ -79,7 +79,7 @@ class Session:
             timing("context_seconds", time.monotonic() - started)
         try:
             await turn(self.runtime, self.conv, self.tools, self.io, self.segment_id, mid,
-                       f"{opening}\n\nThe user says:\n{text}")
+                       f"{opening}\n\n{extra_context}\n\nThe user says:\n{text}")
             self.sent_snapshot = sections if getattr(self.runtime, 'context_revision', 0) == revision else None
             self.context_revision = getattr(self.runtime, 'context_revision', 0)
         except BaseException:

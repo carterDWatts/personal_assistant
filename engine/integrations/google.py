@@ -9,7 +9,7 @@ from html.parser import HTMLParser
 from datetime import datetime, timedelta, timezone
 from urllib.parse import quote
 
-import keyring
+from engine import credentials as keyring
 from google.auth.transport.requests import AuthorizedSession, Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow

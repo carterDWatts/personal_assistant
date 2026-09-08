@@ -132,6 +132,35 @@ def configure_auth():
     print('Phone sign-in callback configured and verified. Public signup is disabled.')
 
 
+def configure_connections(client_file):
+    import base64
+    import tempfile
+    client = json.loads(Path(client_file).read_text())["web"]
+    callback = f'https://{PROJECT}.supabase.co/functions/v1/assistant/google/callback'
+    if callback not in client.get('redirect_uris', []):
+        raise RuntimeError('The Google web client needs the hosted callback URL.')
+    directory = Path.home() / '.config/personal-assistant'
+    directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+    keyfile = directory / 'credential-key'
+    if not keyfile.exists():
+        descriptor = os.open(keyfile, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(descriptor, 'w') as output:
+            output.write(base64.b64encode(os.urandom(32)).decode())
+    key = keyfile.read_text().strip()
+    if len(base64.b64decode(key, validate=True)) != 32:
+        raise RuntimeError('The saved credential key is invalid.')
+    values = {'ASSISTANT_CREDENTIAL_KEY': key, 'GOOGLE_CLIENT_ID': client['client_id'],
+              'GOOGLE_CLIENT_SECRET': client['client_secret']}
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.env') as env:
+        for name, value in values.items():
+            env.write(f'{name}={value}\n')
+        env.flush()
+        command(['supabase','secrets','set','--project-ref',PROJECT,'--env-file',env.name])
+    command([RAILWAY,'variable','set','ASSISTANT_CREDENTIAL_KEY','--stdin','--skip-deploys',
+             '--service','worker'],input=key)
+    print('Cloud connection credentials configured. The encryption key is saved outside the repository.')
+
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest='action', required=True)
@@ -140,10 +169,14 @@ if __name__ == '__main__':
     commands.add_parser('configure')
     commands.add_parser('auth')
     commands.add_parser('speech')
+    connections = commands.add_parser('connections')
+    connections.add_argument('client_file')
     args = parser.parse_args()
     try:
         if args.action == 'bind-owner':
             bind_owner(args.email)
+        elif args.action == 'connections':
+            configure_connections(args.client_file)
         elif args.action == 'speech':
             configure_speech()
         elif args.action == 'auth':

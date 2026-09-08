@@ -116,3 +116,49 @@ test('idle reads and closed sockets do not wait', async () => {
   await receive(config, owner, { action: 'events', device_id: device, args: { wait: true } }, read, () => false);
   assert.equal(calls, 2);
 });
+
+import { connection, googleCallback } from '../supabase/functions/assistant/connections.ts';
+const connectedConfig = {...config, credentialKey: btoa('k'.repeat(32)), googleClientId:'client', googleClientSecret:'secret'};
+
+test('Google callback exchanges PKCE and stores encrypted credentials only once', async () => {
+  let saved: any, intent: any, state: string, consumed = false;
+  const fetcher: typeof fetch = async (url, options) => {
+    if (String(url).includes('/rpc/')) {
+      const body = JSON.parse(String(options?.body));
+      if (body.p_action === 'list') return Response.json([]);
+      if (body.p_action === 'begin') { intent={...body.p_args,id:device,user_id:owner,device_id:device}; return Response.json({intent_id:device}); }
+      if (body.p_action === 'claim') {
+        if (consumed) return Response.json({message:'invalid_request'},{status:400});
+        consumed=true; return Response.json(intent);
+      }
+      if (body.p_action === 'complete') { saved=body.p_args; return Response.json({}); }
+      throw new Error('Unexpected database action');
+    }
+    if (String(url).endsWith('/token')) {
+      assert.ok(new URLSearchParams(String(options?.body)).get('code_verifier'));
+      return Response.json({refresh_token:'refresh-secret',access_token:'access-secret',expires_in:3600,scope:'https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/gmail.readonly'});
+    }
+    return Response.json({email:'test@example.com'});
+  };
+  const result=await connection(connectedConfig,owner,{device_id:device,action:'connection_start',args:{provider:'google',grant:'calendar'}},fetcher);
+  const auth=new URL(result.url); state=auth.searchParams.get('state')!;
+  assert.equal(auth.searchParams.get('code_challenge_method'),'S256');
+  const callback=new Request(`https://example.invalid?state=${state}&code=code`);
+  assert.match((await googleCallback(callback,connectedConfig,fetcher)).headers.get('location')!,/status=connected/);
+  assert.equal(saved.metadata.account,'test@example.com');
+  assert.ok(!JSON.stringify(saved).includes('refresh-secret'));
+  assert.match((await googleCallback(callback,connectedConfig,fetcher)).headers.get('location')!,/status=failed/);
+});
+
+test('revoked connections cannot contact providers and rejected tokens are not saved', async () => {
+  let calls=0;
+  await assert.rejects(connection(connectedConfig,owner,{device_id:device,action:'connection_token',args:{provider:'github',token:'secret'}},async()=>{
+    calls++;return Response.json({message:'device_denied'},{status:403});
+  }),/device_denied/);
+  assert.equal(calls,1);
+  calls=0;
+  await assert.rejects(connection(connectedConfig,owner,{device_id:device,action:'connection_token',args:{provider:'github',token:'secret'}},async()=>{
+    calls++;return calls===1?Response.json([]):new Response(null,{status:401});
+  }),/connection_rejected/);
+  assert.equal(calls,2);
+});

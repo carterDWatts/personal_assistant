@@ -111,7 +111,9 @@ class Host:
             batch, self.stream.pending = self.stream.pending, []
             await self.call(self.relay.publish, self.active, batch)
 
-    async def prepare_session(self, model=None):
+    async def prepare_session(self, model=None, mode="talk"):
+        if mode == "morning":
+            await self.close_session()
         if config.RUNTIME == 'codex' and model == 'codex/' + os.environ.get('ASSISTANT_OPENAI_MODEL', ''):
             model = None
         if self.session and (self.session.conv.cutoff() > self.session.seen_message or model != self.model_id):
@@ -125,12 +127,16 @@ class Host:
             self.model_id = model
             self.session = Session(self.map, runtime, self.stream, 'cloud',
                                    auto_memory=False, before_tool=self.before_tool)
-            await self.session.open()
+            await self.session.open(mode, begin_morning=False)
             self.stream.timing('session_open_seconds', time.monotonic() - opened)
 
     async def answer(self, turn):
-        await self.prepare_session(turn.get('model'))
-        await self.session.send(turn['text'])
+        await self.prepare_session(turn.get('model'), turn.get('mode', 'talk'))
+        extra = ""
+        if turn.get('mode') == 'morning':
+            from engine.morning import prepare
+            extra = await prepare(self.stream)
+        await self.session.send(turn['text'], extra_context=extra)
 
     async def interrupt(self, task):
         runtime = self.session.runtime if self.session else None

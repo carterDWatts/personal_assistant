@@ -207,7 +207,7 @@ import AVFoundation
             endOfInput = voice.lastInputSound
             submitted = Date()
             heard.fulfill()
-            transport.send(text, id: UUID(), speech: true, model: model)
+            transport.send(text, id: UUID(), speech: true, model: model, mode: "talk")
         }
         voice.onPlaybackStarted = {
             guard firstAudio == nil, let submitted else { return }

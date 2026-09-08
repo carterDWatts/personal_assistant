@@ -21,6 +21,7 @@ export default defineRailway(() => {
       ASSISTANT_TIMEZONE: "America/Los_Angeles",
       ASSISTANT_DATABASE_URL: preserve(),
       ASSISTANT_STORAGE_KEY: preserve(),
+      ASSISTANT_CREDENTIAL_KEY: preserve(),
       ASSISTANT_SUPABASE_URL: "https://koauvyfxewczcajnlrfp.supabase.co",
       ASSISTANT_CODEX_AUTH_JSON: preserve(),
       CLAUDE_CODE_OAUTH_TOKEN: preserve(),
