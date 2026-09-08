@@ -12,6 +12,7 @@
 		20CB022D16C16345828B8930 /* Transport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 19166F88EC58DDC6BF56BDD6 /* Transport.swift */; };
 		27AE07C0E505531260112DCF /* Notifications.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9DB1C69949F8867309EA4FA5 /* Notifications.swift */; };
 		2939F427E2186B2A19F3CF25 /* interrupt.wav in Resources */ = {isa = PBXBuildFile; fileRef = DCE622D07F21DB8741ABAEB6 /* interrupt.wav */; };
+		309E505AF2A73B3795D5187A /* MessageTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5063AD0BF055B36F3C136CA7 /* MessageTests.swift */; };
 		47EC57B989427548F0A3BFDA /* voice-bill.m4a in Resources */ = {isa = PBXBuildFile; fileRef = F37B8051E46D90501D250BBB /* voice-bill.m4a */; };
 		51F8F3E0738873E5351D2E5D /* voice-michael.m4a in Resources */ = {isa = PBXBuildFile; fileRef = 17575427781DBC1348FEFC6D /* voice-michael.m4a */; };
 		63B70AB8344C1CEB6A0FEBD4 /* Views.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2CF368B5C1B83543A7E505E0 /* Views.swift */; };
@@ -63,6 +64,7 @@
 		1F1E5B86C6AB6771AE700088 /* Assistant.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Assistant.entitlements; sourceTree = "<group>"; };
 		261CD53008F6E08EC77ABB32 /* RelaySocket.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RelaySocket.swift; sourceTree = "<group>"; };
 		2CF368B5C1B83543A7E505E0 /* Views.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views.swift; sourceTree = "<group>"; };
+		5063AD0BF055B36F3C136CA7 /* MessageTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageTests.swift; sourceTree = "<group>"; };
 		54BD312561001569101CE03D /* voice-british.m4a */ = {isa = PBXFileReference; path = "voice-british.m4a"; sourceTree = "<group>"; };
 		580BE68E2EA7EFBE168FF444 /* identity.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = identity.json; sourceTree = "<group>"; };
 		6F8C7E076DFC1900D744A38C /* input.wav */ = {isa = PBXFileReference; lastKnownFileType = audio.wav; path = input.wav; sourceTree = "<group>"; };
@@ -184,6 +186,7 @@
 		DEF85963868B92E490CE2315 /* AssistantTests */ = {
 			isa = PBXGroup;
 			children = (
+				5063AD0BF055B36F3C136CA7 /* MessageTests.swift */,
 				13FBAF14C1B1F7867606D118 /* VoiceTests.swift */,
 				B2E02EE2D580932108EC32BE /* Fixtures */,
 			);
@@ -378,6 +381,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				309E505AF2A73B3795D5187A /* MessageTests.swift in Sources */,
 				F40E0625E27CD01A3996677B /* VoiceTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
