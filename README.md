@@ -1,4 +1,6 @@
-![Bunny Man architecture](docs/assets/architecture.png)
+[![A mechanical model of Bunny Man’s shared memory: evidence enters, facts connect and change, and a new session retrieves context.](docs/assets/memory.gif)](docs/assets/memory.mp4)
+
+[Watch the full-resolution video](docs/assets/memory.mp4) · A conceptual model of the implemented memory paths.
 
 # Bunny Man
 
@@ -7,10 +9,6 @@ I want an assistant I can tell something once and come back to from any device. 
 I built Bunny Man around a shared knowledge map in Postgres. The iPhone app, Mac app, and model sessions use the same structured memory and conversation history. I can switch between Claude and ChatGPT, restart the runtime, or pick up on another device and continue with the same context.
 
 The important part is that continuity belongs to the system. It doesn't depend on keeping one model process alive forever.
-
-![A sourced fact is inferred from, revised, and retrieved by a fresh model session](docs/assets/memory.gif)
-
-*An illustrative walkthrough of the implemented memory paths. The records are fictional.*
 
 ## How the memory works
 
@@ -34,7 +32,7 @@ The hosted runtime stays warm between turns. The phone sends durable requests th
 
 Typed and interruptible voice conversations, a morning review that learns my preferences, calendar planning, contextual reminders, email triage, and importing large blocks of existing context. A background reviewer looks across the map for emerging needs. Alerts carry evidence, are deduplicated and paced, and can be opened directly into a conversation about that notification.
 
-I can also hand off research or a code investigation while keeping the conversation going. A bounded background worker messages me its result in the same chat. Code changes stay as reviewable drafts; they do not modify the running service.
+I can also hand off research or a code investigation while keeping the conversation going. A bounded background worker messages me its result in the same chat. My owner instance can publish code changes as pull requests. Merging requires passing checks on the exact revision, and database migrations have a separate, scoped apply step. Other users do not get those development tools.
 
 The phone streams Pocket TTS from the host. The Mac has local speech. Google Calendar remains authoritative for calendar events; reminders track commitments and completion separately.
 
