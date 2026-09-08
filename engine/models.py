@@ -17,7 +17,7 @@ async def available():
     finally:
         await runtime.close()
     if os.environ.get('CLAUDE_CODE_OAUTH_TOKEN'):
-        for model in ('sonnet', 'opus', 'haiku'):
+        for model in ('fable', 'sonnet', 'opus', 'haiku'):
             result.append({'id': 'claude-agent-sdk/' + model, 'runtime': 'claude-agent-sdk',
                            'model': model, 'name': 'Claude ' + model.title()})
     return result
