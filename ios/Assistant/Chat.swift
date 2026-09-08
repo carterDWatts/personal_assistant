@@ -60,6 +60,7 @@ func plain(_ value: Any?) -> String {
     @Published var connectionPrompt: ConnectionPrompt? = nil
     @Published var connections: [Connection] = []
     @Published var tokenForm: String? = nil
+    private var hostSpeaks = false
     let liveVoice = LiveVoice()
     var spokenDraft: String {
         [voiceTurn.pending, liveVoice.transcript.isEmpty ? nil : liveVoice.transcript].compactMap { $0 }.joined(separator: " ")
@@ -109,13 +110,20 @@ func plain(_ value: Any?) -> String {
             busy = true; speechBuffer = ""
             let item = ChatMessage(role: "assistant", text: "")
             streamingID = item.id; messages.append(item); status = "Thinking…"
+        case "capabilities":
+            hostSpeaks = event["speech"] as? Bool == true
         case "delta":
             if let i = messages.firstIndex(where: { $0.id == streamingID }) { messages[i].text += text }
-            if !voiceTurn.interrupted { speechBuffer += text; speakSentences(flush: false); status = "Replying…" }
+            if hostSpeaks { status = "Replying…" }
+            else if !voiceTurn.interrupted { speechBuffer += text; speakSentences(flush: false); status = "Replying…" }
+        case "speech":
+            if voice, !voiceTurn.interrupted, streamingID != nil, let link = event["url"] as? String, let url = URL(string: link) {
+                liveVoice.play(url, text: text)
+            }
         case "replace":
             if let i = messages.firstIndex(where: { $0.id == streamingID }) { messages[i].text = text }
         case "end":
-            if !voiceTurn.interrupted { speakSentences(flush: true) }
+            if !hostSpeaks && !voiceTurn.interrupted { speakSentences(flush: true) }
             streamingID = nil
         case "connection_required":
             connectionPrompt = ConnectionPrompt(event: event, request: messages.last(where: { $0.role == "user" })?.text)

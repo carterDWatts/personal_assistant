@@ -1,4 +1,5 @@
 import Foundation
+import AVFoundation
 
 /// The engine as the phone sees it: commands in, the bridge event vocabulary out.
 /// Events are the same payloads the Mac reads (history, ready, start, delta, replace, end, memory, map, status, error).
@@ -57,6 +58,7 @@ func isoDate(_ date: Date) -> String {
         Task { [weak self] in
             try? await Task.sleep(for: .milliseconds(400))
             guard let self else { return }
+            emit(["type": "capabilities", "speech": true])
             emit(["type": "ready"])
             emit(map())
             if ProcessInfo.processInfo.arguments.contains("--connection") {
@@ -86,6 +88,13 @@ func isoDate(_ date: Date) -> String {
                 try? await Task.sleep(for: .milliseconds(45))
             }
             if !Task.isCancelled { emit(["type": "replace", "text": spoken]) }
+            var rest = spoken, seq = 0
+            while let chunk = nextSpeechChunk(&rest, flush: true), !Task.isCancelled {
+                seq += 1
+                if let file = await Self.render(chunk) {
+                    emit(["type": "speech", "seq": seq, "url": file.absoluteString, "text": chunk])
+                }
+            }
             history.append(["role": "assistant", "content": spoken, "created_at": isoDate(Date())])
             emit(["type": "end"])
             emit(["type": "ready"])
@@ -127,6 +136,28 @@ func isoDate(_ date: Date) -> String {
     func removeConnection(provider: String, grant: String?) async throws {
         linked[provider] = nil
         emit(["type": "connections", "providers": try await connections()])
+    }
+
+    /// Stands in for the host's synthesizer by writing one chunk to a file the way the host will serve one.
+    private static func render(_ text: String) async -> URL? {
+        await withCheckedContinuation { continuation in
+            let synthesizer = AVSpeechSynthesizer()
+            let utterance = AVSpeechUtterance(string: text)
+            utterance.voice = LiveVoice.voice
+            let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".caf")
+            var file: AVAudioFile?
+            var resumed = false
+            synthesizer.write(utterance) { buffer in
+                guard let pcm = buffer as? AVAudioPCMBuffer else { return }
+                if pcm.frameLength == 0 {
+                    if !resumed { resumed = true; continuation.resume(returning: file == nil ? nil : url) }
+                    return
+                }
+                if file == nil { file = try? AVAudioFile(forWriting: url, settings: pcm.format.settings) }
+                try? file?.write(from: pcm)
+            }
+            _ = synthesizer
+        }
     }
 
     private func map() -> [String: Any] {

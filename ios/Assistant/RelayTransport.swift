@@ -28,6 +28,7 @@ struct RelayError: LocalizedError {
     private var poller: Task<Void, Never>?
     private var inFront = true
     private var failures = 0
+    private var replaying = false
 
     init() {
         var continuation: AsyncStream<[String: Any]>.Continuation!
@@ -59,8 +60,11 @@ struct RelayError: LocalizedError {
             cursor = number(boot["replay_after"]) ?? number(boot["cursor"]) ?? 0
             activeTurn = (boot["active_turn"] as? [String: Any])?["turn_id"] as? String
             presence(boot["host"])
+            emit(["type": "capabilities", "speech": (boot["capabilities"] as? [String: Any])?["speech"] as? Bool == true])
             if var day = boot["day"] as? [String: Any] { day["type"] = "map"; emit(day) }
+            replaying = true
             try await drain()
+            replaying = false
             if activeTurn == nil { emit(["type": "ready"]) } else { emit(["type": "status", "text": "Waiting for the host"]) }
             failures = 0
             poll()
@@ -99,6 +103,9 @@ struct RelayError: LocalizedError {
         case "error":
             payload["text"] = payload["text"] ?? payload["message"]
             emit(payload)
+        case "speech":
+            // Audio is for the live turn only; a reconnect keeps the text and skips the sound.
+            if !replaying { emit(payload) }
         default:
             emit(payload)
         }

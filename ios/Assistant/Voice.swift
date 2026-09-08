@@ -58,6 +58,8 @@ private final class Capture: @unchecked Sendable {
     private var onDevice = UserDefaults.standard.bool(forKey: "onDeviceRecognition")
     private var queue: [String] = []
     private var rendering = false
+    private var hosted: [(URL, String)] = []
+    private var fetching = false
     private var playbackFormat: AVAudioFormat?
     private var playing = 0
     private var playback = UUID()
@@ -229,6 +231,43 @@ private final class Capture: @unchecked Sendable {
         render()
     }
 
+    /// Speech synthesized on the host: fetched in order, decoded, and scheduled on the same player as local speech.
+    func play(_ url: URL, text: String) {
+        guard active else { return }
+        hosted.append((url, text))
+        fetch()
+    }
+
+    private func fetch() {
+        guard !fetching, !hosted.isEmpty else { return }
+        let (url, text) = hosted.removeFirst()
+        fetching = true
+        let generation = playback
+        echo.record(text); echo.resumed(); speaking = true
+        Task { [weak self] in
+            var buffer: AVAudioPCMBuffer?
+            do {
+                let (data, _) = try await URLSession.shared.data(from: url)
+                let file = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + "." + (url.pathExtension.isEmpty ? "m4a" : url.pathExtension))
+                try data.write(to: file)
+                defer { try? FileManager.default.removeItem(at: file) }
+                let audio = try AVAudioFile(forReading: file)
+                if let pcm = AVAudioPCMBuffer(pcmFormat: audio.processingFormat, frameCapacity: AVAudioFrameCount(audio.length)) {
+                    try audio.read(into: pcm)
+                    buffer = pcm
+                }
+            } catch {
+                self?.log.error("host speech failed: \(error.localizedDescription, privacy: .public)")
+            }
+            guard let self else { return }
+            self.fetching = false
+            guard generation == self.playback else { return }
+            if let buffer { self.received(buffer, generation) }
+            if self.hosted.isEmpty && self.playing == 0 && !self.rendering && buffer == nil { self.speaking = false; self.echo.finished() }
+            self.fetch()
+        }
+    }
+
     private func render() {
         guard !rendering, !queue.isEmpty else { return }
         let text = queue.removeFirst()
@@ -264,13 +303,14 @@ private final class Capture: @unchecked Sendable {
     private func played(_ generation: UUID) {
         guard generation == playback else { return }
         playing -= 1
-        if playing == 0 && !rendering && queue.isEmpty { speaking = false; echo.finished() }
+        if playing == 0 && !rendering && queue.isEmpty && !fetching && hosted.isEmpty { speaking = false; echo.finished() }
     }
 
     func silencePlayback() {
         playback = UUID()
         synthesizer.stopSpeaking(at: .immediate)
         queue.removeAll(); rendering = false; playing = 0
+        hosted.removeAll(); fetching = false
         if player.engine != nil { player.stop() }
         if speaking { speaking = false; echo.finished() }
     }
