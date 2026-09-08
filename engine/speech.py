@@ -123,7 +123,7 @@ class Speech:
     def render_locked(self, text, cancelled):
         result = self.voice.generate(text, sid=self.settings.get('speaker', 16), speed=self.settings.get('speed', 1.1),
                                      callback=lambda samples, progress: int(not cancelled.is_set()))
-        if cancelled.is_set(): return None
+        if cancelled.is_set() or len(result.samples) == 0: return None
         import numpy as np
         samples = np.asarray(result.samples, dtype='<f4')
         with tempfile.TemporaryDirectory() as directory:
@@ -146,9 +146,11 @@ class Speech:
                 except asyncio.TimeoutError: continue
                 if text is None: break
                 # Formatting is for the chat, not the voice.
-                text = re.sub(r'[*#`]', '', text)
+                text = re.sub(r'[*#`]', '', text).strip()
+                if not any(c.isalnum() for c in text): continue
                 result = await asyncio.to_thread(self.render, text, cancelled)
-                if result is None or cancelled.is_set(): break
+                if cancelled.is_set(): break
+                if result is None: continue
                 if await self.host.call(self.host.relay.cancelled, turn): break
                 seq += 1
                 name = f'{turn}/{seq}.m4a'

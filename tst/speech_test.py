@@ -47,7 +47,7 @@ class speech_test(unittest.TestCase):
                 return b'audio', 500
             speech.render = render
             await speech.begin({'id': 'turn', 'speech': True})
-            speech.feed('First sentence. Second sentence. ')
+            speech.feed('... **. First sentence. Second sentence. ')
             speech.finish('completed')
             await asyncio.to_thread(started.wait, 2)
             self.assertFalse(speech.task.done())
