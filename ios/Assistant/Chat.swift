@@ -172,9 +172,16 @@ func plain(_ value: Any?) -> String {
     func stop() {
         liveVoice.stop(); speechBuffer = ""; voice = false; voiceTurn.discardPending()
         if voiceTurn.interrupt(busy: busy) { transport.stop() }
+        transport.foreground(inFront)
     }
 
-    func foreground(_ active: Bool) { transport.foreground(active) }
+    private var inFront = true
+
+    /// A voice conversation keeps the stream alive with the screen off; otherwise the phone rests in the background.
+    func foreground(_ active: Bool) {
+        inFront = active
+        transport.foreground(active || voice)
+    }
 
     func refreshConnections() {
         Task { if let rows = try? await transport.connections() { connections = rows.map(Connection.init) } }
@@ -244,6 +251,7 @@ func plain(_ value: Any?) -> String {
         if voice { stop(); return }
         voiceStartIndex = messages.count
         voice = true
+        transport.foreground(true)
         liveVoice.start()
     }
 

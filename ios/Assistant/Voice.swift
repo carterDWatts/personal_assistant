@@ -8,6 +8,7 @@ private final class Capture: @unchecked Sendable {
     private var request: SFSpeechAudioBufferRecognitionRequest?
     private var count = 0
     var onLevel: ((Double) -> Void)?
+    var onSample: ((Int, Double, String) -> Void)?
 
     func attach(_ request: SFSpeechAudioBufferRecognitionRequest?) {
         lock.lock(); self.request = request; lock.unlock()
@@ -21,7 +22,9 @@ private final class Capture: @unchecked Sendable {
         let n = Int(buffer.frameLength)
         var sum: Float = 0
         for i in 0..<n { sum += data[i] * data[i] }
-        onLevel?(Double(min(1, sqrt(sum / Float(n)) * 8)))
+        let rms = Double(sqrt(sum / Float(n)))
+        onLevel?(min(1, rms * 8))
+        if count == 3 || count % 600 == 0 { onSample?(count, rms, buffer.format.description) }
     }
 }
 
@@ -64,6 +67,9 @@ private final class Capture: @unchecked Sendable {
     init() {
         capture.onLevel = { [weak self] level in
             Task { @MainActor [weak self] in self?.inputLevel = level }
+        }
+        capture.onSample = { [weak self] count, rms, format in
+            Task { @MainActor [weak self] in self?.log.notice("microphone buffer \(count) rms \(rms, privacy: .public) \(format, privacy: .public)") }
         }
         observers.append(NotificationCenter.default.addObserver(forName: AVAudioSession.interruptionNotification, object: nil, queue: .main) { [weak self] note in
             MainActor.assumeIsolated {
@@ -112,8 +118,10 @@ private final class Capture: @unchecked Sendable {
             capture.consume(buffer)
         }
         engine.prepare()
-        do { try engine.start() } catch { input.removeTap(onBus: 0); failed("The microphone couldn’t start."); return }
+        do { try engine.start() } catch { input.removeTap(onBus: 0); failed("The microphone couldn’t start: \(error.localizedDescription)"); return }
         active = true
+        let route = session.currentRoute.inputs.map(\.portType.rawValue).joined(separator: ",")
+        log.notice("voice started, input \(route, privacy: .public), format \(input.outputFormat(forBus: 0).description, privacy: .public), on-device \(self.onDevice)")
         listen()
         refresh = Task { [weak self] in
             // The recognizer stops after about a minute of audio; start a fresh request between utterances.
@@ -126,7 +134,7 @@ private final class Capture: @unchecked Sendable {
     }
 
     private func failed(_ text: String) {
-        log.error("\(text, privacy: .public)")
+        log.error("voice failed: \(text, privacy: .public)")
         stop()
         onError?(text)
     }
@@ -148,6 +156,7 @@ private final class Capture: @unchecked Sendable {
         task = recognizer.recognitionTask(with: request) { [weak self] result, error in
             Task { @MainActor [weak self] in self?.recognized(token, result, error) }
         }
+        log.notice("listening, on-device \(request.requiresOnDeviceRecognition), available \(recognizer.isAvailable), supports on-device \(recognizer.supportsOnDeviceRecognition)")
     }
 
     private func recognized(_ token: UUID, _ result: SFSpeechRecognitionResult?, _ error: Error?) {
@@ -162,14 +171,15 @@ private final class Capture: @unchecked Sendable {
                 }
                 let first = transcript.isEmpty
                 if text != transcript { transcript = text; heardAt = Date() }
-                if first { onSpeech?() }
+                if first { log.notice("heard speech"); onSpeech?() }
                 if result.isFinal { finish() } else { armEndpoint() }
                 return
             }
             if result.isFinal { listen(); return }
         }
         if let error {
-            log.info("recognition ended: \(error.localizedDescription, privacy: .public)")
+            let failure = error as NSError
+            log.error("recognition ended: \(failure.domain, privacy: .public) \(failure.code) \(failure.localizedDescription, privacy: .public)")
             if !transcript.isEmpty { finish(); return }
             if !onDevice, recognizer?.supportsOnDeviceRecognition == true { onDevice = true }
             Task { [weak self] in

@@ -32,6 +32,8 @@ targets:
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
         ITSAppUsesNonExemptEncryption: false
+        UIBackgroundModes:
+          - audio
         CFBundleURLTypes:
           - CFBundleURLName: com.carterwatts.assistant.auth
             CFBundleURLSchemes:

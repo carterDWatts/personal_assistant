@@ -37,6 +37,10 @@
 	<string>The microphone is on while a voice conversation is on.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
 	<string>What you say is turned into text so the assistant can answer.</string>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>audio</string>
+	</array>
 	<key>UILaunchScreen</key>
 	<dict/>
 	<key>UISupportedInterfaceOrientations</key>

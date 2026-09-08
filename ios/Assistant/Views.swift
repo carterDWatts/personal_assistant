@@ -333,10 +333,7 @@ struct ConversationView: View {
         .onAppear { if !chat.connected && !chat.busy { chat.connect() } }
         .onChange(of: account.signedIn) { _, now in if now { chat.connect() } }
         .onOpenURL { url in Task { await account.open(url) } }
-        .onChange(of: phase) { _, now in
-            if now != .active && chat.voice { chat.stop() }
-            chat.foreground(now == .active)
-        }
+        .onChange(of: phase) { _, now in chat.foreground(now == .active) }
         .preferredColorScheme(.light)
     }
 
