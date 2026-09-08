@@ -124,3 +124,12 @@ class background_test(MapTest):
         self.map.execute("update assistant.source_items set processed_at=now() where source='gmail'")
         monitoring_alert(self.map)
         self.assertFalse(self.map.value("select notify from assistant.attention where source='monitoring'"))
+
+    def test_malformed_email_does_not_block_other_mail(self):
+        self.map.execute("insert into assistant.source_items(source,id) values('gmail','bad'),('gmail','good')")
+        classified={'id':'good','relevant':False,'notify':False,'remember':False,'title':'Routine','reason':'No action.'}
+        raw={'internalDate':'1788840000000','payload':{}}
+        with patch('engine.integrations.google._get',side_effect=[{'internalDate':'invalid'},raw]):
+            self.run_async(Background(self.map,lambda _:FakeRuntime([[call('classify',items=[classified])]])).triage())
+        self.assertIsNone(self.map.value("select processed_at from assistant.source_items where id='bad'"))
+        self.assertIsNotNone(self.map.value("select processed_at from assistant.source_items where id='good'"))

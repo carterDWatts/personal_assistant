@@ -52,6 +52,10 @@ class Background:
         for item in items:
             try:
                 raw=await asyncio.to_thread(_get,'gmail/v1/users/me/messages/'+item['id'],{'format':'full'})
+                body=_body(raw.get('payload',{}))
+                value={'id':item['id'],'backfill':bool((item.get('payload') or {}).get('backfill')),'headers':raw.get('payload',{}).get('headers',[]),
+                       'thread_id':raw.get('threadId',item['id']),'labels':raw.get('labelIds',[]),'body':body[:12000],'truncated':len(body)>12000,
+                       'received_at':datetime.fromtimestamp(int(raw['internalDate'])/1000,timezone.utc).isoformat()}
             except GoogleRequestError as error:
                 if error.status != 404:
                     self.map.execute("update assistant.source_items set available_at=now()+interval '2 minutes',last_error='Email fetch will retry' where source='gmail' and id=%s",(item['id'],))
@@ -61,10 +65,6 @@ class Background:
             except Exception:
                 self.map.execute("update assistant.source_items set available_at=now()+interval '2 minutes',last_error='Email fetch will retry' where source='gmail' and id=%s",(item['id'],))
                 continue
-            body=_body(raw.get('payload',{}))
-            value={'id':item['id'],'backfill':bool((item.get('payload') or {}).get('backfill')),'headers':raw.get('payload',{}).get('headers',[]),
-                   'thread_id':raw.get('threadId',item['id']),'labels':raw.get('labelIds',[]),'body':body[:12000],'truncated':len(body)>12000,
-                   'received_at':datetime.fromtimestamp(int(raw['internalDate'])/1000,timezone.utc).isoformat()}
             self.map.execute("update assistant.source_items set payload=%s where source='gmail' and id=%s",(jsonb(value),item['id']))
             batch.append(value)
         if not batch: return
