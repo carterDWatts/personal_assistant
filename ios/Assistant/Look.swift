@@ -74,7 +74,7 @@ struct Mark: View {
         TimelineView(.animation(minimumInterval: 1.0 / 30, paused: !thinking || reduceMotion)) { timeline in
             let time = timeline.date.timeIntervalSinceReferenceDate
             let tilt = thinking && !reduceMotion ? sin(time * 1.3) * 4 : 0
-            Image("Mark").resizable().interpolation(.high).aspectRatio(1, contentMode: .fit)
+            Image("Mark").renderingMode(.original).resizable().interpolation(.high).aspectRatio(1, contentMode: .fit)
                 .rotationEffect(.degrees(tilt), anchor: UnitPoint(x: 0.5, y: 0.41))
         }.accessibilityHidden(true)
     }

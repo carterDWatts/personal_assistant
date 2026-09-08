@@ -39,11 +39,17 @@ struct RelayError: LocalizedError {
     func connect(clear: Bool) {
         poller?.cancel()
         guard account.signedIn else { emit(["type": "status", "text": "Sign in to continue"]); return }
-        Task { await bootstrap() }
+        Task { await bootstrap(clear: clear) }
     }
 
-    private func bootstrap() async {
+    private func bootstrap(clear: Bool) async {
         do {
+            if clear {
+                // A fresh segment on the host keeps the map and archives the messages, the same as the Mac.
+                do { _ = try await call("clear") } catch let error as RelayError where error.code == "invalid_request" {
+                    emit(["type": "status", "text": "Clearing isn’t available on the host yet"])
+                }
+            }
             if !account.registered {
                 _ = try await call("register", ["name": UIDevice.current.name])
                 account.registered = true
