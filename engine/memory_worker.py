@@ -93,6 +93,9 @@ class Worker:
             tools.message_id = job['message_id']
             tools.observed_at = job['created_at']
             all_specs = tools.specs()
+            if not (job.get('payload') or {}).get('import_id'):
+                from engine.reminders import Reminders
+                all_specs += Reminders(tools).specs()
             writes = {s.name: s for s in all_specs if s.name not in READ_TOOLS}
             entity = writes['entity_upsert']
             schema = copy.deepcopy(entity.schema)

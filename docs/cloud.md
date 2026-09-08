@@ -81,3 +81,22 @@ and explicitly bounded past facts; the worker rejects changes to current mandate
 plans and unbounded facts from historical imports. Unknown dates remain unknown.
 `context_import_search` retrieves the original sources, including details extraction
 omitted. Progress means extraction completed, not that every sentence became a fact.
+
+Reminders live in `memory.reminders`, separately from the Google calendar. Each has
+context, a time window, its next check and a follow-up interval. The acting agent
+writes them in the turn; the extraction worker catches missed commitments. Only
+confirmed completion or explicit cancellation closes one. Week/someday checks are
+spaced; approaching deadlines shorten long intervals. Non-exact checks occur at noon
+in the reminder's time zone. Snooze and edits use version checks.
+
+The worker checks due reminders every 30 seconds and writes delivery records before
+contacting APNs. Failed deliveries retry; sending never completes a reminder.
+Revoked devices and obsolete reminder versions cannot receive queued alerts.
+APNs credentials are Railway variables `ASSISTANT_APNS_KEY`, `ASSISTANT_APNS_KEY_ID`
+and `ASSISTANT_APNS_TEAM_ID`; the key stays outside git. Enable notifications in the
+phone's day panel once. Notification actions open the app, persist locally until
+synced, and use the same versioned completion/snooze path as conversation tools.
+
+Morning preparation fetches public NYT RSS headlines alongside calendar/mail.
+Headlines carry dates and links, with a five-minute cache; no NYT account or article
+scraping is involved. Morning preferences use the existing standing-rule store.

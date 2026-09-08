@@ -27,7 +27,7 @@ class ToolSpec:
     fn: object  # async (args: dict) -> object
 
 
-READ_TOOLS = frozenset({"map_search", "entity_view", "fact_history", "plans_list", "conversation_history", "context_import_search"})
+READ_TOOLS = frozenset({"map_search", "entity_view", "fact_history", "plans_list", "conversation_history", "context_import_search", "reminders_list"})
 
 
 class ToolError(Exception):
@@ -360,8 +360,9 @@ class Tools:
                              " order by i.created_at desc,p.part limit 5", (args['query'],))
 
     def read_specs(self):
+        from engine.reminders import Reminders
         from engine.integrations import read_specs
-        return [spec for spec in self.specs() if spec.name in READ_TOOLS] + read_specs()
+        return [spec for spec in self.specs() if spec.name in READ_TOOLS] + read_specs() + Reminders(self).specs()
 
     def specs(self):
         entity_id = _s("entity id (uuid)")

@@ -39,6 +39,10 @@ targets:
           - CFBundleURLName: com.carterwatts.assistant.auth
             CFBundleURLSchemes:
               - personal-assistant
+    entitlements:
+      path: Assistant/Assistant.entitlements
+      properties:
+        aps-environment: development
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.carterwatts.assistant

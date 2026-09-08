@@ -11,6 +11,7 @@ import AVFoundation
     func foreground(_ active: Bool)
     func close()
     /// Connection setup for the host. Credentials go only through these, never through send.
+    func reminderRequest(_ action: String, _ args: [String: Any]) async throws -> [String: Any]
     func importPart(_ args: [String: Any]) async throws
     func imports() async throws -> [[String: Any]]
     func connections() async throws -> [[String: Any]]
@@ -182,6 +183,7 @@ struct MockError: LocalizedError {
 }
 
 @MainActor extension Transport {
+    func reminderRequest(_ action: String, _ args: [String: Any]) async throws -> [String: Any] { throw ConnectionFailure("Reminders are unavailable in preview.") }
     func importPart(_ args: [String: Any]) async throws { throw ConnectionFailure("Imports are unavailable in preview.") }
     func imports() async throws -> [[String: Any]] { [] }
 }

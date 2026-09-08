@@ -307,6 +307,8 @@ async def main():
     for sig in (signal.SIGTERM, signal.SIGINT):
         loop.add_signal_handler(sig, host.stopping.set)
     listener = asyncio.create_task(commands(relay_map.url, host))
+    from engine.notifications import run as notify
+    notifications = asyncio.create_task(notify(relay_map.url, host))
     memory = asyncio.create_task(memory_loop(relay_map.url, host))
     running = asyncio.create_task(host.run())
     try:
@@ -316,10 +318,11 @@ async def main():
     finally:
         host.stopping.set()
         memory.cancel()
+        notifications.cancel()
         listener.cancel()
         with contextlib.suppress(Exception, asyncio.CancelledError):
             await asyncio.wait_for(running, 10)
-        await asyncio.gather(memory, listener, return_exceptions=True)
+        await asyncio.gather(memory, listener, notifications, return_exceptions=True)
         relay_map.close()
         session_map.close()
 

@@ -43,6 +43,8 @@ func plain(_ value: Any?) -> String {
     }
     @Published var status = "Starting…"
     @Published var memoryStatus = ""
+    @Published var reminders: [ReminderItem] = []
+    @Published var reminderStatus = ""
     @Published var plans: [PlanItem] = []
     @Published var openQuestions = 0
     @Published var memoryPending = 0
@@ -65,6 +67,47 @@ func plain(_ value: Any?) -> String {
     /// Words captured while a reply was still being interrupted; the voice bar joins them with the live transcript.
     var pendingSpeech: String? { voiceTurn.pending }
     private var voiceTurn = VoiceTurn()
+    private var registeredPush: String?
+    private var flushingReminders = false
+    func registerPush(_ token: String) {
+        guard connected, registeredPush != token else { return }
+        Task {
+            do {
+                #if DEBUG
+                let environment = "sandbox"
+                #else
+                let environment = "production"
+                #endif
+                _ = try await transport.reminderRequest("push_register", ["token":token,"environment":environment])
+                registeredPush = token
+            } catch { reminderStatus = "Notification connection needs a retry." }
+        }
+    }
+    func reminderAction(_ item: ReminderItem, action: String) {
+        var pending = UserDefaults.standard.array(forKey: "reminderActions") as? [[String: Any]] ?? []
+        var args: [String: Any] = ["id":item.id,"version":item.version,"action":action]
+        if action == "snooze" { args["until"] = isoDate(Date().addingTimeInterval(3600)) }
+        pending.append(args); UserDefaults.standard.set(pending, forKey: "reminderActions")
+        flushReminderActions()
+    }
+    func flushReminderActions() {
+        guard connected, !flushingReminders else { return }
+        flushingReminders = true
+        Task {
+            defer { flushingReminders = false }
+            while var pending = UserDefaults.standard.array(forKey: "reminderActions") as? [[String: Any]], let args = pending.first {
+                do {
+                    let result = try await transport.reminderRequest("reminder_action", args)
+                    reminders = (result["reminders"] as? [[String: Any]] ?? []).map(ReminderItem.init)
+                    pending.removeFirst(); UserDefaults.standard.set(pending, forKey: "reminderActions")
+                    reminderStatus = ""
+                } catch let error as RelayError where error.code == "idempotency_conflict" {
+                    pending.removeFirst(); UserDefaults.standard.set(pending, forKey: "reminderActions")
+                    reminderStatus = "That reminder changed. Check it before updating it."
+                } catch { reminderStatus = "Update saved on this phone; waiting to sync."; return }
+            }
+        }
+    }
     func importPart(_ args: [String: Any]) async throws { try await transport.importPart(args) }
     func imports() async throws -> [[String: Any]] { try await transport.imports() }
     private let transport: Transport
@@ -75,6 +118,8 @@ func plain(_ value: Any?) -> String {
     init(transport: Transport? = nil) {
         let transport = transport ?? (ProcessInfo.processInfo.arguments.contains("--sample") ? MockTransport() : RelayTransport())
         self.transport = transport
+        Notifications.shared?.onToken = { [weak self] token in self?.registerPush(token) }
+        Notifications.shared?.onAction = { [weak self] in self?.flushReminderActions() }
         liveVoice.onSpeech = { [weak self] in self?.interruptForSpeech() }
         liveVoice.onUtterance = { [weak self] text in self?.sendVoice(text) }
         liveVoice.onError = { [weak self] text in self?.voice = false; self?.status = text }
@@ -106,6 +151,11 @@ func plain(_ value: Any?) -> String {
                 return ChatMessage(role: role, text: content, at: parseDate(row["created_at"]) ?? Date())
             }
         case "ready":
+            Task { @MainActor in
+                await Task.yield()
+                if let token = UserDefaults.standard.string(forKey: "pushToken") { registerPush(token) }
+                flushReminderActions()
+            }
             connected = true; busy = false; status = "Connected"
             if let pending = voiceTurn.ready(), voice { submit(pending) }
         case "start":
@@ -141,6 +191,7 @@ func plain(_ value: Any?) -> String {
             connections = (event["providers"] as? [[String: Any]] ?? []).map(Connection.init)
         case "memory": memoryStatus = text
         case "map":
+            reminders = (event["reminders"] as? [[String: Any]] ?? []).map(ReminderItem.init)
             plans = (event["plans"] as? [[String: Any]] ?? []).map { PlanItem(item: plain($0["item"]), status: plain($0["status"])) }
             openQuestions = (event["questions"] as? NSNumber)?.intValue ?? 0
             memoryPending = (event["pending"] as? NSNumber)?.intValue ?? 0

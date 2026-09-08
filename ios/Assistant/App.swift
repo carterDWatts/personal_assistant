@@ -2,6 +2,7 @@ import SwiftUI
 import Speech
 
 @main struct AssistantApp: App {
+    @UIApplicationDelegateAdaptor(Notifications.self) var notifications
     var body: some Scene {
         WindowGroup {
             #if DEBUG

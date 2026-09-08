@@ -7,6 +7,7 @@ on every device. The richer preload and the per-turn delta belong to the hooks.
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 from engine import config
+from engine.db import dumps
 
 
 def snapshot(map_, today=None, now=None, include_pending=True):
@@ -24,9 +25,10 @@ def snapshot_sections(map_, today=None, now=None, include_pending=True):
     parts.append(f"Today's plan\n" + plans_block(map_, today))
     parts.append("Open questions, best first\n" + questions_block(map_, today))
     parts.append("Recent changes (last 7 days)\n" + transitions_block(map_, today))
+    parts.append("Open reminders (first 30 by attention time; use reminders_list for more)\n" + dumps(map_.rows("select id,title,context,timing,window_start,window_end,next_notify_at,version from memory.reminders where status='open' order by next_notify_at limit 30")))
     if include_pending:
         parts.append(pending_block(map_))
-    return dict(zip(("clock", "facts", "relationships", "rules", "yesterday", "today", "questions", "changes", "pending"), parts))
+    return dict(zip(("clock", "facts", "relationships", "rules", "yesterday", "today", "questions", "changes", "reminders", "pending"), parts))
 
 
 def pending_block(map_):

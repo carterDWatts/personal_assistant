@@ -140,8 +140,9 @@ struct DayPanel: View {
             }
             .buttonStyle(.borderedProminent).tint(palette.accent)
             .disabled(!chat.connected || chat.busy).padding(.bottom, 16)
+            ReminderPanel(chat: chat).padding(.bottom, 12)
             if chat.plans.isEmpty {
-                Text("Nothing planned. Say what you're doing and it will keep track.")
+                Text("Nothing planned. Tell me what you’re doing and I’ll keep track.")
                     .font(.callout).foregroundStyle(palette.muted).fixedSize(horizontal: false, vertical: true)
             }
             VStack(alignment: .leading, spacing: 10) {
@@ -634,6 +635,42 @@ struct ConnectionsView: View {
         Task {
             do { try await chat.authorize(provider: provider, grant: grant) } catch { problem = error.localizedDescription }
             working = nil
+        }
+    }
+}
+
+struct ReminderPanel: View {
+    @ObservedObject var chat: Chat
+    @State private var notificationStatus = "Enable reminder notifications"
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Reminders").font(.headline)
+            Button(notificationStatus) {
+                if notificationStatus.contains("Settings"), let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) }
+                else { Notifications.shared?.enable() }
+            }.font(.caption)
+            if !chat.reminderStatus.isEmpty { Text(chat.reminderStatus).font(.caption).foregroundStyle(.secondary) }
+            ScrollView {
+                VStack(alignment: .leading, spacing: 12) {
+                    ForEach(chat.reminders) { item in
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(item.title).font(.callout)
+                            if !item.context.isEmpty { Text(item.context).font(.caption).foregroundStyle(.secondary) }
+                            if let next = item.next { Text("Next check: " + next.formatted(date: .abbreviated, time: .shortened)).font(.caption2) }
+                            HStack {
+                                Button("Done") { chat.reminderAction(item, action: "done") }
+                                Button("In an hour") { chat.reminderAction(item, action: "snooze") }
+                            }.font(.caption).buttonStyle(.bordered)
+                        }
+                    }
+                }.frame(maxWidth: .infinity, alignment: .leading)
+            }.frame(maxHeight: 200)
+        }.task {
+            await Notifications.shared?.refresh()
+            while !Task.isCancelled {
+                notificationStatus = Notifications.shared?.status ?? "Enable reminder notifications"
+                do { try await Task.sleep(for: .seconds(1)) } catch { return }
+            }
         }
     }
 }

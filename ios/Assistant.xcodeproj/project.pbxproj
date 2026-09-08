@@ -10,6 +10,7 @@
 		0046B9359FD9A79E7BF42619 /* VoiceTurn.swift in Sources */ = {isa = PBXBuildFile; fileRef = C85DAEEEE55F2BFC90BE3CC9 /* VoiceTurn.swift */; };
 		0C3FD95CC5D35890D472ECD1 /* Connections.swift in Sources */ = {isa = PBXBuildFile; fileRef = 943C7F4182F35505F7A0B412 /* Connections.swift */; };
 		20CB022D16C16345828B8930 /* Transport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 19166F88EC58DDC6BF56BDD6 /* Transport.swift */; };
+		27AE07C0E505531260112DCF /* Notifications.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9DB1C69949F8867309EA4FA5 /* Notifications.swift */; };
 		2939F427E2186B2A19F3CF25 /* interrupt.wav in Resources */ = {isa = PBXBuildFile; fileRef = DCE622D07F21DB8741ABAEB6 /* interrupt.wav */; };
 		63B70AB8344C1CEB6A0FEBD4 /* Views.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2CF368B5C1B83543A7E505E0 /* Views.swift */; };
 		70AA426D91D2A45B5E3CD318 /* pause.wav in Resources */ = {isa = PBXBuildFile; fileRef = 0C519B140121EAE3E4FAA063 /* pause.wav */; };
@@ -54,6 +55,7 @@
 		0C519B140121EAE3E4FAA063 /* pause.wav */ = {isa = PBXFileReference; lastKnownFileType = audio.wav; path = pause.wav; sourceTree = "<group>"; };
 		13FBAF14C1B1F7867606D118 /* VoiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceTests.swift; sourceTree = "<group>"; };
 		19166F88EC58DDC6BF56BDD6 /* Transport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Transport.swift; sourceTree = "<group>"; };
+		1F1E5B86C6AB6771AE700088 /* Assistant.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Assistant.entitlements; sourceTree = "<group>"; };
 		261CD53008F6E08EC77ABB32 /* RelaySocket.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RelaySocket.swift; sourceTree = "<group>"; };
 		2CF368B5C1B83543A7E505E0 /* Views.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views.swift; sourceTree = "<group>"; };
 		580BE68E2EA7EFBE168FF444 /* identity.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = identity.json; sourceTree = "<group>"; };
@@ -61,6 +63,7 @@
 		724ACE294C39595C12007206 /* AssistantUITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = AssistantUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		943C7F4182F35505F7A0B412 /* Connections.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Connections.swift; sourceTree = "<group>"; };
 		986D1C1B277AB5299783326C /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		9DB1C69949F8867309EA4FA5 /* Notifications.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Notifications.swift; sourceTree = "<group>"; };
 		B41DB425B0C177CC55CDA9A0 /* VoiceReplay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceReplay.swift; sourceTree = "<group>"; };
 		B74AEEBF9820A26218CCD184 /* ContextImport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContextImport.swift; sourceTree = "<group>"; };
 		C10CBC59C32F901023B4AB71 /* Assistant.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = Assistant.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -128,10 +131,12 @@
 				ED986764FEC8C073175A88FF /* Account.swift */,
 				DAD2018EE3CC52D3D8588EDC /* App.swift */,
 				986D1C1B277AB5299783326C /* Assets.xcassets */,
+				1F1E5B86C6AB6771AE700088 /* Assistant.entitlements */,
 				09916F194DDAA79391C8ABED /* Chat.swift */,
 				943C7F4182F35505F7A0B412 /* Connections.swift */,
 				0A20A9483B2B64425BF1A36D /* Info.plist */,
 				FE1E7DC00C8E768658B15BA8 /* Look.swift */,
+				9DB1C69949F8867309EA4FA5 /* Notifications.swift */,
 				261CD53008F6E08EC77ABB32 /* RelaySocket.swift */,
 				C713842B995B63BEBCE8932C /* RelayTransport.swift */,
 				EAE1E5802A970225EF869C0B /* ReplyState.swift */,
@@ -333,6 +338,7 @@
 				0C3FD95CC5D35890D472ECD1 /* Connections.swift in Sources */,
 				8C0AE429407B4881090F61C2 /* ContextImport.swift in Sources */,
 				BC84ECD4FDE1408C3E8735EA /* Look.swift in Sources */,
+				27AE07C0E505531260112DCF /* Notifications.swift in Sources */,
 				CF3A4B4A55726D7311E86C5D /* RelaySocket.swift in Sources */,
 				7E7862DFBFD553244702D495 /* RelayTransport.swift in Sources */,
 				FC1F09360584ADE341D2BD49 /* ReplyState.swift in Sources */,
@@ -577,6 +583,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = Assistant/Assistant.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				INFOPLIST_FILE = Assistant/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -593,6 +600,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = Assistant/Assistant.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				INFOPLIST_FILE = Assistant/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
