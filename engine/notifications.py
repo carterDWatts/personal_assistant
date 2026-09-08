@@ -106,11 +106,11 @@ class Dispatcher:
                     from engine.integrations.google import _get, GoogleRequestError
                     try:
                         fresh=await asyncio.to_thread(_get,'gmail/v1/users/me/messages/'+row['source_id'],{'format':'minimal'})
-                        unread='UNREAD' in fresh.get('labelIds',[])
+                        eligible=not any(label in fresh.get('labelIds',[]) for label in ('SENT','TRASH','SPAM'))
                     except GoogleRequestError as error:
                         if error.status != 404: raise
-                        unread=False
-                    if not unread:
+                        eligible=False
+                    if not eligible:
                         self.map.execute('update assistant.attention_deliveries set cancelled_at=now() where id=%s',(row['id'],)); return True
                 if row['source']=='context':
                     from engine.attention import evidence

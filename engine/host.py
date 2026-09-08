@@ -291,9 +291,6 @@ async def memory_loop(url, host):
                 async def maintain():
                     await worker.drain(on_processed=host.refresh_day, can_process=idle)
                     if not idle(): return
-                    if idle():
-                        from engine.attention import review
-                        await review(map_, background.factory)
                     if idle(): await background.nightly()
                     if idle(): await worker.drain(on_processed=host.refresh_day, can_process=idle)
                 host.memory_work = asyncio.create_task(maintain())
@@ -328,14 +325,17 @@ async def main():
     notifications = asyncio.create_task(notify(relay_map.url, host))
     from engine.jobs import run as run_jobs
     jobs = asyncio.create_task(run_jobs(relay_map.url, host))
+    from engine.attention import run as run_attention
+    attention = asyncio.create_task(run_attention(relay_map.url,host))
     memory = asyncio.create_task(memory_loop(relay_map.url, host))
     running = asyncio.create_task(host.run())
     try:
-        done, _ = await asyncio.wait((running, memory, jobs, mail), return_when=asyncio.FIRST_COMPLETED)
+        done, _ = await asyncio.wait((running, memory, jobs, mail, attention), return_when=asyncio.FIRST_COMPLETED)
         for task in done:
             task.result()
     finally:
         host.stopping.set()
+        attention.cancel()
         jobs.cancel()
         memory.cancel()
         notifications.cancel()
@@ -344,7 +344,7 @@ async def main():
         listener.cancel()
         with contextlib.suppress(Exception, asyncio.CancelledError):
             await asyncio.wait_for(running, 10)
-        await asyncio.gather(memory, jobs, listener, notifications, sources, mail, return_exceptions=True)
+        await asyncio.gather(memory, jobs, listener, notifications, sources, mail, attention, return_exceptions=True)
         relay_map.close()
         session_map.close()
 

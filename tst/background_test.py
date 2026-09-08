@@ -133,3 +133,26 @@ class background_test(MapTest):
             self.run_async(Background(self.map,lambda _:FakeRuntime([[call('classify',items=[classified])]])).triage())
         self.assertIsNone(self.map.value("select processed_at from assistant.source_items where id='bad'"))
         self.assertIsNotNone(self.map.value("select processed_at from assistant.source_items where id='good'"))
+
+    def test_proactive_research_queues_once_without_a_user_turn(self):
+        from engine.attention import review
+        from engine.tools import Tools
+        tools=Tools(self.map,'test')
+        entity=self.run_async(tools.entity_upsert({'type':'project','name':'Research project'}))['id']
+        self.run_async(tools.attribute_register({'name':'deadline','value_type':'text','cardinality':'single'}))
+        fact=self.run_async(tools.fact_assert({'entity_id':str(entity),'attribute':'deadline','value':'Tomorrow'}))
+        alert={'category':'opportunity','title':'I’m checking the available options.','reason':'Your deadline is tomorrow.',
+               'evidence':[{'kind':'assertions','id':str(fact['id'])}], 'research':'Compare current options for this project and report the evidence.'}
+        self.run_async(review(self.map,lambda _:FakeRuntime([[call('review_attention',alerts=[alert])]])))
+        self.assertEqual(self.map.value("select count(*) from assistant.jobs where task_key like 'proactive:%'"),1)
+        self.assertEqual(self.map.value("select role from memory.messages where id=(select message_id from assistant.jobs where task_key like 'proactive:%' limit 1)"),'assistant')
+        self.map.execute("update assistant.source_items set available_at='2020-01-01',payload=null where source='context-review'")
+        self.run_async(review(self.map,lambda _:FakeRuntime([[call('review_attention',alerts=[alert])]])))
+        self.assertEqual(self.map.value("select count(*) from assistant.jobs where task_key like 'proactive:%'"),1)
+
+    def test_read_status_does_not_override_notification_decision(self):
+        self.map.execute("insert into assistant.source_items(source,id) values('gmail','read-important')")
+        runtime=FakeRuntime([[call('classify',items=[{'id':'read-important','relevant':True,'notify':True,'remember':False,'title':'An important change','reason':'A commitment changed.'}])]])
+        raw={'id':'read-important','internalDate':'1788840000000','labelIds':['INBOX'],'payload':{}}
+        with patch('engine.integrations.google._get',return_value=raw):self.run_async(Background(self.map,lambda _:runtime).triage())
+        self.assertTrue(self.map.value('select notify from assistant.attention'))

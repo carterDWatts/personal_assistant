@@ -7,7 +7,7 @@ from engine.db import Map, jsonb, dumps
 from engine.tools import ToolSpec, ToolError, READ_TOOLS, _obj, _s, _i
 from engine.outbound import post
 
-SAFE_READS = READ_TOOLS | {'web_read','weather_forecast','google_calendar_events','google_mail_search','google_mail_read'}
+SAFE_READS = READ_TOOLS | {'web_read','weather_forecast','google_calendar_events','google_mail_search','google_mail_read','github_repositories','github_file_read','github_details','github_issues','github_issue_read','supabase_projects','supabase_project_read','notion_search','notion_read','todoist_tasks'}
 
 class Jobs:
     def __init__(self, tools): self.tools=tools; self.map=tools.map
@@ -29,9 +29,19 @@ class Jobs:
             if not row:raise ToolError('Job not found.')
             artifacts=row.pop('artifacts') or {}
             patch=artifacts.get('patch','');offset=args.get('offset',0)
-            row.update(patch=patch[offset:offset+16000],patch_length=len(patch),validation=artifacts.get('validation'))
+            row.update(patch=patch[offset:offset+16000],patch_length=len(patch),validation=artifacts.get('validation'),
+                       checkpoint=artifacts.get('checkpoint'),failure=artifacts.get('failure'),partial_result=artifacts.get('partial_result'))
             return row
         return self.map.rows('select id,task,kind,status,result,created_at from assistant.jobs order by created_at desc limit 10')
+
+    async def retry(self,args):
+        with self.map.conn.transaction():
+            self.map.execute('select user_id from assistant.owner for update')
+            if self.map.value("select count(*) from assistant.jobs where status in ('queued','running')")>=4:
+                raise ToolError('Four jobs are already pending.')
+            row=self.map.row("update assistant.jobs set status='queued',finished_at=null,started_at=null where id=%s and status='failed' returning id,status",(args['id'],))
+            if not row:raise ToolError('Only failed jobs can be resumed. Cancelled work stays cancelled.')
+            return row
 
     async def cancel(self,args):
         return self.map.row("update assistant.jobs set status='cancelled',finished_at=now() where id=%s and status in ('queued','running') returning id,status",(args['id'],)) or {'status':'already_finished'}
@@ -40,6 +50,7 @@ class Jobs:
         return [ToolSpec('job_start','Start background research or prepare a code change when work is useful or requested. Returns immediately; I will message the result. Code jobs draft changes to this assistant only; no shell, deployment, sending or live database writes. Do not turn doable work into a reminder.',
             _obj({'key':_s('short stable task key',minLength=1,maxLength=100),'task':_s('self-contained task, relevant context and success criteria',minLength=1,maxLength=12000),'kind':_s('job kind',enum=['research','code'])},['key','task','kind']),self.start),
             ToolSpec('jobs_list','Check background work and retrieve its result or code patch. Page long patches using offset.',_obj({'id':_s('job UUID'),'offset':_i('patch character offset',minimum=0)},[]),self.status),
+            ToolSpec('job_retry','Resume a failed job from its saved checkpoint. Does not repeat a completed or cancelled job.',_obj({'id':_s('job UUID')},['id']),self.retry),
             ToolSpec('job_cancel','Stop queued or running background work.',_obj({'id':_s('job UUID')},['id']),self.cancel)]
 
 class Worker:
@@ -52,20 +63,20 @@ class Worker:
         with self.map.conn.transaction():
             self.map.execute('select user_id from assistant.owner for update')
             changed=self.map.row("update assistant.jobs set status=%s,result=%s,artifacts=%s,finished_at=now() where id=%s and status='running' returning id",
-                                 (status,result,jsonb(artifacts or {}),job['id']))
+                                 (status,result,jsonb({**(self.map.value('select artifacts from assistant.jobs where id=%s',(job['id'],)) or {}),**(artifacts or {})}),job['id']))
             if not changed:return
             notice=self.map.value("insert into assistant.attention(source,source_id,title,detail,notify) values('job',%s,%s,%s,true) on conflict(source,source_id) do update set detail=excluded.detail,notify=true returning id",
-                                  (str(job['id']),'I have an update on your task.',result))
+                                  (str(job['id'])+':'+str((job.get('artifacts') or {}).get('attempt',0)),'I have an update on your task.',result))
             post(self.map,'notice:'+str(notice),result,{'kind':'notice','id':str(notice)})
 
     async def once(self):
         if not self.map.value("select pg_try_advisory_lock(hashtextextended('assistant-jobs',0))"):return False
-        runtime=None;job=None
+        runtime=None;job=None;workspace=None;completed=[];pending=''
         try:
             # A previous worker died. Never claim its task succeeded or silently repeat it.
             for old in self.map.rows("select * from assistant.jobs where status='running'"):
                 self.finish(old,'failed',"I was interrupted while working on this: "+old['task'][:160]+". I haven’t marked it done. Ask me to try again.")
-            job=self.map.row("update assistant.jobs set status='running',started_at=now() where id=(select id from assistant.jobs where status='queued' order by created_at limit 1) returning *")
+            job=self.map.row("update assistant.jobs set status='running',started_at=now(),artifacts=coalesce(artifacts,'{}'::jsonb) || jsonb_build_object('attempt',coalesce((artifacts->>'attempt')::int,0)+1) where id=(select id from assistant.jobs where status='queued' order by created_at limit 1) returning *")
             if not job:return False
             from engine.tools import Tools
             from engine.workspace import Workspace
@@ -87,6 +98,12 @@ class Worker:
                 post(self.map,'job-progress:'+str(job['id'])+':'+str(progress_count),args['message'],{'kind':'notice','id':str(notice)})
                 return {'sent':True}
             specs.append(ToolSpec('job_progress','Send the user a brief first-person chat message about meaningful progress. At most two updates, one minute apart. Do not claim completion here.',_obj({'message':_s('brief update',minLength=1,maxLength=600)},['message']),progress))
+            async def checkpoint(args):
+                self.map.execute("update assistant.jobs set artifacts=coalesce(artifacts,'{}'::jsonb) || %s where id=%s and status='running'",
+                                 (jsonb({'checkpoint':args}),job['id']))
+                return {'saved':True}
+            specs.append(ToolSpec('job_checkpoint','Save verified findings, source references and remaining steps without notifying the user. Save after each useful stage so interrupted work can resume.',
+                _obj({'findings':_s('verified findings with source references',maxLength=10000),'remaining':_s('remaining steps',maxLength=4000)},['findings','remaining']),checkpoint))
             calls=0
             def guarded(fn):
                 async def call(args):
@@ -95,7 +112,10 @@ class Worker:
                     if calls>60:raise ToolError('Job tool budget reached. Finish with what you verified.')
                     if self.map.value('select status from assistant.jobs where id=%s',(job['id'],))!='running':
                         raise ToolError('Job was cancelled. Stop now.')
-                    return await fn(args)
+                    result=await fn(args)
+                    self.map.execute("update assistant.jobs set artifacts=coalesce(artifacts,'{}'::jsonb) || %s where id=%s and status='running'",
+                                     (jsonb({'last_completed_tool':fn.__name__,'tool_calls':calls}),job['id']))
+                    return result
                 return call
             specs=[replace(s,fn=guarded(s.fn)) for s in specs]
             runtime=self.factory(job['runtime'])(effort='low',model=job.get('model'))
@@ -106,10 +126,10 @@ Return a concise first-person message to the user explaining what you actually f
 For code: prepare a focused patch and tests in the draft workspace. You CANNOT execute tests here. Say clearly that
 it is a draft, not deployed, and tests have not run. Never claim that a live issue is fixed. Don't copy secrets into drafts.
 Do not ask the user to do research you can finish with the supplied tools. Do not turn the task into a reminder.''',specs)
-            text='';completed=[];pending=''
+            text=''
             async def consume():
                 nonlocal pending
-                async for event in runtime.send(job['task']+'\n\nCurrent standing rules:\n'+dumps(self.map.rows("select text from memory.rules where status='active' limit 30"))):
+                async for event in runtime.send(job['task']+'\n\nPrevious checkpoint (verify before relying on it):\n'+dumps((job.get('artifacts') or {}).get('checkpoint'))+'\n\nCurrent standing rules:\n'+dumps(self.map.rows("select text from memory.rules where status='active' limit 30"))):
                     if event.kind=='text':pending+=event.text
                     elif event.kind=='assistant_text':completed.append(event.text);pending=''
             task=asyncio.create_task(consume())
@@ -125,13 +145,29 @@ Do not ask the user to do research you can finish with the supplied tools. Do no
             text='\n\n'.join(completed+[pending] if pending else completed).strip()
             if not text:raise RuntimeError('No result')
             artifacts={'patch':workspace.patch(),'validation':'not_run','deployed':False} if workspace else {}
+            artifacts.update(failure=None,partial_result=None)
             self.finish(job,'completed',text[:12000],artifacts)
             return True
         except asyncio.CancelledError:
             if job:self.finish(job,'failed','I was interrupted while working on '+job['task'][:160]+'. I haven’t marked it done.')
             raise
-        except Exception:
-            if job:self.finish(job,'failed','I couldn’t finish '+job['task'][:160]+'. The task is saved, but I haven’t marked it done. You can ask me to try again.')
+        except Exception as error:
+            if job:
+                # Classify without persisting raw provider errors, which can contain credentials or source text.
+                message=str(error).lower()
+                reason=('timeout' if isinstance(error,TimeoutError) or 'timed out' in message else
+                        'subscription_limit' if any(x in message for x in ('usage limit','session limit','rate limit')) else
+                        'authentication' if any(x in message for x in ('not signed in','authentication','unauthorized')) else
+                        'empty_result' if message=='no result' else 'runtime_failure')
+                artifacts=self.map.value('select artifacts from assistant.jobs where id=%s',(job['id'],)) or {}
+                artifacts.update(failure={'category':reason,'exception':type(error).__name__},partial_result='\n\n'.join(completed+[pending])[-12000:])
+                if workspace:artifacts.update(patch=workspace.patch(),validation='not_run',deployed=False)
+                if reason=='timeout' and job['kind']=='research' and not artifacts.get('automatic_retry'):
+                    artifacts['automatic_retry']=True
+                    self.map.execute("update assistant.jobs set status='queued',artifacts=%s where id=%s and status='running'",(jsonb(artifacts),job['id']))
+                    return True
+                self.finish(job,'failed','I couldn’t finish '+job['task'][:160]+'. Reason: '+reason.replace('_',' ')+'. I saved the available progress; this is not completed.',artifacts)
+
             return True
         finally:
             if runtime:

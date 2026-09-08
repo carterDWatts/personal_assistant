@@ -4,8 +4,8 @@ from pathlib import Path
 from engine.tools import ToolSpec, ToolError, _obj, _s
 
 ROOT = Path(__file__).resolve().parents[1]
-ALLOWED = ('engine','prompts','supabase','tst','docs')
-EXTENSIONS = {'.py','.sql','.md','.txt','.json','.toml','.yaml','.yml'}
+ALLOWED = ('engine','prompts','supabase','tst','docs','ios','desktop','scripts')
+EXTENSIONS = {'.py','.sql','.md','.txt','.json','.toml','.yaml','.yml','.swift','.ts','.sh'}
 
 class Workspace:
     def __init__(self, root=ROOT):
@@ -22,7 +22,7 @@ class Workspace:
     def path(self, value):
         p = Path(value)
         if p.is_absolute() or '..' in p.parts or not p.parts or p.parts[0] not in ALLOWED or p.suffix not in EXTENSIONS or any(v.startswith('.') for v in p.parts):
-            raise ToolError('Use a source file inside engine, prompts, supabase, tst or docs.')
+            raise ToolError('Use a supported source file inside the assistant repository.')
         return p.as_posix()
 
     async def read(self, args):

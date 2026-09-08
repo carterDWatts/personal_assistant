@@ -60,11 +60,20 @@ class reminders_test(MapTest):
         self.assertIsNone(item['window_end'])
         self.assertGreater(item['next_notify_at'],now+timedelta(days=6))
 
-    def test_read_email_cancels_notice_before_delivery(self):
+    def test_trashed_email_cancels_notice_before_delivery(self):
         from unittest.mock import patch
         self.map.execute("insert into assistant.attention(source,source_id,title,detail,notify) values('gmail','read-email','A change','You already read it',true)")
         class Push:
-            async def send(self,row): raise AssertionError('Must not notify for read mail')
-        with patch('engine.integrations.google._get',return_value={'labelIds':[]}):
+            async def send(self,row): raise AssertionError('Must not notify for trashed mail')
+        with patch('engine.integrations.google._get',return_value={'labelIds':['TRASH']}):
             self.assertTrue(self.run_async(Dispatcher(self.map,Push()).attention()))
         self.assertEqual(self.map.value('select count(*) from assistant.attention_deliveries where cancelled_at is not null'),1)
+
+    def test_read_email_keeps_important_notice_eligible(self):
+        from unittest.mock import patch
+        self.map.execute("insert into assistant.attention(source,source_id,title,detail,notify) values('gmail','read-important','A change','Still important',true)")
+        class Push:
+            async def send(self,row):return 200,None
+        with patch('engine.integrations.google._get',return_value={'labelIds':['INBOX']}):
+            self.assertTrue(self.run_async(Dispatcher(self.map,Push()).attention()))
+        self.assertEqual(self.map.value('select count(*) from assistant.attention_deliveries where sent_at is not null'),1)

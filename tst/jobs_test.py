@@ -58,5 +58,34 @@ class jobs_test(MapTest):
             self.run_async(w.write({'path':'engine/test.py','content':'new\n'}))
             self.assertEqual(f.read_text(),'old\n')
             self.assertIn('+new',w.patch())
+            self.run_async(w.write({'path':'ios/Assistant/Test.swift','content':'import Foundation\n'}))
+            self.assertIn('ios/Assistant/Test.swift',w.patch())
+            self.assertFalse((root/'ios/Assistant/Test.swift').exists())
             for bad in ['/data/secret','engine/../../secret.py','engine/.env.py']:
                 with self.assertRaises(ToolError):self.run_async(w.read({'path':bad}))
+
+    def test_failure_preserves_checkpoint_and_can_resume(self):
+        first=self.start(kind='code')
+        async def fail(runtime):
+            await runtime.tools['job_checkpoint'].fn({'findings':'Verified source A','remaining':'Read source B'})
+            raise TimeoutError('private provider detail')
+        runtime=FakeRuntime([[say('Partial finding'),fail]])
+        self.run_async(Worker(self.map,lambda _:lambda **kw:runtime).once())
+        result=self.run_async(self.jobs.status({'id':str(first['id'])}))
+        self.assertEqual(result['failure']['category'],'timeout')
+        self.assertEqual(result['checkpoint']['findings'],'Verified source A')
+        self.assertIn('Partial finding',result['partial_result'])
+        self.assertNotIn('private provider detail',str(result))
+        self.run_async(self.jobs.retry({'id':str(first['id'])}))
+        resumed=FakeRuntime([[say('Finished.')]])
+        self.run_async(Worker(self.map,lambda _:lambda **kw:resumed).once())
+        self.assertIn('Verified source A',resumed.sent[0])
+        with self.assertRaises(ToolError):self.run_async(self.jobs.retry({'id':str(first['id'])}))
+
+    def test_research_timeout_retries_only_once(self):
+        self.start()
+        async def fail(runtime):raise TimeoutError()
+        for _ in range(2):
+            self.run_async(Worker(self.map,lambda _:lambda **kw:FakeRuntime([[fail]])).once())
+        self.assertEqual(self.map.value('select status from assistant.jobs'),'failed')
+        self.assertTrue(self.map.value("select (artifacts->>'automatic_retry')::boolean from assistant.jobs"))
