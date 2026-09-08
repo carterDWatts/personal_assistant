@@ -216,6 +216,7 @@ private final class Capture: @unchecked Sendable {
     }
 
     func feedReplay(_ buffer: AVAudioPCMBuffer) { capture.consume(buffer) }
+    func endReplaySegment() { request?.endAudio() }
     #endif
 
     private func watchCapture() {

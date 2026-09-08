@@ -9,7 +9,7 @@ extension LiveVoice {
         try await feedRecording(url)
     }
 
-    func feedRecording(_ url: URL, pauseExtension: Double = 0) async throws {
+    func feedRecording(_ url: URL, pauseExtension: Double = 0, endSegmentAtPause: Bool = false) async throws {
         let file = try AVAudioFile(forReading: url)
         let frames = AVAudioFrameCount(file.processingFormat.sampleRate * 0.02)
         let clock = ContinuousClock()
@@ -23,8 +23,9 @@ extension LiveVoice {
             feedReplay(buffer)
             let peak = (0..<Int(buffer.frameLength)).map { abs(buffer.floatChannelData![0][$0]) }.max() ?? 0
             if peak > 0.01 { heardSound = true; quietFrames = 0 } else { quietFrames += 1 }
-            if heardSound && quietFrames == 10 && !extended && pauseExtension > 0 {
+            if heardSound && quietFrames == 10 && !extended && (pauseExtension > 0 || endSegmentAtPause) {
                 extended = true
+                if endSegmentAtPause { endReplaySegment() }
                 for _ in 0..<Int(pauseExtension / 0.02) {
                     feedReplay(buffer)
                     deadline += .milliseconds(20)

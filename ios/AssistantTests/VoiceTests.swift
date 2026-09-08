@@ -85,7 +85,7 @@ import AVFoundation
         voice.onError = { XCTFail($0) }
         try await voice.beginReplay()
         let file = try XCTUnwrap(Bundle(for: Self.self).url(forResource: "pause", withExtension: "wav"))
-        try await voice.feedRecording(file, pauseExtension: 0.45)
+        try await voice.feedRecording(file, pauseExtension: 0.45, endSegmentAtPause: true)
         XCTAssertEqual(utterances.count, 1, utterances.description)
         XCTAssertTrue(utterances.first?.lowercased().contains("how quickly") == true)
         XCTAssertTrue(utterances.first?.lowercased().contains("does this take input") == true)
