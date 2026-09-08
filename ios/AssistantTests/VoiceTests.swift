@@ -23,6 +23,34 @@ import AVFoundation
         }
     }
 
+    func testModeCuesDoNotBecomeSpeech() async throws {
+        let voice = LiveVoice()
+        defer { voice.stop() }
+        voice.onUtterance = { XCTFail("A mode cue was transcribed: \($0)") }
+        voice.onPlaybackStarted = { XCTFail("A mode cue was counted as a spoken reply") }
+        try await voice.beginReplay()
+        for cue in VoiceCue.allCases {
+            let buffer = try XCTUnwrap(cue.buffer())
+            let samples = try XCTUnwrap(buffer.floatChannelData?[0])
+            XCTAssertLessThan(Double(buffer.frameLength) / buffer.format.sampleRate, 0.1)
+            XCTAssertEqual(samples[0], 0, accuracy: 0.00001)
+            XCTAssertEqual(samples[Int(buffer.frameLength) - 1], 0, accuracy: 0.00001)
+            XCTAssertLessThan((0..<Int(buffer.frameLength)).map { abs(samples[$0]) }.max() ?? 1, 0.06)
+            voice.feedReplay(buffer)
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        voice.prepareReply()
+        let quiet = try XCTUnwrap(AVAudioPCMBuffer(pcmFormat: AVAudioFormat(standardFormatWithSampleRate: 24000, channels: 1)!, frameCapacity: 2400))
+        quiet.frameLength = 2400
+        quiet.floatChannelData?[0].initialize(repeating: 0, count: 2400)
+        for _ in 0..<15 {
+            voice.feedReplay(quiet)
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        XCTAssertTrue(voice.transcript.isEmpty)
+        XCTAssertFalse(voice.speaking)
+    }
+
     func testRecordedSpeechIsRecognizedAsOneUtterance() async throws {
         let voice = LiveVoice()
         defer { voice.stop() }

@@ -125,13 +125,13 @@ func plain(_ value: Any?) -> String {
             let key = turn + "/" + plain(event["seq"])
             if playedChunks.insert(key).inserted { liveVoice.play(url, text: text) }
         case "speech_end":
-            if let turn = event["turn_id"] as? String { spokenTurns.remove(turn) }
+            if let turn = event["turn_id"] as? String, spokenTurns.remove(turn) != nil { liveVoice.finishReplyAudio() }
             if event["status"] as? String == "error" { status = "Speech didn’t come through; the text is here." }
         case "replace":
             _ = replyState.update(text, turn: turn, replace: true, messages: &messages)
         case "end":
             guard replyState.end(turn, messages: &messages) else { return }
-            if !hostSpeaks && !voiceTurn.interrupted { speakSentences(flush: true) }
+            if !hostSpeaks && !voiceTurn.interrupted { speakSentences(flush: true); liveVoice.finishReplyAudio() }
         case "connection_required":
             connectionPrompt = ConnectionPrompt(event: event, request: messages.last(where: { $0.role == "user" })?.text)
         case "connections":
@@ -167,12 +167,13 @@ func plain(_ value: Any?) -> String {
         liveVoice.silencePlayback()
         spokenTurns.removeAll(); playedChunks.removeAll()
         speechBuffer = ""
+        if speak && voice { liveVoice.prepareReply() }
         messages.append(ChatMessage(role: "user", text: text)); busy = true
         transport.send(text, id: UUID(), speech: speak && voice && hostSpeaks, model: selectedModel.isEmpty ? nil : selectedModel)
     }
 
     private func interruptForSpeech() {
-        liveVoice.silencePlayback(); speechBuffer = ""
+        liveVoice.silencePlayback(); liveVoice.userBeganSpeaking(); speechBuffer = ""
         spokenTurns.removeAll(); playedChunks.removeAll()
         voiceTurn.pausePlayback(busy: busy)
         status = "Listening…"

@@ -45,6 +45,9 @@ private final class Capture: @unchecked Sendable {
 
     private let engine = AVAudioEngine()
     private let player = AVAudioPlayerNode()
+    private let cuePlayer = AVAudioPlayerNode()
+    private var mode: VoiceCue?
+    private var replyAudioComplete = true
     private let synthesizer = AVSpeechSynthesizer()
     private let recognizer = SFSpeechRecognizer(locale: Locale(identifier: "en-US"))
     private let capture = Capture()
@@ -87,6 +90,7 @@ private final class Capture: @unchecked Sendable {
                 if !self.ready {
                     self.ready = true
                     VoiceDiagnostics.record("capture_ready")
+                    self.setMode(.listening)
                 }
                 guard !self.muted else { return }
                 self.inputLevel = level
@@ -157,6 +161,8 @@ private final class Capture: @unchecked Sendable {
         let format = playbackFormat ?? AVAudioFormat(standardFormatWithSampleRate: 24000, channels: 1)!
         playbackFormat = format
         engine.connect(player, to: engine.mainMixerNode, format: format)
+        if cuePlayer.engine == nil { engine.attach(cuePlayer) }
+        engine.connect(cuePlayer, to: engine.mainMixerNode, format: format)
         let capture = capture
         input.removeTap(onBus: 0)
         input.installTap(onBus: 0, bufferSize: 2048, format: input.outputFormat(forBus: 0)) { buffer, _ in
@@ -200,6 +206,8 @@ private final class Capture: @unchecked Sendable {
         let format = AVAudioFormat(standardFormatWithSampleRate: 24000, channels: 1)!
         playbackFormat = format
         engine.connect(player, to: engine.mainMixerNode, format: format)
+        if cuePlayer.engine == nil { engine.attach(cuePlayer) }
+        engine.connect(cuePlayer, to: engine.mainMixerNode, format: format)
         engine.prepare()
         try engine.start()
         active = true
@@ -463,6 +471,7 @@ private final class Capture: @unchecked Sendable {
             return
         }
         guard let format = playbackFormat, let converted = convert(pcm, to: format) else { return }
+        setMode(.speaking)
         echo.record(playbackText); speaking = true
         playing += 1
         player.scheduleBuffer(converted, completionCallbackType: .dataPlayedBack) { [weak self] _ in
@@ -489,8 +498,37 @@ private final class Capture: @unchecked Sendable {
         playing -= 1
         if playing == 0 && !rendering && queue.isEmpty && !fetching && hosted.isEmpty {
             speaking = false; echo.finished()
+            if replyAudioComplete { setMode(.listening) }
             if heardEcho && transcript.isEmpty { listen() }
         }
+    }
+
+    func prepareReply() {
+        guard active else { return }
+        replyAudioComplete = false
+        setMode(.thinking)
+    }
+
+    func finishReplyAudio() {
+        replyAudioComplete = true
+        if !speaking && !fetching && !rendering && hosted.isEmpty && queue.isEmpty { setMode(.listening) }
+    }
+
+    func userBeganSpeaking() {
+        // Acknowledge an interruption visually; never chime over the user's words.
+        mode = .listening
+    }
+
+    private func setMode(_ next: VoiceCue) {
+        guard active, !muted, mode != next else { return }
+        mode = next
+        guard engine.isRunning, let format = playbackFormat,
+              let buffer = next.buffer(sampleRate: format.sampleRate) else { return }
+        cuePlayer.stop()
+        cuePlayer.scheduleBuffer(buffer)
+        cuePlayer.play()
+        // This node shares the voice-processing engine's echo reference. It never
+        // pauses recognition, queues behind speech, or fires speech-start callbacks.
     }
 
     func silencePlayback() {
@@ -500,6 +538,7 @@ private final class Capture: @unchecked Sendable {
         queue.removeAll(); rendering = false; playing = 0
         hosted.removeAll(); fetching = false
         if player.engine != nil { player.stop() }
+        if cuePlayer.engine != nil { cuePlayer.stop() }
         if speaking { speaking = false; echo.finished();  }
     }
 
@@ -508,6 +547,8 @@ private final class Capture: @unchecked Sendable {
         let wasActive = active
         active = false
         ready = false
+        mode = nil
+        replyAudioComplete = true
         silencePlayback()
         endpoint?.cancel(); finalResult?.cancel(); finalizing = false; refresh?.cancel(); watchdog?.cancel()
         listening = UUID()
@@ -560,5 +601,34 @@ private final class Capture: @unchecked Sendable {
               let directory = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first else { return }
         try? data.write(to: directory.appendingPathComponent("voice-diagnostics.json"), options: .atomic)
         #endif
+    }
+}
+
+
+/// Quiet, rounded tones: an upward listening cue, a downward handoff, and a soft reply cue.
+enum VoiceCue: CaseIterable {
+    case listening, thinking, speaking
+
+    func buffer(sampleRate: Double = 24000) -> AVAudioPCMBuffer? {
+        let duration = self == .speaking ? 0.045 : 0.09
+        let count = Int(sampleRate * duration)
+        guard let format = AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: 1),
+              let pcm = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(count)),
+              let samples = pcm.floatChannelData?[0] else { return nil }
+        pcm.frameLength = AVAudioFrameCount(count)
+        let pitches: (Double, Double) = switch self {
+        case .listening: (554, 740)
+        case .thinking: (440, 330)
+        case .speaking: (466, 466)
+        }
+        let volume = self == .speaking ? 0.025 : 0.045
+        for i in 0..<count {
+            let t = Double(i) / sampleRate
+            let progress = Double(i) / Double(count - 1)
+            let envelope = pow(sin(.pi * progress), 2)
+            let phase = 2 * Double.pi * (pitches.0 * t + (pitches.1 - pitches.0) * t * t / (2 * duration))
+            samples[i] = Float(volume * envelope * (sin(phase) + 0.15 * sin(2 * phase)))
+        }
+        return pcm
     }
 }
