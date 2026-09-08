@@ -26,7 +26,8 @@ targets:
     info:
       path: Assistant/Info.plist
       properties:
-        CFBundleDisplayName: Assistant
+        CFBundleDisplayName: Bunny Man
+        CFBundleName: Bunny Man
         NSMicrophoneUsageDescription: The microphone is on while a voice conversation is on.
         NSSpeechRecognitionUsageDescription: What you say is turned into text so the assistant can answer.
         UILaunchScreen: {}
@@ -54,6 +55,7 @@ targets:
         script: |
           name=$(/usr/bin/plutil -extract name raw -o - "$SRCROOT/../identity.json")
           /usr/bin/plutil -replace CFBundleDisplayName -string "$name" "$TARGET_BUILD_DIR/$INFOPLIST_PATH"
+          /usr/bin/plutil -replace CFBundleName -string "$name" "$TARGET_BUILD_DIR/$INFOPLIST_PATH"
 
   AssistantTests:
     type: bundle.unit-test

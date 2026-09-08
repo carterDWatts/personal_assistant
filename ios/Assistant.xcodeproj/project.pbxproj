@@ -346,7 +346,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "name=$(/usr/bin/plutil -extract name raw -o - \"$SRCROOT/../identity.json\")\n/usr/bin/plutil -replace CFBundleDisplayName -string \"$name\" \"$TARGET_BUILD_DIR/$INFOPLIST_PATH\"\n";
+			shellScript = "name=$(/usr/bin/plutil -extract name raw -o - \"$SRCROOT/../identity.json\")\n/usr/bin/plutil -replace CFBundleDisplayName -string \"$name\" \"$TARGET_BUILD_DIR/$INFOPLIST_PATH\"\n/usr/bin/plutil -replace CFBundleName -string \"$name\" \"$TARGET_BUILD_DIR/$INFOPLIST_PATH\"\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 

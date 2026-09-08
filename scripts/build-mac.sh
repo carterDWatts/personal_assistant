@@ -15,7 +15,8 @@ PYTHON="$($PYTHON -c 'import sys; print(sys.executable)')"
 (cd "$ROOT" && "$PYTHON" -m engine.voice.models && "$PYTHON" -m engine.voice.final_models)
 VOICE_PYTHON="$PYTHON"
 (cd "$ROOT" && "$VOICE_PYTHON" -m engine.voice.tts_models)
-APP="$ROOT/build/Personal Assistant.app"
+NAME=$(/usr/bin/plutil -extract name raw -o - "$ROOT/identity.json")
+APP="$ROOT/build/$NAME.app"
 mkdir -p "$APP/Contents/MacOS"
 mkdir -p "$APP/Contents/Resources" "$ROOT/build/icon.iconset"
 swiftc -parse-as-library "$ROOT/scripts/make_icon.swift" "$ROOT/shared/BunnyGlyph.swift" -o "$ROOT/build/make-icon" -framework SwiftUI
