@@ -134,7 +134,7 @@ func plain(_ value: Any?) -> String {
             guard replyState.end(turn, messages: &messages) else { return }
             if !hostSpeaks && !voiceTurn.interrupted { speakSentences(flush: true); liveVoice.finishReplyAudio() }
         case "connection_required":
-            connectionPrompt = ConnectionPrompt(event: event, request: messages.last(where: { $0.role == "user" })?.text)
+            connectionPrompt = ConnectionPrompt(event: event)
         case "connections":
             connections = (event["providers"] as? [[String: Any]] ?? []).map(Connection.init)
         case "memory": memoryStatus = text
@@ -224,7 +224,6 @@ func plain(_ value: Any?) -> String {
         Task {
             do {
                 try await authorize(provider: prompt.provider, grant: prompt.grant)
-                finish(.connected)
             } catch let error as ASWebAuthenticationSessionError where error.code == .canceledLogin {
                 finish(.needed)
             } catch {
@@ -244,6 +243,10 @@ func plain(_ value: Any?) -> String {
             state = try await transport.connectionState(intent: started.intent)
         }
         guard state.state == "connected" else { throw ConnectionFailure(state.error ?? "The connection wasn’t completed.") }
+        if let prompt = connectionPrompt, prompt.provider == provider,
+           prompt.grant == grant || (grant == "calendar_write" && prompt.grant == "calendar") {
+            connectionPrompt = nil
+        }
         refreshConnections()
     }
 
@@ -251,7 +254,7 @@ func plain(_ value: Any?) -> String {
         do {
             _ = try await transport.connectToken(provider: provider, token: token)
             tokenForm = nil
-            if connectionPrompt?.provider == provider { finish(.connected) }
+            if connectionPrompt?.provider == provider { connectionPrompt = nil }
             refreshConnections()
             return nil
         } catch {
@@ -261,13 +264,6 @@ func plain(_ value: Any?) -> String {
 
     func disconnect(_ provider: String, grant: String? = nil) {
         Task { try? await transport.removeConnection(provider: provider, grant: grant); refreshConnections() }
-    }
-
-    /// Ask again what could not be answered before the connection existed.
-    func continueRequest() {
-        guard let request = connectionPrompt?.request, connected, !busy else { return }
-        connectionPrompt = nil
-        submit(request)
     }
 
     private func finish(_ phase: ConnectionPrompt.Phase) {

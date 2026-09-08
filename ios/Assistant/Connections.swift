@@ -19,21 +19,19 @@ struct Connection: Identifiable {
     }
 }
 
-/// What a reply needed and did not have, with the request that hit the wall.
+/// A missing connection offered directly in the conversation.
 struct ConnectionPrompt {
     let action: String
     let provider: String
     let grant: String?
-    let request: String?
     var phase = Phase.needed
-    enum Phase: Equatable { case needed, connecting, connected, failed(String) }
+    enum Phase: Equatable { case needed, connecting, failed(String) }
 
-    init(event: [String: Any], request: String?) {
+    init(event: [String: Any]) {
         let action = event["action"] as? String ?? ""
         self.action = action
         provider = event["provider"] as? String ?? Service.provider(for: action)
         grant = event["grant"] as? String ?? Service.grant(for: action)
-        self.request = request
     }
 }
 

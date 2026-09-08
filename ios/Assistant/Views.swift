@@ -491,7 +491,7 @@ struct ConversationView: View {
     }
 }
 
-/// A reply that needed a service the host cannot reach yet. Connect here and pick the request back up.
+/// A connection prompt that disappears once access is granted.
 struct ConnectionCard: View {
     @ObservedObject var chat: Chat
     let prompt: ConnectionPrompt
@@ -500,7 +500,6 @@ struct ConnectionCard: View {
     private var detail: String {
         switch prompt.phase {
         case .failed(let text): return text
-        case .connected: return "Ask again and it can use it now."
         case .connecting: return Service.usesToken(prompt.provider) ? "Checking the token." : "Finish in the sheet; the host keeps the permission and this phone never sees the token."
         case .needed: return Service.usesToken(prompt.provider)
             ? "Guided setup with a token you paste. The assistant only reads."
@@ -510,8 +509,8 @@ struct ConnectionCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
-                Image(systemName: prompt.phase == .connected ? "checkmark.square.fill" : "link").foregroundStyle(palette.accent)
-                Text(prompt.phase == .connected ? "\(service) is connected" : "\(service) isn’t connected for the host")
+                Image(systemName: "link").foregroundStyle(palette.accent)
+                Text("\(service) isn’t connected for the host")
                     .font(.subheadline.weight(.semibold)).foregroundStyle(palette.ink)
             }
             Text(detail).font(.callout).foregroundStyle({ if case .failed = prompt.phase { return Color.orange } else { return palette.muted } }())
@@ -524,11 +523,7 @@ struct ConnectionCard: View {
                 case .connecting:
                     ProgressView().tint(palette.accent)
                     Text("Waiting for \(Service.name(prompt.provider))…").font(.callout).foregroundStyle(palette.muted)
-                case .connected:
-                    if prompt.request != nil {
-                        Button { chat.continueRequest() } label: { Text("Continue").padding(.horizontal, 10) }
-                            .buttonStyle(SquareButton(palette: palette, prominent: true)).disabled(chat.busy || !chat.connected)
-                    }
+
                 }
             }
         }
