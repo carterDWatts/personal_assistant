@@ -108,7 +108,7 @@ Remember only durable personal context worth extracting, never marketing claims 
 Sent mail can update context but must not notify the user about their own message. Call classify once.'''
         runtime=self.factory(config.RUNTIME)
         try:
-            await runtime.open(prompt,[ToolSpec('classify','Save the classification of these emails.',schema,commit)])
+            await runtime.open(config.prompt('persona')+'\n'+prompt,[ToolSpec('classify','Save the classification of these emails.',schema,commit)])
             async def consume():
                 async for _ in runtime.send(context.snapshot(self.map,include_pending=False)+'\nNew email data:\n'+dumps(batch)): pass
             await asyncio.wait_for(consume(),120)

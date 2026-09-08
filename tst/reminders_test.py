@@ -77,3 +77,27 @@ class reminders_test(MapTest):
         with patch('engine.integrations.google._get',return_value={'labelIds':['INBOX']}):
             self.assertTrue(self.run_async(Dispatcher(self.map,Push()).attention()))
         self.assertEqual(self.map.value('select count(*) from assistant.attention_deliveries where sent_at is not null'),1)
+
+    def test_internal_context_is_composed_before_delivery(self):
+        item=self.make()
+        self.map.execute("update memory.reminders set context='Carter wants me to prepare his brief' where id=%s",(item['id'],))
+        async def compose(map_,record):return 'Here is the update you asked for.'
+        class Push:
+            async def send(self,row):
+                assert row['title']=='Here is the update you asked for.'
+                return 200,''
+        dispatcher=Dispatcher(self.map,Push(),compose=compose);dispatcher.queue()
+        self.assertEqual(self.map.value('select count(*) from assistant.outbound'),0)
+        self.run_async(dispatcher.deliver())
+        self.assertEqual(self.map.value('select content from memory.messages order by id desc limit 1'),'Here is the update you asked for.')
+
+    def test_completion_during_composition_prevents_stale_message(self):
+        item=self.make()
+        async def compose(map_,record):
+            await self.api.act({'id':str(item['id']),'version':item['version'],'action':'done'})
+            return 'This is no longer needed.'
+        class Push:
+            async def send(self,row):raise AssertionError('Completed reminder must not be sent')
+        dispatcher=Dispatcher(self.map,Push(),compose=compose);dispatcher.queue()
+        self.run_async(dispatcher.deliver())
+        self.assertEqual(self.map.value('select count(*) from assistant.outbound'),0)

@@ -50,7 +50,7 @@ class Push:
 
 
 class Dispatcher:
-    def __init__(self, map_, push=None): self.map=map_; self.push=push or Push()
+    def __init__(self, map_, push=None, compose=None): self.map=map_; self.push=push or Push(); self.compose=compose
 
     def queue(self):
         with self.map.conn.transaction():
@@ -58,9 +58,6 @@ class Dispatcher:
             devices = self.map.rows("select p.device_id from assistant.push_devices p join assistant.devices d on d.id=p.device_id where p.enabled and d.revoked_at is null")
             due = self.map.rows("select * from memory.reminders where status='open' and next_notify_at<=now() order by next_notify_at for update skip locked limit 20")
             for reminder in due:
-                text='A quick nudge: '+reminder['title']
-                if reminder.get('context'): text+='\n\n'+reminder['context']
-                post(self.map,'reminder:'+str(reminder['id'])+':'+str(reminder['version'])+':'+reminder['next_notify_at'].isoformat(),text,{'kind':'reminder','id':str(reminder['id'])})
                 self.map.execute('update assistant.reminder_deliveries set cancelled_at=now() where reminder_id=%s and sent_at is null and cancelled_at is null', (reminder['id'],))
                 for device in devices:
                     self.map.execute("insert into assistant.reminder_deliveries(reminder_id,device_id,scheduled_at,version) values(%s,%s,%s,%s) on conflict do nothing",
@@ -72,9 +69,20 @@ class Dispatcher:
                 self.map.execute('update memory.reminders set next_notify_at=%s where id=%s',(following,reminder['id']))
 
     async def deliver(self):
+        candidate=self.map.row("select n.id as delivery_id,n.scheduled_at,n.version as delivery_version,r.* from assistant.reminder_deliveries n join memory.reminders r on r.id=n.reminder_id where n.sent_at is null and n.cancelled_at is null and n.retry_at<=now() order by n.retry_at limit 1")
+        message=None;key=None
+        if candidate and candidate['status']=='open' and candidate['version']==candidate['delivery_version']:
+            key='reminder:'+str(candidate['id'])+':'+str(candidate['version'])+':'+candidate['scheduled_at'].isoformat()
+            message=self.map.value('select m.content from assistant.outbound o join memory.messages m on m.id=o.message_id where o.key=%s',(key,))
+            if not message:
+                try:message=await self.compose(self.map,candidate) if self.compose else 'I have a reminder ready for you.'
+                except Exception:
+                    self.map.execute("update assistant.reminder_deliveries set last_error='Message preparation will retry',retry_at=now()+interval '1 minute' where id=%s and sent_at is null",(candidate['delivery_id'],))
+                    return True
         # Keep each reminder locked through dispatch, so a committed cancellation cannot
         # race ahead of an unsent notification. Network timeout bounds the lock duration.
         with self.map.conn.transaction():
+            self.map.execute('select user_id from assistant.owner for update')
             row=self.map.row("select n.*,p.token,p.environment,p.enabled,d.revoked_at,r.title,r.status,r.version as current_version from assistant.reminder_deliveries n join assistant.push_devices p on p.device_id=n.device_id join assistant.devices d on d.id=n.device_id join memory.reminders r on r.id=n.reminder_id where n.sent_at is null and n.cancelled_at is null and n.retry_at<=now() order by n.retry_at for update of n,r skip locked limit 1")
             if not row: return False
             if row['status']!='open' or row['current_version']!=row['version'] or not row['enabled'] or row['revoked_at']:
@@ -82,6 +90,9 @@ class Dispatcher:
             row['message_id']=self.map.value('select message_id from assistant.outbound where key=%s',('reminder:'+str(row['reminder_id'])+':'+str(row['version'])+':'+row['scheduled_at'].isoformat(),))
             if row['message_id']:
                 row['title']=self.map.value('select content from memory.messages where id=%s',(row['message_id'],))[:500]
+            if not candidate or row['id']!=candidate['delivery_id'] or not message:return True
+            row['message_id']=post(self.map,key,message,{'kind':'reminder','id':str(row['reminder_id'])})
+            row['title']=message[:500]
             try: status, reason=await self.push.send(row)
             except Exception: status,reason=503,'transport_unavailable'
             self.map.execute('update assistant.reminder_deliveries set attempts=attempts+1 where id=%s',(row['id'],))
@@ -140,7 +151,8 @@ class Dispatcher:
 async def run(url, host):
     await host.ready.wait()
     map_=Map(url)
-    dispatcher=Dispatcher(map_)
+    from engine.reminder_message import compose
+    dispatcher=Dispatcher(map_,compose=compose)
     try:
         while not host.stopping.is_set():
             try:

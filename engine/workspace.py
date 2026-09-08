@@ -4,7 +4,8 @@ from pathlib import Path
 from engine.tools import ToolSpec, ToolError, _obj, _s
 
 ROOT = Path(__file__).resolve().parents[1]
-ALLOWED = ('engine','prompts','supabase','tst','docs','ios','desktop','scripts')
+ALLOWED = ('engine','prompts','supabase','tst','docs','ios','desktop','scripts','shared')
+ROOT_FILES={'Dockerfile','requirements-host.txt','requirements.txt','identity.json'}
 EXTENSIONS = {'.py','.sql','.md','.txt','.json','.toml','.yaml','.yml','.swift','.ts','.sh'}
 
 class Workspace:
@@ -17,9 +18,13 @@ class Workspace:
                 if path.stat().st_size > 200000: continue
                 if not path.resolve().is_relative_to(root.resolve()): continue
                 self.original[path.relative_to(root).as_posix()] = path.read_text()
+        for name in ROOT_FILES:
+            path=root/name
+            if path.is_file() and not path.is_symlink():self.original[name]=path.read_text()
         self.files = dict(self.original)
 
     def path(self, value):
+        if value in ROOT_FILES:return value
         p = Path(value)
         if p.is_absolute() or '..' in p.parts or not p.parts or p.parts[0] not in ALLOWED or p.suffix not in EXTENSIONS or any(v.startswith('.') for v in p.parts):
             raise ToolError('Use a supported source file inside the assistant repository.')

@@ -8,7 +8,7 @@ struct ContextImportView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var title = ""
     @State private var text = ""
-    @State private var kind = "history"
+    @State private var kind = "current"
     @State private var importID = UUID()
     @State private var working = false
     @State private var started = false
@@ -27,9 +27,9 @@ struct ContextImportView: View {
             TextField("A name for this context", text: $title).disabled(started)
             Picker("Source", selection: $kind) {
                 Text("Past conversations").tag("history")
-                Text("Current notes").tag("current")
+                Text("Update my knowledge").tag("current")
             }.disabled(started)
-            Text(kind == "history" ? "Old statements won’t replace current facts. I’ll keep uncertain details to check with you." : "These notes describe your situation now. I’ll use them to update memory.").font(.caption).foregroundStyle(.secondary)
+            Text(kind == "history" ? "Old statements won’t replace current facts. I’ll keep uncertain details to check with you." : "I’ll extract facts and relationships, preserve stated dates, and ask about anything uncertain. Choose Past conversations for an archive that should not update current knowledge.").font(.caption).foregroundStyle(.secondary)
             TextEditor(text: $text).frame(minHeight: 160, maxHeight: 300).disabled(started)
                 .overlay(RoundedRectangle(cornerRadius: 6).stroke(.secondary.opacity(0.3)))
             HStack {

@@ -169,12 +169,47 @@ def configure_account(provider, client_file):
     client_id,secret=client['client_id'],client['client_secret']
     if not all(isinstance(v,str) and v and not any(c.isspace() for c in v) for v in (client_id,secret)):
         raise RuntimeError('Invalid OAuth client configuration.')
-    prefix={'github':'GITHUB','supabase':'SUPABASE_OAUTH'}[provider]
+    prefix={'github':'GITHUB','supabase':'SUPABASE_OAUTH','todoist':'TODOIST','notion':'NOTION'}[provider]
     with tempfile.NamedTemporaryFile(mode='w',suffix='.env') as env:
         env.write(f'{prefix}_CLIENT_ID={client_id}\n{prefix}_CLIENT_SECRET={secret}\n');env.flush()
         command(['supabase','secrets','set','--project-ref',PROJECT,'--env-file',env.name])
     keyring.set_password('com.carterwatts.personal-assistant.oauth-apps',provider,json.dumps(client))
     print('OAuth registration installed in the gateway and local Keychain.')
+
+
+def configure_development():
+    """Bind this private deployment to the owner's existing developer accounts."""
+    import base64
+    import keyring
+    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+    import requests
+    github=command(['gh','auth','token']).strip()
+    supabase=keyring.get_password('Supabase CLI','supabase') or keyring.get_password('Supabase CLI','access-token')
+    if not supabase:raise RuntimeError('Sign in to the Supabase CLI first.')
+    repo='carterDWatts/personal_assistant'
+    for provider,token,url in [('github',github,'https://api.github.com/repos/'+repo),('supabase',supabase,'https://api.supabase.com/v1/projects/'+PROJECT)]:
+        response=requests.get(url,headers={'Authorization':'Bearer '+token},timeout=20)
+        if response.status_code!=200:raise RuntimeError(provider+' account verification failed.')
+        if provider=='github' and not response.json().get('permissions',{}).get('admin'):
+            raise RuntimeError('The GitHub account must administer the assistant repository.')
+    key=base64.b64decode((Path.home()/'.config/personal-assistant/credential-key').read_text().strip(),validate=True)
+    cipher=AESGCM(key);map_=database()
+    try:
+        owner=map_.value('select user_id from assistant.owner')
+        if not owner:raise RuntimeError('Bind the installation owner first.')
+        # Verify the existing encryption key before installing additional credentials.
+        sample=map_.row('select slot,ciphertext from assistant.credentials where user_id=%s limit 1',(owner,))
+        if sample:
+            raw=base64.b64decode(sample['ciphertext']);cipher.decrypt(raw[:12],raw[12:],f"{owner}:{sample['slot']}".encode())
+        with map_.conn.transaction():
+            for slot,token in [('github',github),('supabase',supabase)]:
+                nonce=os.urandom(12)
+                encrypted=base64.b64encode(nonce+cipher.encrypt(nonce,token.encode(),f'{owner}:{slot}'.encode())).decode()
+                map_.execute('insert into assistant.credentials(user_id,slot,ciphertext) values(%s,%s,%s) on conflict(user_id,slot) do update set ciphertext=excluded.ciphertext,updated_at=now()', (owner,slot,encrypted))
+        for name,value in {'ASSISTANT_DEVELOPER_OWNER':str(owner),'ASSISTANT_DEVELOPER_REPO':repo,'ASSISTANT_DEVELOPER_PROJECT':PROJECT}.items():
+            command([RAILWAY,'variable','set',name,'--stdin','--skip-deploys','--service','worker'],input=value)
+        print('Owner account access verified and encrypted. Development is scoped to this owner, repository and project.')
+    finally:map_.close()
 
 
 if __name__ == '__main__':
@@ -185,14 +220,17 @@ if __name__ == '__main__':
     commands.add_parser('configure')
     commands.add_parser('auth')
     commands.add_parser('speech')
+    commands.add_parser('development')
     connections = commands.add_parser('connections')
     connections.add_argument('client_file')
     account = commands.add_parser('account')
-    account.add_argument('provider',choices=['github','supabase'])
+    account.add_argument('provider',choices=['github','supabase','todoist','notion'])
     account.add_argument('client_file')
     args = parser.parse_args()
     try:
-        if args.action == 'bind-owner':
+        if args.action == 'development':
+            configure_development()
+        elif args.action == 'bind-owner':
             bind_owner(args.email)
         elif args.action == 'account':
             configure_account(args.provider,args.client_file)

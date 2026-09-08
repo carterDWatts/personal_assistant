@@ -381,9 +381,10 @@ class Tools:
     def read_specs(self):
         from engine.reminders import Reminders
         from engine.jobs import Jobs
+        from engine.development import Development
         from engine.reconciliation import Reconciliation
         from engine.integrations import read_specs
-        return [spec for spec in self.specs() if spec.name in READ_TOOLS] + read_specs() + Reminders(self).specs() + Reconciliation(self).conversation_specs() + Jobs(self).specs()
+        return [spec for spec in self.specs() if spec.name in READ_TOOLS] + read_specs() + Reminders(self).specs() + Reconciliation(self).conversation_specs() + Jobs(self).specs() + Development(self).specs()
 
     def specs(self):
         entity_id = _s("entity id (uuid)")
