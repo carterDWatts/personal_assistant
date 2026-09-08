@@ -89,3 +89,17 @@ class jobs_test(MapTest):
             self.run_async(Worker(self.map,lambda _:lambda **kw:FakeRuntime([[fail]])).once())
         self.assertEqual(self.map.value('select status from assistant.jobs'),'failed')
         self.assertTrue(self.map.value("select (artifacts->>'automatic_retry')::boolean from assistant.jobs"))
+
+    def test_proactive_preparation_keeps_progress_and_results_internal(self):
+        first=self.start(key='proactive:prepare-later')
+        async def progress(runtime):
+            result=await runtime.tools['job_progress'].fn({'message':'Preparing tonight’s briefing.'})
+            self.assertFalse(result['notified'])
+            return say('')
+        runtime=FakeRuntime([[progress,say('Verified findings for tonight.')]])
+        self.run_async(Worker(self.map,lambda _:lambda **kw:runtime).once())
+        self.assertEqual(self.map.value('select count(*) from assistant.outbound'),0)
+        self.assertEqual(self.map.value("select count(*) from assistant.attention where source='job'"),0)
+        saved=self.run_async(self.jobs.status({'id':str(first['id'])}))
+        self.assertEqual(saved['status'],'completed')
+        self.assertEqual(saved['result'],'Verified findings for tonight.')

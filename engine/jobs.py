@@ -65,6 +65,7 @@ class Worker:
             changed=self.map.row("update assistant.jobs set status=%s,result=%s,artifacts=%s,finished_at=now() where id=%s and status='running' returning id",
                                  (status,result,jsonb({**(self.map.value('select artifacts from assistant.jobs where id=%s',(job['id'],)) or {}),**(artifacts or {})}),job['id']))
             if not changed:return
+            if job['task_key'].startswith('proactive:'):return
             notice=self.map.value("insert into assistant.attention(source,source_id,title,detail,notify) values('job',%s,%s,%s,true) on conflict(source,source_id) do update set detail=excluded.detail,notify=true returning id",
                                   (str(job['id'])+':'+str((job.get('artifacts') or {}).get('attempt',0)),'I have an update on your task.',result))
             post(self.map,'notice:'+str(notice),result,{'kind':'notice','id':str(notice)})
@@ -95,12 +96,12 @@ class Worker:
             async def progress(args):
                 nonlocal progress_count,last_progress
                 if progress_count>=2 or time.monotonic()-last_progress<60:
-                    raise ToolError('Only send progress when something meaningful changes; the next message can be your result.')
+                    raise ToolError('Save progress only when something meaningful changes; use a checkpoint for detailed findings.')
                 progress_count+=1;last_progress=time.monotonic()
-                notice=self.map.value("insert into assistant.attention(source,source_id,title,detail,notify) values('job',%s,'I’m working on your task.',%s,false) on conflict(source,source_id) do update set detail=excluded.detail returning id",(str(job['id']),args['message']))
-                post(self.map,'job-progress:'+str(job['id'])+':'+str(progress_count),args['message'],{'kind':'notice','id':str(notice)})
-                return {'sent':True}
-            specs.append(ToolSpec('job_progress','Send the user a brief first-person chat message about meaningful progress. At most two updates, one minute apart. Do not claim completion here.',_obj({'message':_s('brief update',minLength=1,maxLength=600)},['message']),progress))
+                self.map.execute("update assistant.jobs set artifacts=coalesce(artifacts,'{}'::jsonb) || %s where id=%s",
+                                 (jsonb({'progress':args['message']}),job['id']))
+                return {'saved':True,'notified':False}
+            specs.append(ToolSpec('job_progress','Save a brief internal progress note. Does not message or notify the user.',_obj({'message':_s('brief update',minLength=1,maxLength=600)},['message']),progress))
             async def checkpoint(args):
                 self.map.execute("update assistant.jobs set artifacts=coalesce(artifacts,'{}'::jsonb) || %s where id=%s and status='running'",
                                  (jsonb({'checkpoint':args}),job['id']))

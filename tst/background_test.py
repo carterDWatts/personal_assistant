@@ -145,7 +145,9 @@ class background_test(MapTest):
                'evidence':[{'kind':'assertions','id':str(fact['id'])}], 'research':'Compare current options for this project and report the evidence.'}
         self.run_async(review(self.map,lambda _:FakeRuntime([[call('review_attention',alerts=[alert])]])))
         self.assertEqual(self.map.value("select count(*) from assistant.jobs where task_key like 'proactive:%'"),1)
-        self.assertEqual(self.map.value("select role from memory.messages where id=(select message_id from assistant.jobs where task_key like 'proactive:%' limit 1)"),'assistant')
+        self.assertEqual(self.map.value("select role from memory.messages where id=(select message_id from assistant.jobs where task_key like 'proactive:%' limit 1)"),'system')
+        self.assertEqual(self.map.value('select count(*) from assistant.outbound'),0)
+        self.assertEqual(self.map.value("select count(*) from assistant.attention where source='context'"),0)
         self.map.execute("update assistant.source_items set available_at='2020-01-01',payload=null where source='context-review'")
         self.run_async(review(self.map,lambda _:FakeRuntime([[call('review_attention',alerts=[alert])]])))
         self.assertEqual(self.map.value("select count(*) from assistant.jobs where task_key like 'proactive:%'"),1)
