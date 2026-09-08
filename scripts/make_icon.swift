@@ -9,7 +9,15 @@ import SwiftUI
             .frame(width: 1024, height: 1024)
             .background(Color(red: 0.80, green: 0.79, blue: 0.76)))
         masterRenderer.scale = 1
-        guard let masterImage = masterRenderer.cgImage,
+        // iOS requires no alpha channel, even when every rendered pixel is opaque.
+        guard let rendered = masterRenderer.cgImage,
+              let context = CGContext(data: nil, width: 1024, height: 1024, bitsPerComponent: 8,
+                                      bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(),
+                                      bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue) else {
+            fatalError("Could not render shared app artwork")
+        }
+        context.draw(rendered, in: CGRect(x: 0, y: 0, width: 1024, height: 1024))
+        guard let masterImage = context.makeImage(),
               let masterPNG = NSBitmapImageRep(cgImage: masterImage).representation(using: .png, properties: [:]) else {
             fatalError("Could not render shared app artwork")
         }
