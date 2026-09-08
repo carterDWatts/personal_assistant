@@ -7,6 +7,35 @@ from unittest.mock import AsyncMock
 from engine.speech import chunk, Speech
 
 class speech_test(unittest.TestCase):
+    def test_opening_plays_before_model_finishes_without_splitting_a_word(self):
+        async def check():
+            events = []
+            class Relay:
+                map = SimpleNamespace(execute=lambda *args: None)
+                def cancelled(self, turn): return False
+                def publish_speech(self, turn, payload): events.append(payload); return True
+            async def call(method, *args): return method(*args)
+            speech = Speech(SimpleNamespace(relay=Relay(), call=call))
+            speech.voice = object()
+            speech.storage = object()
+            speech.last_cleanup = __import__('time').monotonic()
+            speech.render = lambda text, cancel: (b'audio', 500)
+            await speech.begin({'id': 'turn', 'speech': True})
+            try:
+                speech.feed('I can hel')
+                for _ in range(50):
+                    if events: break
+                    await asyncio.sleep(.01)
+                self.assertEqual(events[0]['text'], 'I can')
+                self.assertFalse(speech.task.done())
+                speech.feed('p with that.')
+                speech.finish('completed')
+                await speech.task
+                self.assertEqual([e['text'] for e in events if e['type'] == 'speech'], ['I can', 'help with that.'])
+            finally:
+                await speech.close()
+        asyncio.run(check())
+
     def test_chunks_preserve_words_and_flush_remainder(self):
         source = 'Morning. ' + 'Here is a longer sentence with enough words to split safely before it goes on too long. ' * 4
         rest = source

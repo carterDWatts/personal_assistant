@@ -132,8 +132,8 @@ struct RelayError: LocalizedError {
                 guard let self else { return }
                 let busy = self.activeTurn != nil || self.audioTurn != nil
                 // A submitted turn must wake an idle poll immediately.
-                for _ in 0..<(busy ? 2 : 30) {
-                    try? await Task.sleep(for: .milliseconds(100))
+                for _ in 0..<(busy ? 1 : 60) {
+                    try? await Task.sleep(for: .milliseconds(50))
                     if Task.isCancelled { return }
                     if !busy && (self.activeTurn != nil || self.audioTurn != nil) { break }
                 }

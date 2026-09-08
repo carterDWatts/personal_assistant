@@ -56,6 +56,7 @@ class Speech:
         self.cancel = threading.Event()
         self.buffer = ''
         self.first_chunk = True
+        self.first_flush = None
         self.queue = None
         self.overflow = False
         self.turn = None
@@ -112,6 +113,21 @@ class Speech:
             if part is None: break
             if any(c.isalnum() for c in part): self.first_chunk = False
             self.enqueue(part)
+        if self.first_chunk and (self.first_flush is None or self.first_flush.done()):
+            self.first_flush = asyncio.create_task(self.flush_opening())
+
+    async def flush_opening(self):
+        # Start a short opening while later text is still arriving. A trailing
+        # token can be half a word, so leave it for the next chunk.
+        await asyncio.sleep(.06)
+        if not self.first_chunk or self.cancel.is_set(): return
+        boundary = self.buffer.rfind(' ')
+        if boundary < 0: return
+        opening = self.buffer[:boundary].strip()
+        if len(opening.split()) < 2: return
+        self.buffer = self.buffer[boundary + 1:]
+        self.first_chunk = False
+        self.enqueue(opening)
 
     def enqueue(self, part):
         try: self.queue.put_nowait(part)
@@ -121,6 +137,7 @@ class Speech:
 
     def finish(self, status):
         if not self.task: return
+        if self.first_flush: self.first_flush.cancel()
         if status != 'completed': self.cancel.set()
         part, self.buffer = chunk(self.buffer, True)
         if part: self.enqueue(part)
@@ -187,6 +204,10 @@ class Speech:
 
     async def close(self):
         self.cancel.set()
+        if self.first_flush:
+            self.first_flush.cancel()
+            await asyncio.gather(self.first_flush, return_exceptions=True)
+            self.first_flush = None
         if self.task:
             # Interrupt I/O immediately. The generation callback stops CPU work and the lock
             # keeps a cancelled thread from overlapping the next ONNX call.

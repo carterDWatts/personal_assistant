@@ -22,6 +22,7 @@ class Stream:
         self.pending = []
         self.audio = None
         self.timings = {}
+        self.changed = asyncio.Event()
 
     def timing(self, name, seconds):
         self.timings[name] = round(seconds, 3)
@@ -35,12 +36,15 @@ class Stream:
             self.pending[-1]['text'] += text
         else:
             self.pending.append({'type': 'delta', 'text': text})
+        self.changed.set()
 
     def replace_text(self, text):
         self.pending.append({'type': 'replace', 'text': text})
+        self.changed.set()
 
     def note(self, name):
         self.pending.append({'type': 'status', 'text': name})
+        self.changed.set()
 
     def tool_result(self, payload):
         if not payload.get('is_error'):
@@ -101,6 +105,7 @@ class Host:
             raise RuntimeError('This turn is no longer active. Do not perform another action.')
 
     async def flush(self):
+        self.stream.changed.clear()
         if self.stream.pending:
             batch, self.stream.pending = self.stream.pending, []
             await self.call(self.relay.publish, self.active, batch)
@@ -148,11 +153,13 @@ class Host:
             await self.speech.begin(turn)
             self.stream.audio = self.speech.feed if turn.get('speech') else None
         task = asyncio.create_task(self.answer(turn))
+        task.add_done_callback(lambda _: self.stream.changed.set())
         status = 'completed'
         heartbeat = asyncio.get_running_loop().time()
         try:
             while not task.done():
-                await asyncio.sleep(.15)
+                with contextlib.suppress(asyncio.TimeoutError):
+                    await asyncio.wait_for(self.stream.changed.wait(), .15)
                 await self.flush()
                 if self.stopping.is_set() or await self.call(self.relay.cancelled, self.active):
                     status = 'cancelled'
@@ -170,6 +177,7 @@ class Host:
                         'The subscription runtime could not finish. Check the host login or usage limit before retrying.'})
             if self.speech:
                 self.speech.finish(status)
+            self.stream.pending.append({'type': 'timing', **self.stream.timings})
             await self.flush()
             await self.refresh_day()
             await self.call(self.relay.finish, self.active, status)

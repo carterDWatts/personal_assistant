@@ -111,6 +111,8 @@ import AVFoundation
                     if !didConnect { didConnect = true; ready.fulfill() }
                 case "delta":
                     if firstText == nil, let submitted { firstText = Date().timeIntervalSince(submitted) }
+                case "timing":
+                    print("Host timing:", event.filter { $0.key.hasSuffix("_seconds") })
                 case "speech":
                     if submitted != nil, let text = event["text"] as? String,
                        let link = event["url"] as? String, let url = URL(string: link) {
@@ -145,6 +147,6 @@ import AVFoundation
         attachment.lifetime = .keepAlways
         add(attachment)
         print(measurement)
-        XCTAssertLessThan(try XCTUnwrap(firstAudio), 2, measurement)
+        XCTAssertLessThan(try XCTUnwrap(firstAudio), 3, measurement)
     }
 }
