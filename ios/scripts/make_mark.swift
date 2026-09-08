@@ -1,4 +1,5 @@
-// Renders the mark once, at the sizes the app needs, so every screen shows the same image.
+// Renders the mark once, at the sizes the app needs, so every screen and the app icon show the same image.
+// Usage: make_mark <Mark.imageset directory> <AppIcon.png path>
 import SwiftUI
 
 let ink = Color(red: 0.11, green: 0.11, blue: 0.1)
@@ -18,7 +19,7 @@ func leaf(at point: CGPoint, length: CGFloat, angle: CGFloat) -> Path {
     return path
 }
 
-// A scaffold of four joints, one of them grown over.
+// A scaffold of four joints, one of them grown over. The far ear sits behind the head, the near ear in front.
 struct Mark: View {
     let s: CGFloat
     private let nodes: [CGPoint] = [CGPoint(x: 0.22, y: 0.7), CGPoint(x: 0.5, y: 0.26), CGPoint(x: 0.8, y: 0.58), CGPoint(x: 0.56, y: 0.82)]
@@ -32,10 +33,10 @@ struct Mark: View {
             ForEach([0, 2, 3], id: \.self) { i in
                 Rectangle().fill(ink).frame(width: s * 0.2, height: s * 0.2).position(at(nodes[i]))
             }
-            Rectangle().fill(accent).frame(width: s * 0.3, height: s * 0.3).position(at(nodes[1]))
             let base = at(nodes[1])
-            leaf(at: CGPoint(x: base.x + s * 0.1, y: base.y - s * 0.08), length: s * 0.34, angle: -0.9).fill(sage)
             leaf(at: CGPoint(x: base.x - s * 0.06, y: base.y - s * 0.12), length: s * 0.26, angle: -2.1).fill(moss)
+            Rectangle().fill(accent).frame(width: s * 0.3, height: s * 0.3).position(at(nodes[1]))
+            leaf(at: CGPoint(x: base.x + s * 0.1, y: base.y - s * 0.08), length: s * 0.34, angle: -0.9).fill(sage)
         }.frame(width: s, height: s)
     }
 }
@@ -50,5 +51,14 @@ struct Mark: View {
                   let png = NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]) else { fatalError("Could not render the mark") }
             try png.write(to: out.appendingPathComponent(name + ".png"))
         }
+        // The icon is the mark alone on concrete. iOS rounds the corners itself and wants no alpha channel.
+        let icon = ImageRenderer(content: Mark(s: 740).frame(width: 1024, height: 1024).background(Color(red: 0.8, green: 0.79, blue: 0.76)))
+        icon.scale = 1
+        guard let image = icon.cgImage else { fatalError("Could not render the icon") }
+        guard let context = CGContext(data: nil, width: 1024, height: 1024, bitsPerComponent: 8, bytesPerRow: 0,
+                                      space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue) else { fatalError("No icon context") }
+        context.draw(image, in: CGRect(x: 0, y: 0, width: 1024, height: 1024))
+        guard let opaque = context.makeImage(), let png = NSBitmapImageRep(cgImage: opaque).representation(using: .png, properties: [:]) else { fatalError("Could not encode the icon") }
+        try png.write(to: URL(fileURLWithPath: CommandLine.arguments[2]))
     }
 }
