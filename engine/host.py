@@ -66,6 +66,7 @@ class Host:
         self.stream = Stream()
         self.session = None
         self.active = None
+        self.memory_work = None
         self.stopping = asyncio.Event()
         self.ready = asyncio.Event()
         self.wake = asyncio.Event()
@@ -132,6 +133,8 @@ class Host:
             await session.close()
 
     async def process(self, turn):
+        if self.memory_work and not self.memory_work.done():
+            self.memory_work.cancel()
         self.active = turn['id']
         if self.speech:
             await self.speech.begin(turn)
@@ -230,7 +233,16 @@ async def memory_loop(url, host):
     try:
         worker = MemoryWorker(map_)
         while not host.stopping.is_set():
-            await worker.drain(on_processed=host.refresh_day)
+            def idle():
+                return host.active is None and (not host.speech or not host.speech.task or host.speech.task.done())
+            if idle():
+                host.memory_work = asyncio.create_task(worker.drain(on_processed=host.refresh_day, can_process=idle))
+                try:
+                    await host.memory_work
+                except asyncio.CancelledError:
+                    if host.stopping.is_set(): raise
+                finally:
+                    host.memory_work = None
             try:
                 await asyncio.wait_for(host.stopping.wait(), 10)
             except asyncio.TimeoutError:

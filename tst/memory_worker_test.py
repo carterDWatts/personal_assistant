@@ -12,6 +12,23 @@ class memory_worker_test(MapTest):
         c=Conversation(self.map,'test','fake');s=c.open_segment('talk');c.record(s,'user',text)
         return Worker(self.map).oldest()
 
+    def test_interrupted_extraction_remains_retryable(self):
+        async def check():
+            job = self.job()
+            opened = asyncio.Event()
+            class PausedRuntime(FakeRuntime):
+                async def open(self, *args, **kwargs):
+                    opened.set()
+                    await asyncio.Event().wait()
+            worker = Worker(self.map, lambda name: PausedRuntime([]))
+            task = asyncio.create_task(worker.process(job))
+            await opened.wait()
+            task.cancel()
+            with self.assertRaises(asyncio.CancelledError): await task
+            self.assertEqual(self.map.value('select status from memory.memory_jobs'), 'pending')
+            self.assertEqual(self.map.value('select count(*) from memory.assertions'), 0)
+        self.run_async(check())
+
     def test_batch_commits_with_provenance_and_cannot_duplicate_on_retry(self):
         job=self.job();worker=Worker(self.map)
         tools=Tools(self.map,'test');tools.message_id=job['message_id'];tools.observed_at=job['created_at']

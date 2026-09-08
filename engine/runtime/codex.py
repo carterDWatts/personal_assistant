@@ -125,7 +125,9 @@ class CodexRuntime:
         manifest(self.session_id).write_text(signature)
 
     async def send(self, text):
-        result = await self.request("turn/start", {"threadId": self.session_id, "input": [{"type": "text", "text": text}], "environments": [], "effort": self.effort})
+        params = {"threadId": self.session_id, "input": [{"type": "text", "text": text}], "environments": [], "effort": self.effort}
+        if self.model: params["model"] = self.model
+        result = await self.request("turn/start", params)
         self.turn_id = result["turn"]["id"]
         if self.interrupt_requested:
             await self.interrupt()

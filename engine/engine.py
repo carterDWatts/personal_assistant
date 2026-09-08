@@ -21,6 +21,7 @@ class Session:
         self.locked = False
         self.auto_memory = auto_memory
         self.before_tool = before_tool
+        self.sent_snapshot = None
 
     async def open(self, mode="talk"):
         self.segment_id, resume, self.seed = self.conv.resolve(mode)
@@ -53,7 +54,8 @@ class Session:
 
     async def send(self, text, role="user"):
         # Refresh on every turn, including resumed sessions. Model context is a cache.
-        opening = context.snapshot(self.map)
+        sections = context.snapshot_sections(self.map)
+        opening = context.update(self.sent_snapshot, sections)
         recent = self.map.rows(
             "select id, role, content, created_at from memory.messages where id > %s and conversation_id <> %s"
             " and role in ('user','assistant') and content is not null order by id limit 100",
@@ -68,7 +70,9 @@ class Session:
         try:
             await turn(self.runtime, self.conv, self.tools, self.io, self.segment_id, mid,
                        f"{opening}\n\nThe user says:\n{text}")
+            self.sent_snapshot = sections
         except BaseException:
+            self.sent_snapshot = None
             self.ended_by = "error"
             raise
         finally:

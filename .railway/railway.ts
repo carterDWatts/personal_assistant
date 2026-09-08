@@ -11,7 +11,7 @@ export default defineRailway(() => {
       sleepApplication: false,
       restartPolicyType: "ALWAYS",
       drainingSeconds: 20,
-      limitOverride: { containers: { cpu: 1, memoryBytes: 4 * 1024 ** 3 } },
+      limitOverride: { containers: { cpu: 2, memoryBytes: 4 * 1024 ** 3 } },
     },
     volumeMounts: { "/data": state },
     env: {

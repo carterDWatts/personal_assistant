@@ -6,10 +6,12 @@ from engine.tools import ToolSpec
 
 class codex_test(unittest.IsolatedAsyncioTestCase):
     async def test_streaming_tool_round_trip(self):
-        runtime = CodexRuntime()
+        runtime = CodexRuntime(model="selected-model")
         runtime.session_id = 'thread'
         written = []
-        async def request(method, params): return {'turn': {'id':'turn'}}
+        async def request(method, params):
+            self.assertEqual(params.get('model'), 'selected-model')
+            return {'turn': {'id':'turn'}}
         async def write(message): written.append(message)
         async def tool(args): return {'answer': args['value']}
         runtime.request, runtime._write = request, write

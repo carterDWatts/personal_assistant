@@ -122,6 +122,9 @@ class Worker:
             await asyncio.wait_for(consume(), 180)
             if self.map.value('select status from memory.memory_jobs where message_id=%s', (job['message_id'],)) != 'done':
                 raise RuntimeError('Memory worker did not commit an update')
+        except asyncio.CancelledError:
+            self.map.execute("update memory.memory_jobs set status='pending', last_error=null where message_id=%s and status <> 'done'", (job['message_id'],))
+            raise
         except Exception as error:
             # Keep the oldest failed job in front; newer facts must not be applied before it.
             message = str(error)[:300] if isinstance(error, RuntimeError) else type(error).__name__
@@ -131,13 +134,13 @@ class Worker:
                 metrics = await runtime.close()
                 self.map.execute('update memory.memory_jobs set metrics=%s where message_id=%s', (jsonb(metrics.as_dict()),job['message_id']))
 
-    async def drain(self, on_processed=None):
+    async def drain(self, on_processed=None, can_process=lambda: True):
         while not self.map.value('select pg_try_advisory_lock(hashtextextended(%s,0))', (LOCK,)):
             if not self.oldest():
                 return
             await asyncio.sleep(0.25)
         try:
-            while job := self.oldest():
+            while can_process() and (job := self.oldest()):
                 if not self.map.value('select %s <= now()', (job['available_at'],)):
                     return
                 await self.process(job)

@@ -10,6 +10,10 @@ from engine import config
 
 
 def snapshot(map_, today=None, now=None, include_pending=True):
+    return "\n\n".join(snapshot_sections(map_, today, now, include_pending).values())
+
+
+def snapshot_sections(map_, today=None, now=None, include_pending=True):
     now = now or datetime.now(ZoneInfo(config.TIMEZONE))
     today = today or now.date()
     parts = [f"Map snapshot. Today is {today.strftime('%A')} {today.isoformat()}, {now.strftime('%H:%M')} local."]
@@ -25,7 +29,18 @@ def snapshot(map_, today=None, now=None, include_pending=True):
         if pending:
             parts.append("Recent user statements awaiting structured memory. Use these directly; do not wait for extraction.\n" +
                          "\n".join(f"[{m['created_at'].isoformat()}] {m['content']}" for m in reversed(pending)))
-    return "\n\n".join(parts)
+        else:
+            parts.append("Recent user statements awaiting structured memory.\nNone pending.")
+    return dict(zip(("clock", "facts", "relationships", "rules", "yesterday", "today", "questions", "changes", "pending"), parts))
+
+
+def update(previous, current):
+    if previous is None:
+        return "\n\n".join(current.values())
+    changed = [value for key, value in current.items() if previous.get(key) != value]
+    if not changed:
+        return "Memory checked; no changes."
+    return "Memory update. Replace earlier versions of these sections; other sections are unchanged.\n\n" + "\n\n".join(changed)
 
 
 def facts_block(map_):

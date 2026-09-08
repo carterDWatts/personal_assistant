@@ -39,3 +39,16 @@ class context_test(MapTest):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class delta_test(unittest.TestCase):
+    def test_changed_and_removed_sections_replace_old_state(self):
+        old = {'facts': 'Facts\nBike = red', 'rules': 'Rules\nBe concise', 'pending': 'Pending\nBike is blue'}
+        new = {'facts': 'Facts\nBike = blue', 'rules': old['rules'], 'pending': 'Pending\nNone pending.'}
+        delta = context.update(old, new)
+        self.assertIn('Bike = blue', delta)
+        self.assertIn('None pending.', delta)
+        self.assertNotIn('Bike = red', delta)
+        self.assertNotIn('Be concise', delta)
+        self.assertEqual(context.update(new, new), 'Memory checked; no changes.')
+        self.assertIn('Be concise', context.update(None, new))
