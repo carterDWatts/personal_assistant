@@ -156,9 +156,9 @@ final class Chat: NSObject, ObservableObject {
         process = nil; input = nil; buffer = Data(); connected = false; busy = false; streamingID = nil
     }
 
-    func connectService(_ provider: String, token: String) {
+    func connectService(_ provider: String, token: String = "") {
         connectionError = ""; googleConnecting = true
-        write(["type": "service_connect", "provider": provider, "token": token])
+        write(["type": "service_connect", "provider": provider, "token": token.isEmpty ? NSNull() : token as Any])
     }
     func disconnectService(_ provider: String) {
         connectionError = ""; googleConnecting = true
@@ -207,6 +207,7 @@ final class Chat: NSObject, ObservableObject {
                 if event["completed"] as? Bool == true {
                     let action = event["action"] as? String
                     connectionPromptSatisfied = action == connectionPrompt
+                    if connectionPromptSatisfied { connectionPrompt = nil }
                 }
                 let capabilities = event["capabilities"] as? [String: [String: Any]] ?? [:]
                 let services = event["services"] as? [String: [String: Any]] ?? [:]
@@ -599,7 +600,8 @@ struct ServiceSetup {
     static let entries = [
         "todoist": ServiceSetup(name: "Todoist", url: "https://app.todoist.com/app/settings/integrations/developer", instructions: "Copy your API token from Todoist’s Integrations → Developer settings. This assistant only reads tasks."),
         "notion": ServiceSetup(name: "Notion", url: "https://www.notion.so/profile/integrations", instructions: "Create an internal connection with Read content access, copy its secret, then share the pages you want through their Connections menu."),
-        "github": ServiceSetup(name: "GitHub", url: "https://github.com/settings/personal-access-tokens/new", instructions: "Create a fine-grained token for your chosen repositories with read access to Issues and Pull requests. Copy the token here.")
+        "github": ServiceSetup(name: "GitHub", url: "https://github.com", instructions: "Sign in and approve access in your browser."),
+        "supabase": ServiceSetup(name: "Supabase", url: "https://supabase.com/dashboard", instructions: "Sign in and choose which organizations to connect.")
     ]
 }
 
@@ -608,7 +610,9 @@ struct ServiceConnectionForm: View {
     let provider: String
     @State private var token = ""
     var body: some View {
-        if let setup = ServiceSetup.entries[provider] {
+        if ["github", "supabase"].contains(provider) {
+            Button("Sign in to \(ServiceSetup.entries[provider]?.name ?? provider)") { chat.connectService(provider) }.buttonStyle(.borderedProminent).disabled(chat.googleConnecting)
+        } else if let setup = ServiceSetup.entries[provider] {
             VStack(alignment: .leading, spacing: 8) {
                 Text(setup.instructions).font(.callout).foregroundStyle(.secondary)
                 Link("Open " + setup.name, destination: URL(string: setup.url)!)
@@ -679,7 +683,7 @@ struct ConnectionsView: View {
                 }.disabled(chat.googleConnecting || !chat.googleConfigured)
             }
             Divider()
-            ForEach(["todoist", "notion", "github"], id: \.self) { provider in
+            ForEach(["github", "supabase", "todoist", "notion"], id: \.self) { provider in
                 HStack {
                     Text(ServiceSetup.entries[provider]!.name).font(.headline)
                     Spacer()

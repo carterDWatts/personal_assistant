@@ -162,3 +162,61 @@ test('revoked connections cannot contact providers and rejected tokens are not s
   }),/connection_rejected/);
   assert.equal(calls,2);
 });
+
+import { accountCallback, unseal } from '../supabase/functions/assistant/connections.ts';
+for (const provider of ['github','supabase'] as const) {
+  test(`${provider} account sign-in binds PKCE, provider, owner and device`, async () => {
+    const settings={...connectedConfig,githubClientId:'github-client',githubClientSecret:'github-secret',supabaseClientId:'supabase-client',supabaseClientSecret:'supabase-secret'};
+    let intent:any, saved:any, consumed=false, state='';
+    const fetcher:typeof fetch=async (url,options) => {
+      if (String(url).includes('/rpc/')) {
+        const body=JSON.parse(String(options?.body));
+        if (body.p_action==='list') return Response.json([]);
+        if (body.p_action==='begin') { intent={...body.p_args,id:device,user_id:owner,device_id:device}; return Response.json({intent_id:device}); }
+        if (body.p_action==='claim') {
+          if (consumed) return Response.json({message:'invalid_request'},{status:400});
+          consumed=true; return Response.json(intent);
+        }
+        if (body.p_action==='complete') { saved=body; return Response.json({}); }
+        if (body.p_action==='fail') return Response.json({});
+        throw Error('Unexpected action');
+      }
+      if (String(url).includes('/token') || String(url).endsWith('/access_token')) {
+        const form=new URLSearchParams(String(options?.body));
+        assert.ok(form.get('code_verifier'));
+        assert.equal(form.get('redirect_uri'),`https://example.invalid/functions/v1/assistant/${provider}/callback`);
+        if (provider==='supabase') assert.equal(new Headers(options?.headers).get('authorization'),'Basic '+btoa('supabase-client:supabase-secret'));
+        return Response.json({access_token:'private-access',refresh_token:'private-refresh',expires_in:3600});
+      }
+      return Response.json(provider==='github'?{login:'carter'}:[]);
+    };
+    const start=await connection(settings,owner,{device_id:device,action:'connection_start',args:{provider}},fetcher);
+    const url=new URL(start.url);state=url.searchParams.get('state')!;
+    assert.equal(url.searchParams.get('code_challenge_method'),'S256');
+    assert.ok(!url.toString().includes('secret'));
+    const req=new Request(`https://example.invalid?state=${state}&code=code`);
+    assert.match((await accountCallback(req,settings,provider,fetcher)).headers.get('location')!,/connected/);
+    assert.equal(saved.p_user,owner);assert.equal(saved.p_device,device);
+    assert.ok(!JSON.stringify(saved).includes('private-access'));
+    const credential=JSON.parse(await unseal(settings,saved.p_args.ciphertext,`${owner}:${provider}`));
+    assert.equal(credential.refresh_token,'private-refresh');
+    assert.match((await accountCallback(req,settings,provider,fetcher)).headers.get('location')!,/failed/);
+  });
+}
+
+test('a provider cannot consume another provider’s authorization code',async()=>{
+  let intent:any, providerCalls=0;
+  const settings={...connectedConfig,githubClientId:'id',githubClientSecret:'secret',supabaseClientId:'id',supabaseClientSecret:'secret'};
+  const fetcher:typeof fetch=async(url,options)=>{
+    if(!String(url).includes('/rpc/')) { providerCalls++;throw Error('Must not contact provider'); }
+    const body=JSON.parse(String(options?.body));
+    if(body.p_action==='list')return Response.json([]);
+    if(body.p_action==='begin'){intent={...body.p_args,id:device,user_id:owner,device_id:device};return Response.json({intent_id:device});}
+    if(body.p_action==='claim')return Response.json(intent);
+    return Response.json({});
+  };
+  const start=await connection(settings,owner,{device_id:device,action:'connection_start',args:{provider:'github'}},fetcher);
+  const state=new URL(start.url).searchParams.get('state');
+  const response=await accountCallback(new Request(`https://example.invalid?state=${state}&code=code`),settings,'supabase',fetcher);
+  assert.match(response.headers.get('location')!,/failed/);assert.equal(providerCalls,0);
+});

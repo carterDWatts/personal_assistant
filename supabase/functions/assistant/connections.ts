@@ -11,6 +11,7 @@ const grants: Record<string, {slot: string; scopes: string[]}> = {
 const providers: Record<string, {url: string; headers?: Record<string,string>}> = {
   todoist: {url: 'https://api.todoist.com/api/v1/projects?limit=1'},
   notion: {url: 'https://api.notion.com/v1/users/me', headers: {'Notion-Version': '2026-03-11'}},
+  supabase: {url: 'https://api.supabase.com/v1/organizations'},
   github: {url: 'https://api.github.com/user', headers: {'X-GitHub-Api-Version': '2022-11-28', 'User-Agent':'personal-assistant'}},
 };
 export const connectionActions = new Set(['connections','connection_start','connection_status','connection_token','connection_remove']);
@@ -28,7 +29,7 @@ export async function seal(config: Config, value: string, aad: string) {
   const encrypted = new Uint8Array(await crypto.subtle.encrypt({name:'AES-GCM',iv,additionalData:encode.encode(aad)}, await key(config),encode.encode(value)));
   return b64(new Uint8Array([...iv,...encrypted]));
 }
-async function unseal(config: Config, value: string, aad: string) {
+export async function unseal(config: Config, value: string, aad: string) {
   const data = bytes(value);
   return new TextDecoder().decode(await crypto.subtle.decrypt({name:'AES-GCM',iv:data.slice(0,12),additionalData:encode.encode(aad)},await key(config),data.slice(12)));
 }
@@ -56,12 +57,13 @@ export async function connection(config: Config, user: string, input: any, fetch
     const google = rows.filter(r => r.slot.startsWith('google_'));
     const linked = Object.entries(grants).filter(([,g]) => google.some(r => r.slot===g.slot && g.scopes.every(s => (r.metadata.scopes || []).includes(s)))).map(([name])=>name);
     return {providers:[{id:'google',kind:'google',state:google.length?'connected':'absent',grants:linked,account:google[0]?.metadata.account || null},
-      ...Object.keys(providers).map(id=>({id,kind:'token',state:rows.some(r=>r.slot===id)?'connected':'absent',account:rows.find(r=>r.slot===id)?.metadata.account || null}))]};
+      ...Object.keys(providers).map(id=>({id,kind:['github','supabase'].includes(id)?'oauth':'token',state:rows.some(r=>r.slot===id)?'connected':'absent',account:rows.find(r=>r.slot===id)?.metadata.account || null}))]};
   }
   if (input.action === 'connection_status') return store(config,user,input.device_id,'status',{intent_id:args.intent_id},fetcher);
   const grant = args.grant || 'calendar', name = slot(provider,grant);
   if (input.action === 'connection_remove') return store(config,user,input.device_id,'remove',{slot:name},fetcher);
   if (input.action === 'connection_start') {
+    if (provider === 'github' || provider === 'supabase') return startAccount(config,user,input.device_id,provider,fetcher);
     if (provider !== 'google' || !config.googleClientId || !config.googleClientSecret) throw new Error('connections_unavailable');
     const state = random(), verifier = random();
     const stateHash = await hash(state);
@@ -110,6 +112,62 @@ export async function googleCallback(req: Request, config: Config, fetcher: type
       client_id:config.googleClientId,client_secret:config.googleClientSecret,scopes,expiry:new Date(Date.now()+token.expires_in*1000).toISOString()});
     await store(config,intent.user_id,intent.device_id,'complete',{intent_id:intent.id,
       ciphertext:await seal(config,credential,`${intent.user_id}:${intent.slot}`),metadata:{account,scopes}},fetcher);
+    return Response.redirect('personal-assistant://connection?status=connected',302);
+  } catch {
+    if (intent) { try { await store(config,intent.user_id,intent.device_id,'fail',{intent_id:intent.id},fetcher); } catch {} }
+    return Response.redirect('personal-assistant://connection?status=failed',302);
+  }
+}
+
+
+type AccountProvider = 'github' | 'supabase';
+function accountConfig(config: Config, provider: AccountProvider) {
+  const details = provider === 'github'
+    ? {id:config.githubClientId, secret:config.githubClientSecret, authorize:'https://github.com/login/oauth/authorize', token:'https://github.com/login/oauth/access_token'}
+    : {id:config.supabaseClientId, secret:config.supabaseClientSecret, authorize:'https://api.supabase.com/v1/oauth/authorize', token:'https://api.supabase.com/v1/oauth/token'};
+  if (!details.id || !details.secret) throw new Error('connections_unavailable');
+  return {...details, id:details.id, secret:details.secret};
+}
+const accountCallbackURL = (config: Config, provider: AccountProvider) => `${config.url}/functions/v1/assistant/${provider}/callback`;
+async function startAccount(config: Config, user: string, device: string, provider: AccountProvider, fetcher: typeof fetch) {
+  const details=accountConfig(config,provider), state=random(), verifier=random(), stateHash=await hash(state);
+  const intent=await store(config,user,device,'begin',{slot:provider,state_hash:stateHash,
+    verifier:await seal(config,JSON.stringify({provider,verifier}),`oauth:${stateHash}`)},fetcher);
+  const url=new URL(details.authorize);
+  url.search=new URLSearchParams({client_id:details.id,redirect_uri:accountCallbackURL(config,provider),response_type:'code',
+    state,code_challenge:await hash(verifier),code_challenge_method:'S256',
+    ...(provider==='github'?{scope:'read:user repo'}:{})}).toString();
+  return {...intent,url:url.toString()};
+}
+
+export async function accountCallback(req: Request, config: Config, provider: AccountProvider, fetcher: typeof fetch=fetch) {
+  let intent: any;
+  try {
+    const url=new URL(req.url), state=url.searchParams.get('state');
+    if (!state || state.length>128) throw new Error('invalid_request');
+    const stateHash=await hash(state);
+    intent=await store(config,null,null,'claim',{state_hash:stateHash},fetcher);
+    const auth=JSON.parse(await unseal(config,intent.verifier,`oauth:${stateHash}`));
+    if (intent.slot!==provider || auth.provider!==provider || url.searchParams.has('error')) throw new Error('connection_rejected');
+    const code=url.searchParams.get('code'), details=accountConfig(config,provider);
+    if (!code || code.length>8192) throw new Error('invalid_request');
+    const body=new URLSearchParams({grant_type:'authorization_code',code,redirect_uri:accountCallbackURL(config,provider),code_verifier:auth.verifier});
+    const headers: Record<string,string>={'Accept':'application/json','Content-Type':'application/x-www-form-urlencoded'};
+    if (provider==='supabase') headers.Authorization='Basic '+btoa(details.id+':'+details.secret);
+    else { body.set('client_id',details.id); body.set('client_secret',details.secret); }
+    const response=await fetcher(details.token,{method:'POST',headers,body,redirect:'error',signal:AbortSignal.timeout(15000)});
+    if (!response.ok) throw new Error('connection_rejected');
+    const token=await response.json();
+    if (!token.access_token || token.error || (provider==='supabase' && !token.refresh_token)) throw new Error('connection_rejected');
+    const profile=await fetcher(providers[provider].url,{headers:{Authorization:'Bearer '+token.access_token,...providers[provider].headers},redirect:'error',signal:AbortSignal.timeout(10000)});
+    if (!profile.ok) throw new Error('connection_rejected');
+    const info=await profile.json();
+    const account=provider==='github'?String(info.login):'Supabase account';
+    const credential=JSON.stringify({token:token.access_token,refresh_token:token.refresh_token,token_uri:details.token,
+      client_id:details.id,client_secret:details.secret,provider,
+      expiry:token.expires_in?new Date(Date.now()+token.expires_in*1000).toISOString():null});
+    await store(config,intent.user_id,intent.device_id,'complete',{intent_id:intent.id,
+      ciphertext:await seal(config,credential,`${intent.user_id}:${intent.slot}`),metadata:{account,kind:'oauth'}},fetcher);
     return Response.redirect('personal-assistant://connection?status=connected',302);
   } catch {
     if (intent) { try { await store(config,intent.user_id,intent.device_id,'fail',{intent_id:intent.id},fetcher); } catch {} }

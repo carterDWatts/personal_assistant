@@ -161,6 +161,22 @@ def configure_connections(client_file):
     print('Cloud connection credentials configured. The encryption key is saved outside the repository.')
 
 
+def configure_account(provider, client_file):
+    """Install a developer OAuth registration; end users only see the sign-in sheet."""
+    import tempfile
+    import keyring
+    client=json.loads(Path(client_file).read_text())
+    client_id,secret=client['client_id'],client['client_secret']
+    if not all(isinstance(v,str) and v and not any(c.isspace() for c in v) for v in (client_id,secret)):
+        raise RuntimeError('Invalid OAuth client configuration.')
+    prefix={'github':'GITHUB','supabase':'SUPABASE_OAUTH'}[provider]
+    with tempfile.NamedTemporaryFile(mode='w',suffix='.env') as env:
+        env.write(f'{prefix}_CLIENT_ID={client_id}\n{prefix}_CLIENT_SECRET={secret}\n');env.flush()
+        command(['supabase','secrets','set','--project-ref',PROJECT,'--env-file',env.name])
+    keyring.set_password('com.carterwatts.personal-assistant.oauth-apps',provider,json.dumps(client))
+    print('OAuth registration installed in the gateway and local Keychain.')
+
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest='action', required=True)
@@ -171,10 +187,15 @@ if __name__ == '__main__':
     commands.add_parser('speech')
     connections = commands.add_parser('connections')
     connections.add_argument('client_file')
+    account = commands.add_parser('account')
+    account.add_argument('provider',choices=['github','supabase'])
+    account.add_argument('client_file')
     args = parser.parse_args()
     try:
         if args.action == 'bind-owner':
             bind_owner(args.email)
+        elif args.action == 'account':
+            configure_account(args.provider,args.client_file)
         elif args.action == 'connections':
             configure_connections(args.client_file)
         elif args.action == 'speech':

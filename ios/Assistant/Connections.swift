@@ -63,11 +63,12 @@ enum Service {
         case ("todoist", _): return "Todoist"
         case ("notion", _): return "Notion"
         case ("github", _): return "GitHub"
+        case ("supabase", _): return "Supabase"
         default: return provider.capitalized
         }
     }
 
-    static func usesToken(_ provider: String) -> Bool { provider != "google" }
+    static func usesToken(_ provider: String) -> Bool { !["google", "github", "supabase"].contains(provider) }
 
     static func instructions(_ provider: String) -> String {
         switch provider {

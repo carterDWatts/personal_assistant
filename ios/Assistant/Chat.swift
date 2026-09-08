@@ -355,7 +355,7 @@ func plain(_ value: Any?) -> String {
         if let url = started.url { _ = try await WebAuth.shared.run(url) }
         var state = try await transport.connectionState(intent: started.intent)
         var waited = 0
-        while state.state == "pending" && waited < 30 {
+        while ["pending", "processing"].contains(state.state) && waited < 30 {
             try await Task.sleep(for: .seconds(1)); waited += 1
             state = try await transport.connectionState(intent: started.intent)
         }

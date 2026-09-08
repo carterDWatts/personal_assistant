@@ -653,13 +653,13 @@ struct ConnectionsView: View {
                     }
                 } header: { Text("Google") } footer: { Text(connection("google")?.account.map { "Signed in as \($0)." } ?? "Each permission is approved separately.") }
                 Section {
-                    ForEach(["todoist", "notion", "github"], id: \.self) { provider in
+                    ForEach(["github", "supabase", "todoist", "notion"], id: \.self) { provider in
                         let linked = connection(provider)?.state == "connected"
                         row(Service.name(provider), linked: linked, key: provider) {
-                            if linked { chat.disconnect(provider) } else { tokenProvider = provider }
+                            if linked { chat.disconnect(provider) } else if Service.usesToken(provider) { tokenProvider = provider } else { authorize(provider, nil) }
                         }
                     }
-                } header: { Text("Tokens") } footer: { Text("Guided setup with a token from each service. The assistant only reads. Disconnect removes the host’s copy; revoke at the service to invalidate it everywhere.") }
+                } header: { Text("Apps") } footer: { Text("Sign in to GitHub or Supabase in the secure sheet. Notion and Todoist currently use a token. Disconnect removes the saved connection.") }
                 if !chat.connectionError.isEmpty { Section { Text(chat.connectionError).font(.caption).foregroundStyle(Color.orange) } }
                 if !problem.isEmpty { Section { Text(problem).font(.caption).foregroundStyle(Color.orange) } }
             }

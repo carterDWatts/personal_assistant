@@ -1,4 +1,5 @@
 """OS Keychain locally; authenticated encryption for the hosted worker."""
+from contextlib import contextmanager
 import base64
 import os
 import threading
@@ -68,3 +69,19 @@ def delete_password(service, account):
         map_.execute('delete from assistant.credentials where user_id=(select user_id from assistant.owner) and slot=%s', (_slot(service, account),))
     finally:
         map_.close()
+
+
+@contextmanager
+def refresh_lock(service, account):
+    if not os.environ.get('ASSISTANT_CREDENTIAL_KEY'):
+        yield
+        return
+    from engine.db import Map
+    map_=Map()
+    try:
+        map_.execute("set statement_timeout='20s'")
+        name='oauth-refresh:'+_slot(service,account)
+        map_.execute('select pg_advisory_lock(hashtextextended(%s,0))',(name,))
+        try: yield
+        finally: map_.execute('select pg_advisory_unlock(hashtextextended(%s,0))',(name,))
+    finally: map_.close()

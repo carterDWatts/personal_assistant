@@ -103,3 +103,41 @@ class integrations_test(unittest.IsolatedAsyncioTestCase):
             session.return_value.__enter__.return_value.request.return_value.status_code = 409
             result = google._request('POST', 'calendar/v3/calendars/primary/events', body=body)
         self.assertEqual(result['id'], 'abc12')
+
+    def test_oauth_refresh_keeps_credentials_out_of_results(self):
+        import json
+        from engine.integrations.oauth import access_token
+        stored=json.dumps({'token':'old','refresh_token':'refresh','client_id':'client','client_secret':'secret','expiry':'2020-01-01T00:00:00Z'})
+        response=Mock(status_code=200)
+        response.json.return_value={'access_token':'new','refresh_token':'rotated','expires_in':3600}
+        with patch('engine.integrations.oauth.requests.post',return_value=response) as post, patch('engine.integrations.oauth.credentials.set_password') as save:
+            self.assertEqual(access_token('supabase','service','prod:supabase',stored),'new')
+        self.assertEqual(post.call_args.args[0],'https://api.supabase.com/v1/oauth/token')
+        self.assertEqual(post.call_args.kwargs['auth'],('client','secret'))
+        self.assertFalse(post.call_args.kwargs['allow_redirects'])
+        self.assertEqual(json.loads(save.call_args.args[2])['refresh_token'],'rotated')
+
+    def test_expired_oauth_rejection_requests_login_without_leaking_response(self):
+        import json
+        from engine.integrations.oauth import access_token
+        from engine.tools import ConnectionRequired
+        stored=json.dumps({'token':'old','refresh_token':'refresh','client_id':'client','client_secret':'secret','expiry':'2020-01-01T00:00:00Z'})
+        response=Mock(status_code=400)
+        with patch('engine.integrations.oauth.requests.post',return_value=response), patch('engine.integrations.oauth.credentials.set_password') as save:
+            with self.assertRaises(ConnectionRequired) as error: access_token('github','service','prod:github',stored)
+        self.assertNotIn('secret',str(error.exception));save.assert_not_called()
+
+    async def test_missing_supabase_connection_offers_login_without_network(self):
+        from engine.integrations import services
+        from engine.tools import ConnectionRequired
+        with patch.object(services.keyring,'get_password',return_value=None),patch.object(services.requests,'request') as request:
+            with self.assertRaises(ConnectionRequired) as error: services._supabase_projects({})
+        self.assertEqual(error.exception.action,'supabase_connect');request.assert_not_called()
+
+    def test_repository_file_read_preserves_ref_and_reports_truncation(self):
+        from engine.integrations import services
+        data={'type':'file','encoding':'base64','path':'README.md','sha':'revision','content':base64.b64encode(b'x'*25000).decode()}
+        with patch.object(services,'_request',return_value=data) as request:
+            result=services._github_file({'owner':'carter','repo':'assistant','path':'README.md','ref':'branch'})
+        self.assertTrue(result['truncated']);self.assertEqual(len(result['content']),24000)
+        self.assertEqual(request.call_args.kwargs['params'],{'ref':'branch'})

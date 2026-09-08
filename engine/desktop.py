@@ -75,7 +75,7 @@ async def main():
                  completed=action == "service_connect", action=f"{provider}_connect")
         except Exception:
             emit("connections", **(await connection_status()), connecting=False,
-                 error="Could not connect. Check the token, its permissions, and your network, then try again.")
+                 error="Sign-in wasn’t completed. Please try again." if provider in ('github','supabase') else "Could not connect. Check the token and its permissions.")
 
     async def google_action(action, connection):
         emit("connections", **(await connection_status()), connecting=True)
