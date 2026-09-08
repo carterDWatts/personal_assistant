@@ -4,9 +4,17 @@ import SwiftUI
 @main struct MakeIcon {
     @MainActor static func main() throws {
         let out = URL(fileURLWithPath: CommandLine.arguments[1])
-        guard let source = NSImage(contentsOfFile: CommandLine.arguments[2]) else {
-            fatalError("Could not load app artwork")
+        let master = URL(fileURLWithPath: CommandLine.arguments[2])
+        let masterRenderer = ImageRenderer(content: BunnyGlyph()
+            .frame(width: 1024, height: 1024)
+            .background(Color(red: 0.80, green: 0.79, blue: 0.76)))
+        masterRenderer.scale = 1
+        guard let masterImage = masterRenderer.cgImage,
+              let masterPNG = NSBitmapImageRep(cgImage: masterImage).representation(using: .png, properties: [:]) else {
+            fatalError("Could not render shared app artwork")
         }
+        try masterPNG.write(to: master)
+        let source = NSImage(cgImage: masterImage, size: NSSize(width: 1024, height: 1024))
         try FileManager.default.createDirectory(at: out, withIntermediateDirectories: true)
         let sizes = [("icon_16x16", 16), ("icon_16x16@2x", 32), ("icon_32x32", 32), ("icon_32x32@2x", 64), ("icon_128x128", 128),
                      ("icon_128x128@2x", 256), ("icon_256x256", 256), ("icon_256x256@2x", 512), ("icon_512x512", 512), ("icon_512x512@2x", 1024)]
