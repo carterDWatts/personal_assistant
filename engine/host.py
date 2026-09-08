@@ -237,7 +237,8 @@ class Host:
             except Exception as error:
                 await self.close_session()
                 print(f'Session preload unavailable ({type(error).__name__}).', flush=True)
-            await self.call(self.relay.capabilities, {'models': self.models, 'speech': speech_ready})
+            from engine.voice.catalog import choices
+            await self.call(self.relay.capabilities, {'models': self.models, 'speech': speech_ready, 'voices': choices() if speech_ready else []})
             print('Host connected.', flush=True)
             await self.refresh_day()
             self.ready.set()

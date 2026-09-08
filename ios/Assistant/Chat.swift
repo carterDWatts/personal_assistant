@@ -71,6 +71,7 @@ func plain(_ value: Any?) -> String {
     @Published var tokenForm: String? = nil
     @Published private(set) var hostSpeaks = false
     @Published var models: [ModelChoice] = []
+    @Published var hostVoices: [ModelChoice] = []
     @Published var selectedModel = UserDefaults.standard.string(forKey: "assistantModel") ?? "" {
         didSet { UserDefaults.standard.set(selectedModel, forKey: "assistantModel") }
     }
@@ -186,6 +187,7 @@ func plain(_ value: Any?) -> String {
         case "capabilities":
             hostSpeaks = event["speech"] as? Bool == true
             models = (event["models"] as? [[String: Any]] ?? []).compactMap(ModelChoice.init)
+            hostVoices = (event["voices"] as? [[String: Any]] ?? []).compactMap(ModelChoice.init)
             if !models.contains(where: { $0.id == selectedModel }) { selectedModel = "" }
         case "delta":
             guard replyState.update(text, turn: turn, replace: false, messages: &messages) else { return }
@@ -255,6 +257,7 @@ func plain(_ value: Any?) -> String {
     }
 
     private func interruptForSpeech() {
+        guard !liveVoice.muted else { return }
         liveVoice.silencePlayback(); liveVoice.userBeganSpeaking(); speechBuffer = ""
         spokenTurns.removeAll(); playedChunks.removeAll()
         voiceTurn.pausePlayback(busy: busy)

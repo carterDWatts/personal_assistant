@@ -359,6 +359,7 @@ private final class Capture: @unchecked Sendable {
     }
 
     private func commitUtterance() {
+        guard active, !muted else { return }
         endpoint?.cancel()
         let text = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
         if !text.isEmpty { VoiceDiagnostics.record("utterance_submitted", ["since_sound": Date().timeIntervalSince(signalAt), "since_words": Date().timeIntervalSince(heardAt)]) }
@@ -372,7 +373,8 @@ private final class Capture: @unchecked Sendable {
         guard active, value != muted else { return }
         muted = value
         if value {
-            endpoint?.cancel()
+            interruptionCheck?.cancel(); interruptionCheck = nil
+            endpoint?.cancel(); endpoint = nil
             listening = UUID(); task?.cancel(); task = nil
             request?.endAudio(); request = nil
             capture.attach(nil)
@@ -526,8 +528,9 @@ private final class Capture: @unchecked Sendable {
     }
 
     private func setMode(_ next: VoiceCue) {
-        guard active, !muted, mode != next else { return }
+        guard active, mode != next else { return }
         mode = next
+        guard !muted else { return }
         guard engine.isRunning, let format = playbackFormat,
               let buffer = next.buffer(sampleRate: format.sampleRate) else { return }
         cuePlayer.stop()

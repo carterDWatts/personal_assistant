@@ -95,6 +95,8 @@ class Speech:
     async def begin(self, turn):
         await self.close()
         self.turn = turn['id']
+        if self.voice and hasattr(self.voice, 'select'):
+            await asyncio.to_thread(self.select_voice, turn.get('voice') or self.settings.get('name', 'michael'))
         self.buffer = ''
         self.first_chunk = True
         self.chunks_queued = 0
@@ -105,6 +107,10 @@ class Speech:
         self.queue = asyncio.Queue()
         if turn.get('speech'):
             self.task = asyncio.create_task(self.run(self.turn, self.cancel, self.queue))
+
+    def select_voice(self, voice):
+        with self.render_lock:
+            self.voice.select(voice)
 
     def feed(self, text):
         if not self.task or self.task.done(): return

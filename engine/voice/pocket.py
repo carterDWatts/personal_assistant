@@ -2,14 +2,19 @@
 import numpy as np
 import torch
 from pocket_tts import TTSModel
+from engine.voice.catalog import VOICES
 
 
 class PocketVoice:
     def __init__(self, voice='michael'):
         torch.set_num_threads(2)
         self.model = TTSModel.load_model(language='english_2026-04',temp=.3)
-        self.state = self.model.get_state_for_audio_prompt(voice)
+        self.states = {v['id']: self.model.get_state_for_audio_prompt(v['source']) for v in VOICES}
+        self.select(voice)
         self.sample_rate = self.model.sample_rate
+
+    def select(self, voice):
+        self.state = self.states[voice]
 
     def stream(self, text, cancelled):
         pending=[]

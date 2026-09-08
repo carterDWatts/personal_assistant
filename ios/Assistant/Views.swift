@@ -223,7 +223,7 @@ struct VoiceBar: View {
             HStack(spacing: 12) {
                 Button { chat.toggleMute() } label: { Image(systemName: voice.muted ? "mic.slash.fill" : "mic.slash") }
                     .buttonStyle(SquareButton(palette: palette, prominent: voice.muted))
-                    .accessibilityLabel(voice.muted ? "Unmute" : "Mute")
+                    .accessibilityLabel(voice.muted ? "Unmute microphone" : "Mute microphone")
                 Spacer()
                 VoicePresence(level: voice.inputLevel, moving: voice.speaking || chat.busy, palette: palette, compact: true)
                 Spacer()
@@ -287,6 +287,7 @@ struct SettingsView: View {
     @ObservedObject var chat: Chat
     let palette: Palette
     @AppStorage("voice") private var voice = ""
+    @AppStorage("hostedVoice") private var hostedVoice = ""
     @AppStorage("onDeviceRecognition") private var onDevice = true
     @Environment(\.dismiss) private var dismiss
     @State private var preview = AVSpeechSynthesizer()
@@ -305,7 +306,14 @@ struct SettingsView: View {
                     }
                 }
                 if chat.hostSpeaks {
-                    Section("Speech") { Text("Michael · natural American voice, generated on your host.") }
+                    Section("Speech") {
+                        Picker("Voice", selection: $hostedVoice) {
+                            Text("Michael · default").tag("")
+                            ForEach(chat.hostVoices) { choice in Text(choice.name).tag(choice.id) }
+                        }
+                        Text("Changes apply to the next reply. All voices use Pocket TTS on your host.")
+                            .font(.footnote).foregroundStyle(.secondary)
+                    }
                 } else {
                 Section {
                     Picker("Voice", selection: $voice) {

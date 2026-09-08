@@ -155,3 +155,20 @@ actual request briefly before beginning that work, explain the specific lookup, 
 then continue with the result. Avoid canned acknowledgments on simple replies and
 never claim a task has started before it has. Validate first-audio latency, streaming,
 interruption, and complete playback together before calling the voice work finished.
+
+Pocket TTS voice choices are Michael (default), Bill (American) and Stuart (British).
+The host preloads their voice states; selection is validated against advertised IDs
+and saved on the turn, so retries cannot silently change the voice. The phone keeps
+its selection in Settings. Microphone mute does not cancel the model or playback.
+
+Voice sources: Michael is VCTK p360 under CC BY 4.0, distributed by
+[Kyutai](https://huggingface.co/kyutai/tts-voices). Bill Boerst and Stuart Bell are
+CC0 reference recordings from [Voice-Zero](https://github.com/OwenTyme/voice-zero/blob/main/voices/README.md),
+which records their LibriVox sources. These are accent options, not replicas of
+Claude's proprietary voice or a specific pilot.
+
+`web_read` reads public HTTP(S) text pages and returns source URLs, links, timestamps
+and continuation offsets. It checks every redirect and pins connections to a
+validated public address; no private networks, cookies or credentials are exposed.
+It cannot run JavaScript, bypass access restrictions, or read binary documents.
+Fetched page text is untrusted source material and is not automatically saved as memory.

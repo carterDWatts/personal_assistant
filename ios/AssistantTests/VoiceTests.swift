@@ -3,6 +3,27 @@ import AVFoundation
 @testable import Assistant
 
 @MainActor final class VoiceTests: XCTestCase {
+    func testMutingMicrophonePreservesReplyPlayback() async throws {
+        let voice = LiveVoice()
+        defer { voice.stop() }
+        try await voice.beginReplay()
+        voice.onSpeech = { XCTFail("Muted microphone interrupted playback") }
+        voice.onUtterance = { XCTFail("Muted microphone submitted: \($0)") }
+        let started = expectation(description: "Playback started")
+        voice.onPlaybackStarted = { started.fulfill() }
+        let file = try XCTUnwrap(Bundle(for: Self.self).url(forResource: "pause", withExtension: "wav"))
+        voice.play(file, text: "A long response continues while the microphone is muted.")
+        await fulfillment(of: [started], timeout: 10)
+        voice.setMuted(true)
+        XCTAssertTrue(voice.speaking)
+        try await Task.sleep(for: .milliseconds(400))
+        XCTAssertTrue(voice.speaking)
+        XCTAssertTrue(voice.active)
+        XCTAssertTrue(voice.transcript.isEmpty)
+        voice.setMuted(false)
+        XCTAssertTrue(voice.speaking)
+    }
+
     func testRelayRegionTiming() async throws {
         let account = Account.shared
         let token = try await account.accessToken()
@@ -207,7 +228,7 @@ import AVFoundation
             endOfInput = voice.lastInputSound
             submitted = Date()
             heard.fulfill()
-            transport.send(text, id: UUID(), speech: true, model: model, mode: "talk")
+            transport.send(text, id: UUID(), speech: true, model: model, mode: "talk", notification: nil)
         }
         voice.onPlaybackStarted = {
             guard firstAudio == nil, let submitted else { return }

@@ -9,6 +9,7 @@ struct RelayError: LocalizedError {
         case "conversation_busy": return "Busy answering on another device. Try again in a moment."
         case "invalid_request": return "That request could not be completed. Try again."
         case "model_unavailable": return "That model isn’t available on this host. Choose another model."
+        case "voice_unavailable": return "Choose an available voice in Settings."
         case "speech_unavailable": return "The host voice is starting. Reconnect in a moment."
         case "connections_unavailable": return "Connections are temporarily unavailable. Try again shortly."
         case "connection_rejected": return "Access wasn’t granted. Check the permissions and try connecting again."
@@ -168,7 +169,10 @@ struct RelayError: LocalizedError {
                 var args: [String: Any] = ["client_message_id": id.uuidString.lowercased(), "text": text]
                 args["mode"] = mode
                 if let notification { args["notification"] = notification }
-                if speech { args["speech"] = true }
+                if speech {
+                    args["speech"] = true
+                    if let voice = UserDefaults.standard.string(forKey: "hostedVoice"), !voice.isEmpty { args["voice"] = voice }
+                }
                 if let model, !model.isEmpty { args["model"] = model }
                 VoiceDiagnostics.record("request_started")
                 let started = Date()

@@ -52,6 +52,18 @@ class relay_test(MapTest):
         self.client('cancel', first)
         self.assertFalse(self.relay.publish_speech(turn['id'], {'type': 'speech', 'seq': 2}))
 
+    def test_voice_selection_is_allowlisted_and_retry_safe(self):
+        self.relay.acquire()
+        self.relay.capabilities({'speech': True, 'voices': [{'id': 'texas', 'name': 'Bill'}]})
+        args = {'text': 'Hello', 'client_message_id': str(uuid.uuid4()), 'speech': True, 'voice': 'texas'}
+        first = self.client('submit', args)
+        self.assertEqual(first, self.client('submit', args))
+        with self.assertRaisesRegex(psycopg.Error, 'idempotency_conflict'):
+            self.client('submit', {**args, 'voice': 'british'})
+        self.assertEqual(self.relay.claim()['voice'], 'texas')
+        with self.assertRaisesRegex(psycopg.Error, 'voice_unavailable'):
+            self.client('submit', {**args, 'client_message_id': str(uuid.uuid4()), 'voice': 'https://private/audio'})
+
     def test_inline_audio_expires_without_erasing_reply_text(self):
         from engine.speech import Speech
         from types import SimpleNamespace
