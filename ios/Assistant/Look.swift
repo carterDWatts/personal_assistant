@@ -64,53 +64,18 @@ struct Concrete: View {
     }
 }
 
-func leaf(at point: CGPoint, length: CGFloat, angle: CGFloat) -> Path {
-    var path = Path()
-    let tip = CGPoint(x: point.x + cos(angle) * length, y: point.y + sin(angle) * length)
-    let width = length * 0.42
-    let normal = CGPoint(x: -sin(angle) * width, y: cos(angle) * width)
-    let mid = CGPoint(x: (point.x + tip.x) / 2, y: (point.y + tip.y) / 2)
-    path.move(to: point)
-    path.addQuadCurve(to: tip, control: CGPoint(x: mid.x + normal.x, y: mid.y + normal.y))
-    path.addQuadCurve(to: point, control: CGPoint(x: mid.x - normal.x, y: mid.y - normal.y))
-    return path
-}
-
-// The mark: a scaffold of four joints, one of them grown over.
+// The mark is one image, rendered once by scripts/make_mark.swift, so it is identical everywhere it appears.
 struct Mark: View {
     let palette: Palette
     var lit = true
     var thinking = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    private let nodes: [CGPoint] = [CGPoint(x: 0.22, y: 0.7), CGPoint(x: 0.5, y: 0.26), CGPoint(x: 0.8, y: 0.58), CGPoint(x: 0.56, y: 0.82)]
-    private let edges = [(0, 1), (1, 2), (0, 3), (3, 2)]
-    private func at(_ p: CGPoint, _ s: CGFloat) -> CGPoint { CGPoint(x: p.x * s, y: p.y * s) }
     var body: some View {
         TimelineView(.animation(minimumInterval: 1.0 / 30, paused: !thinking || reduceMotion)) { timeline in
             let time = timeline.date.timeIntervalSinceReferenceDate
             let tilt = thinking && !reduceMotion ? sin(time * 1.3) * 4 : 0
-            GeometryReader { geo in
-                let s = min(geo.size.width, geo.size.height)
-                ZStack {
-                    Path { path in
-                        for (a, b) in edges { path.move(to: at(nodes[a], s)); path.addLine(to: at(nodes[b], s)) }
-                    }.stroke(palette.ink, style: StrokeStyle(lineWidth: s * 0.08, lineCap: .square))
-                    ForEach([0, 2, 3], id: \.self) { i in
-                        let c = at(nodes[i], s)
-                        Rectangle().fill(palette.ink).frame(width: s * 0.2, height: s * 0.2).position(c)
-                    }
-                    ZStack {
-                        Rectangle().fill(lit ? palette.accent : palette.ink)
-                            .frame(width: s * 0.3, height: s * 0.3).position(at(nodes[1], s))
-                        if lit {
-                            let base = at(nodes[1], s)
-                            leaf(at: CGPoint(x: base.x + s * 0.1, y: base.y - s * 0.08), length: s * 0.34, angle: -0.9).fill(palette.sage)
-                            leaf(at: CGPoint(x: base.x - s * 0.06, y: base.y - s * 0.12), length: s * 0.26, angle: -2.1).fill(palette.moss)
-                        }
-                    }
-                    .rotationEffect(.degrees(tilt), anchor: UnitPoint(x: 0.5, y: 0.41))
-                }
-            }.aspectRatio(1, contentMode: .fit)
+            Image("Mark").resizable().interpolation(.high).aspectRatio(1, contentMode: .fit)
+                .rotationEffect(.degrees(tilt), anchor: UnitPoint(x: 0.5, y: 0.41))
         }.accessibilityHidden(true)
     }
 }
