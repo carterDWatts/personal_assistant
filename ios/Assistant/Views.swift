@@ -307,60 +307,61 @@ struct ConversationView: View {
     private let sample = ProcessInfo.processInfo.arguments.contains("--sample")
 
     var body: some View {
-        NavigationStack {
-            VStack(spacing: 0) {
-                conversation
-                if chat.busy || !chat.connected {
-                    Text(chat.status).font(.caption).foregroundStyle(palette.muted).frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, 20).padding(.bottom, 6)
-                }
-                Composer(chat: chat, palette: palette).padding(.horizontal, 16).padding(.bottom, 10)
+        VStack(spacing: 0) {
+            header
+            conversation
+            if chat.busy || !chat.connected {
+                Text(chat.status).font(.caption).foregroundStyle(palette.muted).frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 20).padding(.bottom, 6)
             }
-            .background(Concrete(palette: palette).ignoresSafeArea())
-            .navigationTitle(AssistantIdentity.name).navigationBarTitleDisplayMode(.inline)
-            .toolbarBackground(palette.background, for: .navigationBar)
-            .toolbarBackground(.visible, for: .navigationBar)
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    HStack(spacing: 8) {
-                        Mark(palette: palette, thinking: chat.busy).frame(width: 22, height: 22)
-                        Text(Date().formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day())).font(.subheadline).foregroundStyle(palette.muted)
-                    }
-                }
-                ToolbarItemGroup(placement: .topBarTrailing) {
-                    Circle().fill(chat.connected ? palette.accent : palette.muted).frame(width: 7, height: 7).accessibilityLabel(chat.status)
-                    Button { showDay = true } label: { Image(systemName: "calendar") }.accessibilityLabel("Show the day")
-                    Menu {
-                        Button("Clear", systemImage: "eraser") { chat.draft = ""; chat.connect(clear: true) }.disabled(!chat.connected || chat.busy)
-                        Button("Connections", systemImage: "link") { showConnections = true }
-                        Button("Settings", systemImage: "gearshape") { showSettings = true }
-                        if !chat.connected && !chat.busy { Button("Reconnect", systemImage: "arrow.clockwise") { chat.connect() } }
-                        if account.signedIn { Button("Sign out", systemImage: "rectangle.portrait.and.arrow.right") { account.signOut() } }
-                    } label: { Image(systemName: "ellipsis") }
-                }
-            }
-            .tint(palette.accent)
-            .sheet(isPresented: $showDay) {
-                DayPanel(chat: chat, palette: palette).presentationDetents([.medium, .large]).presentationDragIndicator(.visible)
-            }
-            .sheet(isPresented: $showSettings) { SettingsView(palette: palette) }
-            .sheet(isPresented: $showConnections) { ConnectionsView(chat: chat, palette: palette) }
-            .sheet(isPresented: Binding(get: { chat.tokenForm != nil }, set: { if !$0 { chat.tokenForm = nil } })) {
-                if let provider = chat.tokenForm { TokenForm(chat: chat, provider: provider, palette: palette) }
-            }
-            .fullScreenCover(isPresented: Binding(get: { chat.voice }, set: { if !$0 { chat.stop() } })) {
-                VoiceConversation(chat: chat, palette: palette)
-            }
-            .fullScreenCover(isPresented: Binding(get: { !account.signedIn && !sample }, set: { _ in })) { SignInView(palette: palette) }
-            .onAppear { if !chat.connected && !chat.busy { chat.connect() } }
-            .onChange(of: account.signedIn) { _, now in if now { chat.connect() } }
-            .onOpenURL { url in Task { await account.open(url) } }
-            .onChange(of: phase) { _, now in
-                if now != .active && chat.voice { chat.stop() }
-                chat.foreground(now == .active)
-            }
+            Composer(chat: chat, palette: palette).padding(.horizontal, 16).padding(.bottom, 10)
+        }
+        .background(Concrete(palette: palette).ignoresSafeArea())
+        .tint(palette.accent)
+        .sheet(isPresented: $showDay) {
+            DayPanel(chat: chat, palette: palette).presentationDetents([.medium, .large]).presentationDragIndicator(.visible)
+        }
+        .sheet(isPresented: $showSettings) { SettingsView(palette: palette) }
+        .sheet(isPresented: $showConnections) { ConnectionsView(chat: chat, palette: palette) }
+        .sheet(isPresented: Binding(get: { chat.tokenForm != nil }, set: { if !$0 { chat.tokenForm = nil } })) {
+            if let provider = chat.tokenForm { TokenForm(chat: chat, provider: provider, palette: palette) }
+        }
+        .fullScreenCover(isPresented: Binding(get: { chat.voice }, set: { if !$0 { chat.stop() } })) {
+            VoiceConversation(chat: chat, palette: palette)
+        }
+        .fullScreenCover(isPresented: Binding(get: { !account.signedIn && !sample }, set: { _ in })) { SignInView(palette: palette) }
+        .onAppear { if !chat.connected && !chat.busy { chat.connect() } }
+        .onChange(of: account.signedIn) { _, now in if now { chat.connect() } }
+        .onOpenURL { url in Task { await account.open(url) } }
+        .onChange(of: phase) { _, now in
+            if now != .active && chat.voice { chat.stop() }
+            chat.foreground(now == .active)
         }
         .preferredColorScheme(.light)
+    }
+
+    // Drawn here rather than in the system bar, which wraps items in glass and clips them on iOS 26.
+    private var header: some View {
+        HStack(spacing: 10) {
+            Mark(palette: palette, thinking: chat.busy).frame(width: 24, height: 24)
+            Text(AssistantIdentity.name).font(.headline).foregroundStyle(palette.ink)
+            Text(Date().formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day())).font(.subheadline).foregroundStyle(palette.muted)
+            Spacer()
+            Circle().fill(chat.connected ? palette.accent : palette.muted).frame(width: 7, height: 7).accessibilityLabel(chat.status).padding(.trailing, 4)
+            Button { showDay = true } label: { Image(systemName: "calendar") }
+                .buttonStyle(SquareButton(palette: palette, size: 36)).accessibilityLabel("Show the day")
+            Menu {
+                Button("Clear", systemImage: "eraser") { chat.draft = ""; chat.connect(clear: true) }.disabled(!chat.connected || chat.busy)
+                Button("Connections", systemImage: "link") { showConnections = true }
+                Button("Settings", systemImage: "gearshape") { showSettings = true }
+                if !chat.connected && !chat.busy { Button("Reconnect", systemImage: "arrow.clockwise") { chat.connect() } }
+                if account.signedIn { Button("Sign out", systemImage: "rectangle.portrait.and.arrow.right") { account.signOut() } }
+            } label: { Image(systemName: "ellipsis") }
+            .buttonStyle(SquareButton(palette: palette, size: 36))
+        }
+        .padding(.horizontal, 16).padding(.top, 6).padding(.bottom, 10)
+        .background(palette.background.ignoresSafeArea(edges: .top))
+        .overlay(alignment: .bottom) { Rectangle().fill(palette.line).frame(height: 1) }
     }
 
     private var conversation: some View {

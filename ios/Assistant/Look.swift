@@ -112,11 +112,12 @@ struct CornerGrowth: View {
 struct SquareButton: ButtonStyle {
     let palette: Palette
     var prominent = false
+    var size: CGFloat = 44
     @Environment(\.isEnabled) private var enabled
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .font(.body.weight(.medium))
-            .frame(minWidth: 44, minHeight: 44)
+            .frame(minWidth: size, minHeight: size)
             .foregroundStyle(prominent ? Color.white : palette.ink)
             .background(prominent ? palette.accent : palette.surface)
             .overlay(Rectangle().stroke(palette.line, lineWidth: 1))
