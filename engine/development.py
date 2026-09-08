@@ -90,6 +90,11 @@ class Development:
         statements=parse_sql(sql)
         if not statements or any(isinstance(x.stmt,(ast.TransactionStmt,ast.CopyStmt)) for x in statements):
             raise ToolError('Migrations cannot manage transactions or use COPY.')
+        from urllib.parse import urlsplit
+        _,project=self.scope()
+        target=urlsplit(self.map.url)
+        if project not in (target.hostname or '') and project not in (target.username or ''):
+            raise ToolError('The database connection does not match the configured development project.')
         version,name=match.groups()
         with self.map.conn.transaction():
             self.map.execute("select pg_advisory_xact_lock(hashtextextended('owner-migrations',0))")
