@@ -3,6 +3,36 @@ import AVFoundation
 @testable import Assistant
 
 @MainActor final class VoiceTests: XCTestCase {
+    func testVoiceSamplesPlayAndRestoreMicrophoneState() async throws {
+        let voice = LiveVoice()
+        let preview = VoicePreview()
+        defer { preview.stop(); voice.stop() }
+        try await voice.beginReplay()
+        for id in ["michael", "bill", "british"] {
+            let url = try XCTUnwrap(Bundle.main.url(forResource: "voice-" + id, withExtension: "m4a"))
+            let audio = try AVAudioPlayer(contentsOf: url)
+            XCTAssertGreaterThan(audio.duration, 1)
+            XCTAssertLessThan(audio.duration, 5)
+            preview.play(id, voice: voice, ready: { true })
+            try await Task.sleep(for: .milliseconds(150))
+            XCTAssertEqual(preview.status, "Playing sample…")
+            XCTAssertTrue(voice.muted)
+        }
+        preview.stop()
+        XCTAssertFalse(voice.muted)
+        voice.setMuted(true)
+        preview.play("michael", voice: voice, ready: { true })
+        try await Task.sleep(for: .milliseconds(150))
+        preview.stop()
+        XCTAssertTrue(voice.muted)
+        voice.stop()
+        preview.play("british", voice: voice, ready: { true })
+        try await Task.sleep(for: .milliseconds(150))
+        XCTAssertEqual(preview.status, "Playing sample…")
+        XCTAssertFalse(voice.active)
+        preview.stop()
+    }
+
     func testMutingMicrophonePreservesReplyPlayback() async throws {
         let voice = LiveVoice()
         defer { voice.stop() }

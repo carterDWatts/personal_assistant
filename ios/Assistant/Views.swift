@@ -291,6 +291,7 @@ struct SettingsView: View {
     @AppStorage("onDeviceRecognition") private var onDevice = true
     @Environment(\.dismiss) private var dismiss
     @State private var preview = AVSpeechSynthesizer()
+    @StateObject private var hostedPreview = VoicePreview()
     var body: some View {
         NavigationStack {
             List {
@@ -311,9 +312,19 @@ struct SettingsView: View {
                             Text("Michael · default").tag("")
                             ForEach(chat.hostVoices) { choice in Text(choice.name).tag(choice.id) }
                         }
+                        .onChange(of: hostedVoice) { _, choice in
+                            hostedPreview.play(choice, voice: chat.liveVoice) { !chat.busy && !chat.liveVoice.speaking }
+                        }
+                        Button("Hear it again") {
+                            hostedPreview.play(hostedVoice, voice: chat.liveVoice) { !chat.busy && !chat.liveVoice.speaking }
+                        }
+                        if !hostedPreview.status.isEmpty {
+                            Text(hostedPreview.status).font(.footnote).foregroundStyle(.secondary)
+                        }
                         Text("Changes apply to the next reply. All voices use Pocket TTS on your host.")
                             .font(.footnote).foregroundStyle(.secondary)
                     }
+                    .onDisappear { hostedPreview.stop() }
                 } else {
                 Section {
                     Picker("Voice", selection: $voice) {
