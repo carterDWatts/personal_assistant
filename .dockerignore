@@ -12,3 +12,11 @@
 !scripts/host-entry.py
 **/__pycache__
 **/*.pyc
+
+!supabase/
+!supabase/migrations/
+!supabase/migrations/*.sql
+!tst/
+!tst/*.py
+!docs/
+!docs/*.md

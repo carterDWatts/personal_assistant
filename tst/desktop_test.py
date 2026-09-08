@@ -43,6 +43,8 @@ class desktop_voice_test(unittest.IsolatedAsyncioTestCase):
         class Runtime:
             async def interrupt(self): released.set()
         class Map:
+            def value(self,*args): return 0
+            def rows(self,*args): return []
             def row(self, *args): return {'pending':0,'errors':0}
             def close(self): pass
         class Conversation:
@@ -50,7 +52,7 @@ class desktop_voice_test(unittest.IsolatedAsyncioTestCase):
         class Session:
             def __init__(self, map_, runtime, io, device): self.runtime=runtime; self.conv=Conversation()
             async def open(self, mode): pass
-            async def send(self, text):
+            async def send(self, text, **kwargs):
                 incoming.put(json.dumps({'type':'stop'}))
                 await released.wait()
                 raise RuntimeError('The reply was interrupted')

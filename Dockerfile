@@ -22,6 +22,9 @@ ENV ASSISTANT_VOICE_MODEL_DIR=/opt/assistant-voice
 RUN python /tmp/install_voice.py && rm /tmp/install_voice.py
 COPY engine ./engine
 COPY prompts ./prompts
+COPY supabase/migrations ./supabase/migrations
+COPY tst ./tst
+COPY docs ./docs
 COPY identity.json .
 COPY scripts/host-entry.py ./scripts/host-entry.py
 ENV HOME=/data PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1

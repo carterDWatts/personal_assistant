@@ -34,7 +34,7 @@ class Conversation:
     def latest_segment(self):
         return self.map.row(
             "select id, runtime_session_id from memory.conversations"
-            " where device = %s and runtime = %s and runtime_policy_version = 4 and runtime_session_id is not null"
+            " where device = %s and runtime = %s and runtime_policy_version = 5 and runtime_session_id is not null"
             " and started_at >= coalesce((select c.started_at from memory.messages m join memory.conversations c on c.id=m.conversation_id"
             " where m.role='system' and m.payload->>'event'='chat_cleared' order by m.id desc limit 1), '-infinity'::timestamptz)"
             " order by started_at desc limit 1",
@@ -48,7 +48,7 @@ class Conversation:
 
     def open_segment(self, mode):
         return self.map.value(
-            "insert into memory.conversations (agent, device, runtime, runtime_policy_version) values (%s, %s, %s, 4) returning id",
+            "insert into memory.conversations (agent, device, runtime, runtime_policy_version) values (%s, %s, %s, 5) returning id",
             (mode, self.device, self.runtime_name))
 
     def record(self, segment_id, role, content, payload=None):
@@ -83,7 +83,7 @@ class Conversation:
 
     def tail(self, n):
         rows = self.map.rows(
-            "select m.role, m.content, m.created_at, c.device from memory.messages m"
+            "select m.id, m.role, m.content, m.created_at, m.payload, c.device from memory.messages m"
             " join memory.conversations c on c.id = m.conversation_id"
             " where m.role in ('user', 'assistant') and m.content is not null and m.id > %s order by m.id desc limit %s", (self.cutoff(), n))
         return list(reversed(rows))

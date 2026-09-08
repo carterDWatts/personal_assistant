@@ -57,6 +57,8 @@ async def main():
     from engine.integrations import google, services
     map_, session, active, memory_poll = None, None, None, None
     connection_task = None
+    outbound_cursor = 0
+    jobs_task = None
 
     async def connection_status():
         google_status, service_status = await asyncio.gather(asyncio.to_thread(google.status), asyncio.to_thread(services.status))
@@ -84,9 +86,27 @@ async def main():
             emit("connections", **(await connection_status()), connecting=False,
                  error="Google wasn’t connected. Try again and approve the requested access.")
 
+    async def local_jobs():
+        from engine.jobs import Worker
+        jobs_map = Map()
+        try:
+            worker = Worker(jobs_map)
+            while True:
+                # The hosted worker owns production jobs while it is online.
+                if not jobs_map.value('select exists(select 1 from assistant.host where lease_until>now())'):
+                    await worker.once()
+                await asyncio.sleep(3)
+        finally:
+            jobs_map.close()
+
     async def monitor_memory():
+        nonlocal outbound_cursor
         while True:
             try:
+                rows = map_.rows("select m.id,m.role,m.content,m.created_at,m.payload from assistant.outbound o join memory.messages m on m.id=o.message_id where m.id>%s order by m.id", (outbound_cursor,))
+                for row in rows:
+                    emit("proactive", message=row)
+                    outbound_cursor=row['id']
                 counts = map_.row("select count(*) filter(where status <> 'done') as pending, count(*) filter(where status='error') as errors from memory.memory_jobs")
                 text = "Memory update paused; chat still works." if counts['errors'] else "Updating memory in the background…" if counts['pending'] else ""
                 emit("memory", text=text)
@@ -103,11 +123,12 @@ async def main():
 
     interrupted = False
 
-    async def reply(text):
+    async def reply(text, reference=None):
         nonlocal interrupted
         interrupted = False
         try:
-            await session.send(text)
+            from engine.notifications import discussion_context
+            await session.send(text, extra_context=discussion_context(map_,reference) if reference else "")
         except RuntimeError as error:
             if interrupted:
                 emit("ready")
@@ -156,16 +177,18 @@ async def main():
                     map_ = Map()
                     session = Session(map_, runtime, DesktopIO(), config.DEVICE)
                     clear = message.get("clear") is True
+                    outbound_cursor = map_.value("select coalesce(max(message_id),0) from assistant.outbound")
                     emit("history", messages=[] if clear else session.conv.tail(100))
                     await session.open("clear" if clear else "talk")
                     emit("ready")
                     memory_poll = asyncio.create_task(monitor_memory())
+                    jobs_task = asyncio.create_task(local_jobs())
                 elif action == "send" and session:
                     if active and not active.done():
                         raise ValueError("Wait for the current reply")
                     text = message.get("text", "").strip()
                     if text:
-                        active = asyncio.create_task(reply(text))
+                        active = asyncio.create_task(reply(text, message.get("notification")))
                 elif action == "stop" and session:
                     interrupted = bool(active and not active.done())
                     if not interrupted:
@@ -182,6 +205,9 @@ async def main():
             except Exception:
                 emit("error", text="Could not connect. Check your database setting and subscription login, then reconnect.")
     finally:
+        if jobs_task:
+            jobs_task.cancel()
+            await asyncio.gather(jobs_task, return_exceptions=True)
         if memory_poll:
             memory_poll.cancel()
             await asyncio.gather(memory_poll, return_exceptions=True)

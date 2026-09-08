@@ -64,11 +64,16 @@ class Background:
             if saved: return {'saved':True}
             if {x['id'] for x in args['items']}!=set(known) or len(args['items'])!=len(known): raise ValueError('Classify each provided email exactly once.')
             with self.map.conn.transaction():
+                self.map.execute('select user_id from assistant.owner for update')
                 for result in args['items']:
                     item=known[result['id']]
                     if result['relevant']:
                         notify=result['notify'] and not item['backfill'] and 'UNREAD' in item['labels'] and 'SENT' not in item['labels']
                         self.map.execute("insert into assistant.attention(source,source_id,title,detail,notify,thread_key) values('gmail',%s,%s,%s,%s,%s) on conflict do nothing",(item['id'],result['title'],result['reason'],notify,item['thread_id']+':'+item['received_at'][:10]))
+                        if notify:
+                            from engine.outbound import post
+                            notice=self.map.row("select id,title,detail from assistant.attention where source='gmail' and source_id=%s",(item['id'],))
+                            if notice: post(self.map,'notice:'+str(notice['id']),notice['title']+'\n\n'+notice['detail'],{'kind':'notice','id':str(notice['id'])})
                         if result['remember']:
                             segment=self.map.value("insert into memory.conversations(agent,device,runtime,runtime_policy_version) values('source-sync','gmail',%s,4) returning id",(config.RUNTIME,))
                             message=self.map.value("insert into memory.messages(conversation_id,seq,role,content,payload,created_at) values(%s,1,'system',%s,%s,%s) returning id",(segment,dumps(item),jsonb({'source':'gmail','source_id':item['id'],'external':True}),item['received_at']))

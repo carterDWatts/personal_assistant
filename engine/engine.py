@@ -15,6 +15,8 @@ class Session:
         self.map, self.runtime, self.io = map_, runtime, io
         self.conv = Conversation(map_, device, runtime.name)
         self.tools = Tools(map_, device)
+        self.tools.runtime_name = runtime.name
+        self.tools.model = getattr(runtime, "model", None)
         self.segment_id = None
         self.seed = None
         self.ended_by = "user"

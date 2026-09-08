@@ -328,21 +328,24 @@ async def main():
     sources = asyncio.create_task(gather_sources(relay_map.url,host))
     from engine.notifications import run as notify
     notifications = asyncio.create_task(notify(relay_map.url, host))
+    from engine.jobs import run as run_jobs
+    jobs = asyncio.create_task(run_jobs(relay_map.url, host))
     memory = asyncio.create_task(memory_loop(relay_map.url, host))
     running = asyncio.create_task(host.run())
     try:
-        done, _ = await asyncio.wait((running, memory), return_when=asyncio.FIRST_COMPLETED)
+        done, _ = await asyncio.wait((running, memory, jobs), return_when=asyncio.FIRST_COMPLETED)
         for task in done:
             task.result()
     finally:
         host.stopping.set()
+        jobs.cancel()
         memory.cancel()
         notifications.cancel()
         sources.cancel()
         listener.cancel()
         with contextlib.suppress(Exception, asyncio.CancelledError):
             await asyncio.wait_for(running, 10)
-        await asyncio.gather(memory, listener, notifications, sources, return_exceptions=True)
+        await asyncio.gather(memory, jobs, listener, notifications, sources, return_exceptions=True)
         relay_map.close()
         session_map.close()
 
