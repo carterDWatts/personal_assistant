@@ -1,5 +1,6 @@
 import Foundation
 import Combine
+import AuthenticationServices
 
 enum AssistantIdentity {
     static let name: String = {
@@ -56,7 +57,9 @@ func plain(_ value: Any?) -> String {
     @Published var busy = false
     @Published var connected = false
     @Published var voice = false
-    @Published var connectionPrompt: String? = nil
+    @Published var connectionPrompt: ConnectionPrompt? = nil
+    @Published var connections: [Connection] = []
+    @Published var tokenForm: String? = nil
     let liveVoice = LiveVoice()
     var spokenDraft: String {
         [voiceTurn.pending, liveVoice.transcript.isEmpty ? nil : liveVoice.transcript].compactMap { $0 }.joined(separator: " ")
@@ -115,7 +118,10 @@ func plain(_ value: Any?) -> String {
         case "end":
             if !voiceTurn.interrupted { speakSentences(flush: true) }
             streamingID = nil
-        case "connection_required": connectionPrompt = event["action"] as? String
+        case "connection_required":
+            connectionPrompt = ConnectionPrompt(event: event, request: messages.last(where: { $0.role == "user" })?.text)
+        case "connections":
+            connections = (event["providers"] as? [[String: Any]] ?? []).map(Connection.init)
         case "memory": memoryStatus = text
         case "map":
             plans = (event["plans"] as? [[String: Any]] ?? []).map { PlanItem(item: plain($0["item"]), status: plain($0["status"])) }
@@ -170,6 +176,70 @@ func plain(_ value: Any?) -> String {
 
     func foreground(_ active: Bool) { transport.foreground(active) }
 
+    func refreshConnections() {
+        Task { if let rows = try? await transport.connections() { connections = rows.map(Connection.init) } }
+    }
+
+    /// Connect the service a reply asked for. Google opens the host's authorization sheet; the others take a token.
+    func connectService() {
+        guard var prompt = connectionPrompt, prompt.phase != .connecting else { return }
+        if Service.usesToken(prompt.provider) { tokenForm = prompt.provider; return }
+        prompt.phase = .connecting; connectionPrompt = prompt
+        Task {
+            do {
+                try await authorize(provider: prompt.provider, grant: prompt.grant)
+                finish(.connected)
+            } catch let error as ASWebAuthenticationSessionError where error.code == .canceledLogin {
+                finish(.needed)
+            } catch {
+                finish(.failed(error.localizedDescription))
+            }
+        }
+    }
+
+    /// The host's authorization for one grant: open its sheet, then confirm with the host, never from the callback alone.
+    func authorize(provider: String, grant: String?) async throws {
+        let started = try await transport.startConnection(provider: provider, grant: grant)
+        if let url = started.url { _ = try await WebAuth.shared.run(url) }
+        var state = try await transport.connectionState(intent: started.intent)
+        var waited = 0
+        while state.state == "pending" && waited < 30 {
+            try await Task.sleep(for: .seconds(1)); waited += 1
+            state = try await transport.connectionState(intent: started.intent)
+        }
+        guard state.state == "connected" else { throw ConnectionFailure(state.error ?? "The connection wasn’t completed.") }
+        refreshConnections()
+    }
+
+    func submitToken(provider: String, token: String) async -> String? {
+        do {
+            _ = try await transport.connectToken(provider: provider, token: token)
+            tokenForm = nil
+            if connectionPrompt?.provider == provider { finish(.connected) }
+            refreshConnections()
+            return nil
+        } catch {
+            return error.localizedDescription
+        }
+    }
+
+    func disconnect(_ provider: String, grant: String? = nil) {
+        Task { try? await transport.removeConnection(provider: provider, grant: grant); refreshConnections() }
+    }
+
+    /// Ask again what could not be answered before the connection existed.
+    func continueRequest() {
+        guard let request = connectionPrompt?.request, connected, !busy else { return }
+        connectionPrompt = nil
+        submit(request)
+    }
+
+    private func finish(_ phase: ConnectionPrompt.Phase) {
+        guard var prompt = connectionPrompt else { return }
+        prompt.phase = phase; connectionPrompt = prompt
+        refreshConnections()
+    }
+
     func toggleVoice() {
         if voice { stop(); return }
         voiceStartIndex = messages.count
@@ -183,12 +253,7 @@ func plain(_ value: Any?) -> String {
     }
 }
 
-/// Which service a missing-access event is about. Shared authorization for the host does not exist yet,
-/// so the phone only explains; it never implies a Mac connection covers the host.
-func serviceName(for action: String) -> String {
-    if action.hasPrefix("google") { return "Google" }
-    if action.hasPrefix("todoist") { return "Todoist" }
-    if action.hasPrefix("notion") { return "Notion" }
-    if action.hasPrefix("github") { return "GitHub" }
-    return "That service"
+struct ConnectionFailure: LocalizedError {
+    let errorDescription: String?
+    init(_ text: String) { errorDescription = text }
 }

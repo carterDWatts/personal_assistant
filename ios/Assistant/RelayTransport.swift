@@ -7,6 +7,9 @@ struct RelayError: LocalizedError {
     var errorDescription: String? {
         switch code {
         case "conversation_busy": return "Busy answering on another device. Try again in a moment."
+        case "invalid_request": return "Connecting from the phone isn’t available on the host yet."
+        case "invalid_token": return "That token was not accepted."
+        case "provider_unreachable": return "The service couldn’t be reached. Try again in a moment."
         case "account_denied", "device_denied": return "This phone isn’t allowed on the account."
         case "sign_in_required": return "Sign in again to continue."
         default: return "The host couldn’t be reached. Try again in a moment."
@@ -149,6 +152,34 @@ struct RelayError: LocalizedError {
     }
 
     func close() { poller?.cancel() }
+
+    func connections() async throws -> [[String: Any]] {
+        try await call("connections")["providers"] as? [[String: Any]] ?? []
+    }
+
+    func startConnection(provider: String, grant: String?) async throws -> (intent: String, url: URL?) {
+        var args: [String: Any] = ["provider": provider]
+        if let grant { args["grant"] = grant }
+        let result = try await call("connection_start", args)
+        guard let intent = result["intent_id"] as? String else { throw RelayError(status: 0, code: "invalid_request") }
+        return (intent, (result["url"] as? String).flatMap(URL.init(string:)))
+    }
+
+    func connectionState(intent: String) async throws -> (state: String, error: String?) {
+        let result = try await call("connection_status", ["intent_id": intent])
+        return (result["state"] as? String ?? "pending", result["error"] as? String)
+    }
+
+    func connectToken(provider: String, token: String) async throws -> String {
+        let result = try await call("connection_token", ["provider": provider, "token": token])
+        return result["account"] as? String ?? Service.name(provider)
+    }
+
+    func removeConnection(provider: String, grant: String?) async throws {
+        var args: [String: Any] = ["provider": provider]
+        if let grant { args["grant"] = grant }
+        _ = try await call("connection_remove", args)
+    }
 
     private func number(_ value: Any?) -> Int64? {
         switch value {

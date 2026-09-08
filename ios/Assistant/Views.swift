@@ -301,6 +301,7 @@ struct ConversationView: View {
     @State private var follow = true
     @State private var showDay = false
     @State private var showSettings = false
+    @State private var showConnections = false
     @Environment(\.scenePhase) private var phase
     private let palette = Palette.concrete
     private let sample = ProcessInfo.processInfo.arguments.contains("--sample")
@@ -331,6 +332,7 @@ struct ConversationView: View {
                     Button { showDay = true } label: { Image(systemName: "calendar") }.accessibilityLabel("Show the day")
                     Menu {
                         Button("Clear", systemImage: "eraser") { chat.draft = ""; chat.connect(clear: true) }.disabled(!chat.connected || chat.busy)
+                        Button("Connections", systemImage: "link") { showConnections = true }
                         Button("Settings", systemImage: "gearshape") { showSettings = true }
                         if !chat.connected && !chat.busy { Button("Reconnect", systemImage: "arrow.clockwise") { chat.connect() } }
                         if account.signedIn { Button("Sign out", systemImage: "rectangle.portrait.and.arrow.right") { account.signOut() } }
@@ -342,6 +344,10 @@ struct ConversationView: View {
                 DayPanel(chat: chat, palette: palette).presentationDetents([.medium, .large]).presentationDragIndicator(.visible)
             }
             .sheet(isPresented: $showSettings) { SettingsView(palette: palette) }
+            .sheet(isPresented: $showConnections) { ConnectionsView(chat: chat, palette: palette) }
+            .sheet(isPresented: Binding(get: { chat.tokenForm != nil }, set: { if !$0 { chat.tokenForm = nil } })) {
+                if let provider = chat.tokenForm { TokenForm(chat: chat, provider: provider, palette: palette) }
+            }
             .fullScreenCover(isPresented: Binding(get: { chat.voice }, set: { if !$0 { chat.stop() } })) {
                 VoiceConversation(chat: chat, palette: palette)
             }
@@ -374,12 +380,8 @@ struct ConversationView: View {
                         }
                         MessageRow(message: message, palette: palette).id(message.id)
                     }
-                    if let action = chat.connectionPrompt {
-                        HStack(alignment: .top, spacing: 8) {
-                            Image(systemName: "link").foregroundStyle(palette.muted).padding(.top, 2)
-                            Text("\(serviceName(for: action)) isn’t connected for the host yet, so that part has to wait.")
-                                .font(.callout).foregroundStyle(palette.muted)
-                        }.padding(.leading, 32)
+                    if let prompt = chat.connectionPrompt {
+                        ConnectionCard(chat: chat, prompt: prompt, palette: palette)
                     }
                     Color.clear.frame(height: 1).id("bottom")
                         .onAppear { follow = true }
@@ -397,6 +399,149 @@ struct ConversationView: View {
                         .buttonStyle(SquareButton(palette: palette)).padding(.bottom, 8).accessibilityLabel("Scroll to latest")
                 }
             }
+        }
+    }
+}
+
+/// A reply that needed a service the host cannot reach yet. Connect here and pick the request back up.
+struct ConnectionCard: View {
+    @ObservedObject var chat: Chat
+    let prompt: ConnectionPrompt
+    let palette: Palette
+    private var service: String { Service.name(prompt.provider, grant: prompt.grant) }
+    private var detail: String {
+        switch prompt.phase {
+        case .failed(let text): return text
+        case .connected: return "Ask again and it can use it now."
+        case .connecting: return Service.usesToken(prompt.provider) ? "Checking the token." : "Finish in the sheet; the host keeps the permission and this phone never sees the token."
+        case .needed: return Service.usesToken(prompt.provider)
+            ? "Guided setup with a token you paste. The assistant only reads."
+            : "Approve it in a secure sheet. The host keeps the permission and this phone never sees the token."
+        }
+    }
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Image(systemName: prompt.phase == .connected ? "checkmark.square.fill" : "link").foregroundStyle(palette.accent)
+                Text(prompt.phase == .connected ? "\(service) is connected" : "\(service) isn’t connected for the host")
+                    .font(.subheadline.weight(.semibold)).foregroundStyle(palette.ink)
+            }
+            Text(detail).font(.callout).foregroundStyle({ if case .failed = prompt.phase { return Color.orange } else { return palette.muted } }())
+                .fixedSize(horizontal: false, vertical: true)
+            HStack(spacing: 12) {
+                switch prompt.phase {
+                case .needed, .failed:
+                    Button { chat.connectService() } label: { Text("Connect \(Service.name(prompt.provider))").padding(.horizontal, 10) }
+                        .buttonStyle(SquareButton(palette: palette, prominent: true))
+                case .connecting:
+                    ProgressView().tint(palette.accent)
+                    Text("Waiting for \(Service.name(prompt.provider))…").font(.callout).foregroundStyle(palette.muted)
+                case .connected:
+                    if prompt.request != nil {
+                        Button { chat.continueRequest() } label: { Text("Continue").padding(.horizontal, 10) }
+                            .buttonStyle(SquareButton(palette: palette, prominent: true)).disabled(chat.busy || !chat.connected)
+                    }
+                }
+            }
+        }
+        .padding(14)
+        .background(palette.surface.opacity(0.85))
+        .overlay(Rectangle().stroke(palette.line, lineWidth: 1))
+        .padding(.leading, 32)
+    }
+}
+
+/// Guided token setup for the services without a sign-in flow. The token goes to the host's secure setup path only.
+struct TokenForm: View {
+    @ObservedObject var chat: Chat
+    let provider: String
+    let palette: Palette
+    @State private var token = ""
+    @State private var working = false
+    @State private var problem = ""
+    @Environment(\.dismiss) private var dismiss
+    var body: some View {
+        NavigationStack {
+            VStack(alignment: .leading, spacing: 16) {
+                Text(Service.instructions(provider)).font(.callout).foregroundStyle(palette.muted).fixedSize(horizontal: false, vertical: true)
+                SecureField("Token", text: $token).textContentType(.password).autocorrectionDisabled().textInputAutocapitalization(.never)
+                    .font(.body.monospaced()).foregroundStyle(palette.ink).tint(palette.accent)
+                    .padding(12).background(palette.surface).overlay(Rectangle().stroke(palette.line, lineWidth: 1))
+                if !problem.isEmpty { Text(problem).font(.caption).foregroundStyle(Color.orange) }
+                HStack {
+                    Spacer()
+                    Button {
+                        Task {
+                            working = true
+                            problem = await chat.submitToken(provider: provider, token: token.trimmingCharacters(in: .whitespacesAndNewlines)) ?? ""
+                            working = false
+                        }
+                    } label: { Text(working ? "Checking…" : "Save").padding(.horizontal, 10) }
+                    .buttonStyle(SquareButton(palette: palette, prominent: true)).disabled(working || token.count < 8)
+                }
+                Spacer()
+            }
+            .padding(24)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .background(Concrete(palette: palette).ignoresSafeArea())
+            .navigationTitle(Service.name(provider)).navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } } }
+        }.tint(palette.accent).preferredColorScheme(.light)
+    }
+}
+
+/// Every service the host can read from, with its state on the host, not on this phone.
+struct ConnectionsView: View {
+    @ObservedObject var chat: Chat
+    let palette: Palette
+    @State private var working: String? = nil
+    @State private var problem = ""
+    @Environment(\.dismiss) private var dismiss
+    private func connection(_ provider: String) -> Connection? { chat.connections.first { $0.id == provider } }
+    var body: some View {
+        NavigationStack {
+            List {
+                Section {
+                    ForEach(Service.grants, id: \.self) { grant in
+                        let linked = connection("google")?.grants.contains(grant) == true
+                        row(Service.name("google", grant: grant), linked: linked, key: "google/" + grant) {
+                            if linked { chat.disconnect("google", grant: grant) } else { authorize("google", grant) }
+                        }
+                    }
+                } header: { Text("Google") } footer: { Text(connection("google")?.account.map { "Signed in as \($0)." } ?? "Each permission is approved separately.") }
+                Section {
+                    ForEach(["todoist", "notion", "github"], id: \.self) { provider in
+                        let linked = connection(provider)?.state == "connected"
+                        row(Service.name(provider), linked: linked, key: provider) {
+                            if linked { chat.disconnect(provider) } else { chat.tokenForm = provider }
+                        }
+                    }
+                } header: { Text("Tokens") } footer: { Text("Guided setup with a token from each service. The assistant only reads. Disconnect removes the host’s copy; revoke at the service to invalidate it everywhere.") }
+                if !problem.isEmpty { Section { Text(problem).font(.caption).foregroundStyle(Color.orange) } }
+            }
+            .scrollContentBackground(.hidden)
+            .background(palette.background)
+            .navigationTitle("Connections").navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
+            .onAppear { chat.refreshConnections() }
+        }.tint(palette.accent).preferredColorScheme(.light)
+    }
+
+    private func row(_ name: String, linked: Bool, key: String, action: @escaping () -> Void) -> some View {
+        HStack {
+            Image(systemName: linked ? "checkmark.square.fill" : "square").foregroundStyle(linked ? palette.accent : palette.muted)
+            Text(name).foregroundStyle(palette.ink)
+            Spacer()
+            if working == key { ProgressView().tint(palette.accent) }
+            else { Button(linked ? "Disconnect" : "Connect", action: action).font(.callout).foregroundStyle(linked ? palette.muted : palette.accent) }
+        }
+    }
+
+    private func authorize(_ provider: String, _ grant: String?) {
+        working = provider + "/" + (grant ?? ""); problem = ""
+        Task {
+            do { try await chat.authorize(provider: provider, grant: grant) } catch { problem = error.localizedDescription }
+            working = nil
         }
     }
 }

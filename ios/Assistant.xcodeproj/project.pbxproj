@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		0046B9359FD9A79E7BF42619 /* VoiceTurn.swift in Sources */ = {isa = PBXBuildFile; fileRef = C85DAEEEE55F2BFC90BE3CC9 /* VoiceTurn.swift */; };
+		0C3FD95CC5D35890D472ECD1 /* Connections.swift in Sources */ = {isa = PBXBuildFile; fileRef = 943C7F4182F35505F7A0B412 /* Connections.swift */; };
 		20CB022D16C16345828B8930 /* Transport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 19166F88EC58DDC6BF56BDD6 /* Transport.swift */; };
 		63B70AB8344C1CEB6A0FEBD4 /* Views.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2CF368B5C1B83543A7E505E0 /* Views.swift */; };
 		74BE8C1B54D60ADD47A77699 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 986D1C1B277AB5299783326C /* Assets.xcassets */; };
@@ -27,6 +28,7 @@
 		0A20A9483B2B64425BF1A36D /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		19166F88EC58DDC6BF56BDD6 /* Transport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Transport.swift; sourceTree = "<group>"; };
 		2CF368B5C1B83543A7E505E0 /* Views.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views.swift; sourceTree = "<group>"; };
+		943C7F4182F35505F7A0B412 /* Connections.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Connections.swift; sourceTree = "<group>"; };
 		986D1C1B277AB5299783326C /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		C10CBC59C32F901023B4AB71 /* Assistant.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = Assistant.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		C713842B995B63BEBCE8932C /* RelayTransport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RelayTransport.swift; sourceTree = "<group>"; };
@@ -70,6 +72,7 @@
 				DAD2018EE3CC52D3D8588EDC /* App.swift */,
 				986D1C1B277AB5299783326C /* Assets.xcassets */,
 				09916F194DDAA79391C8ABED /* Chat.swift */,
+				943C7F4182F35505F7A0B412 /* Connections.swift */,
 				0A20A9483B2B64425BF1A36D /* Info.plist */,
 				FE1E7DC00C8E768658B15BA8 /* Look.swift */,
 				C713842B995B63BEBCE8932C /* RelayTransport.swift */,
@@ -188,6 +191,7 @@
 				E7822E63E1E8FC23FFFFAC2E /* Account.swift in Sources */,
 				CA24510F1F5E93FDAE862DA4 /* App.swift in Sources */,
 				DE85CB8159AB83773B5C0DA4 /* Chat.swift in Sources */,
+				0C3FD95CC5D35890D472ECD1 /* Connections.swift in Sources */,
 				BC84ECD4FDE1408C3E8735EA /* Look.swift in Sources */,
 				7E7862DFBFD553244702D495 /* RelayTransport.swift in Sources */,
 				20CB022D16C16345828B8930 /* Transport.swift in Sources */,

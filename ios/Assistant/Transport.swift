@@ -9,6 +9,12 @@ import Foundation
     func stop()
     func foreground(_ active: Bool)
     func close()
+    /// Connection setup for the host. Credentials go only through these, never through send.
+    func connections() async throws -> [[String: Any]]
+    func startConnection(provider: String, grant: String?) async throws -> (intent: String, url: URL?)
+    func connectionState(intent: String) async throws -> (state: String, error: String?)
+    func connectToken(provider: String, token: String) async throws -> String
+    func removeConnection(provider: String, grant: String?) async throws
 }
 
 func isoDate(_ date: Date) -> String {
@@ -53,6 +59,9 @@ func isoDate(_ date: Date) -> String {
             guard let self else { return }
             emit(["type": "ready"])
             emit(map())
+            if ProcessInfo.processInfo.arguments.contains("--connection") {
+                emit(["type": "connection_required", "action": "google_connect", "message": "This service needs to be connected on this host."])
+            }
         }
     }
 
@@ -65,6 +74,9 @@ func isoDate(_ date: Date) -> String {
             guard let self else { return }
             emit(["type": "start"])
             try? await Task.sleep(for: .milliseconds(700))
+            if text.lowercased().contains("calendar") && (linked["google"] ?? []).isEmpty {
+                emit(["type": "connection_required", "action": "google_connect", "message": "This service needs to be connected on this host."])
+            }
             var spoken = ""
             for word in answer.split(separator: " ") {
                 if Task.isCancelled { break }
@@ -85,6 +97,38 @@ func isoDate(_ date: Date) -> String {
     func foreground(_ active: Bool) {}
     func close() { reply?.cancel() }
 
+    private var linked: [String: [String]] = [:]
+
+    func connections() async throws -> [[String: Any]] {
+        ["google", "todoist", "notion", "github"].map { provider in
+            ["id": provider, "kind": provider == "google" ? "google" : "token",
+             "state": (linked[provider] ?? []).isEmpty ? "absent" : "connected", "grants": linked[provider] ?? [],
+             "account": (linked[provider] ?? []).isEmpty ? nil : "sample account"] as [String: Any]
+        }
+    }
+
+    func startConnection(provider: String, grant: String?) async throws -> (intent: String, url: URL?) {
+        try await Task.sleep(for: .seconds(1))
+        linked[provider, default: []].append(grant ?? provider)
+        emit(["type": "connections", "providers": try await connections()])
+        return ("sample", nil)
+    }
+
+    func connectionState(intent: String) async throws -> (state: String, error: String?) { ("connected", nil) }
+
+    func connectToken(provider: String, token: String) async throws -> String {
+        try await Task.sleep(for: .seconds(1))
+        guard token.count > 8 else { throw MockError("That token was not accepted.") }
+        linked[provider] = [provider]
+        emit(["type": "connections", "providers": try await connections()])
+        return "sample account"
+    }
+
+    func removeConnection(provider: String, grant: String?) async throws {
+        linked[provider] = nil
+        emit(["type": "connections", "providers": try await connections()])
+    }
+
     private func map() -> [String: Any] {
         ["type": "map",
          "plans": [["item": "Call the dentist about Thursday", "status": "planned"],
@@ -92,4 +136,9 @@ func isoDate(_ date: Date) -> String {
                    ["item": "Look over the phone client", "status": "proposed"]],
          "questions": 1, "pending": 0, "errors": 0]
     }
+}
+
+struct MockError: LocalizedError {
+    let errorDescription: String?
+    init(_ text: String) { errorDescription = text }
 }
