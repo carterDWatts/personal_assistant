@@ -39,7 +39,7 @@ def status():
     return result
 
 
-def _request(provider, path, *, params=None, body=None, token=None):
+def _request(provider, path, *, params=None, body=None, token=None, method=None):
     label, base, _ = PROVIDERS[provider]
     if token is None:
         with _LOCK, keyring.refresh_lock(SERVICE, _account(provider)):
@@ -61,7 +61,7 @@ def _request(provider, path, *, params=None, body=None, token=None):
         headers["X-GitHub-Api-Version"] = "2022-11-28"
     # POST is used only for Notion's read-only search. No write endpoints are exposed.
     try:
-        with requests.request("POST" if body is not None else "GET", base + path,
+        with requests.request(method or ("POST" if body is not None else "GET"), base + path,
                               headers=headers, params=params, json=body, timeout=10,
                               allow_redirects=False, stream=True) as response:
             if response.status_code == 401:
@@ -86,7 +86,7 @@ def _request(provider, path, *, params=None, body=None, token=None):
 
 def connect(provider, token):
     account = _account(provider)
-    if provider in ('github','supabase') and token is None:
+    if provider in ('github','supabase','todoist','notion') and token is None:
         from engine.integrations.oauth import connect_local
         connect_local(provider,SERVICE,account)
         return status()[provider]
