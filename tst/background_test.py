@@ -30,11 +30,11 @@ class background_test(MapTest):
 
     def test_sent_mail_updates_context_without_notifying(self):
         self.map.execute("insert into assistant.source_items(source,id) values('gmail','abc')")
-        classification={'items':[{'id':'abc','relevant':True,'notify':True,'remember':True,'title':'Application sent','reason':'The user submitted an application.'}]}
+        classification={'items':[{'id':'abc','relevant':True,'notify':True,'remember':True,'title':'Application sent','reason':'The user submitted an application.','message':'The user submitted an application.'}]}
         runtime=FakeRuntime([[call('classify',**classification)]])
         raw={'id':'abc','internalDate':'1788840000000','labelIds':['SENT','UNREAD'], 'payload':{'mimeType':'text/plain','body':{'data':base64.urlsafe_b64encode(b'Application submitted').decode()}}}
         with patch('engine.integrations.google._get',return_value=raw): self.run_async(Background(self.map,lambda _:runtime).triage())
-        self.assertIn('Facts (current',runtime.sent[0])
+        self.assertIn('Related current facts (bounded)',runtime.sent[0])
         self.assertFalse(self.map.value('select notify from assistant.attention'))
         self.assertEqual(self.map.value('select count(*) from memory.memory_jobs'),1)
         self.assertTrue(self.map.value("select (payload->>'external')::boolean from memory.messages"))
@@ -61,7 +61,7 @@ class background_test(MapTest):
 
     def test_initial_mail_sync_does_not_notify(self):
         self.map.execute("insert into assistant.source_items(source,id,payload) values('gmail','initial','{\"backfill\":true}')")
-        classified={'items':[{'id':'initial','relevant':True,'notify':True,'remember':False,'title':'Past mail','reason':'An older item.'}]}
+        classified={'items':[{'id':'initial','relevant':True,'notify':True,'remember':False,'title':'Past mail','reason':'An older item.','message':'An older item.'}]}
         raw={'id':'initial','internalDate':'1788840000000','labelIds':['UNREAD'],'payload':{}}
         with patch('engine.integrations.google._get',return_value=raw):
             self.run_async(Background(self.map,lambda _:FakeRuntime([[call('classify',**classified)]])).triage())
@@ -70,7 +70,7 @@ class background_test(MapTest):
 
     def test_same_email_thread_is_not_notified_twice_per_day(self):
         self.map.execute("insert into assistant.source_items(source,id) values('gmail','one'),('gmail','two')")
-        items=[{'id':id,'relevant':True,'notify':True,'remember':False,'title':id,'reason':'A reply.'} for id in ('one','two')]
+        items=[{'id':id,'relevant':True,'notify':True,'remember':False,'title':id,'reason':'A reply.','message':'A reply.'} for id in ('one','two')]
         raw={'threadId':'same-thread','internalDate':'1788840000000','labelIds':['UNREAD'],'payload':{}}
         with patch('engine.integrations.google._get',return_value=raw):
             self.run_async(Background(self.map,lambda _:FakeRuntime([[call('classify',items=items)]])).triage())
@@ -83,11 +83,13 @@ class background_test(MapTest):
         entity=self.run_async(tools.entity_upsert({'type':'project','name':'An active project'}))['id']
         self.run_async(tools.attribute_register({'name':'deadline','value_type':'text','cardinality':'single'}))
         fact=self.run_async(tools.fact_assert({'entity_id':str(entity),'attribute':'deadline','value':'Tomorrow'}))
-        alert={'category':'deadline','title':'A deadline needs attention','reason':'A current commitment is approaching.','evidence':[{'kind':'assertions','id':str(fact['id'])}]}
+        alert={'category':'deadline','title':'A deadline needs attention','message':'You have a deadline tomorrow.','reason':'A current commitment is approaching.','evidence':[{'kind':'assertions','id':str(fact['id'])}]}
         runtime=FakeRuntime([[call('review_attention',alerts=[alert])]])
         self.run_async(review(self.map,lambda _:runtime))
         self.assertEqual(self.map.value("select count(*) from assistant.attention where source='context'"),1)
         self.run_async(review(self.map,lambda _:self.fail('Unchanged memory must not invoke a model')))
+        self.map.execute("update assistant.source_items set available_at='2020-01-01' where source='context-review'")
+        self.run_async(review(self.map,lambda _:self.fail('An elapsed cooldown alone must not invoke a model')))
         self.map.execute("update assistant.source_items set available_at='2020-01-01',payload=null where source='context-review'")
         self.run_async(review(self.map,lambda _:FakeRuntime([[call('review_attention',alerts=[alert])]])))
         self.assertEqual(self.map.value("select count(*) from assistant.attention where source='context'"),1)
@@ -109,7 +111,7 @@ class background_test(MapTest):
 
     def test_bad_fetch_does_not_block_classifying_other_mail(self):
         self.map.execute("insert into assistant.source_items(source,id) values('gmail','bad'),('gmail','good')")
-        classified={'id':'good','relevant':False,'notify':False,'remember':False,'title':'Routine mail','reason':'No action needed.'}
+        classified={'id':'good','relevant':False,'notify':False,'remember':False,'title':'Routine mail','reason':'No action needed.','message':'No action needed.'}
         raw={'id':'good','internalDate':'1788840000000','labelIds':['CATEGORY_UPDATES'],'payload':{}}
         with patch('engine.integrations.google._get',side_effect=[TimeoutError(),raw]):
             self.run_async(Background(self.map,lambda _:FakeRuntime([[call('classify',items=[classified])]])).triage())
@@ -127,7 +129,7 @@ class background_test(MapTest):
 
     def test_malformed_email_does_not_block_other_mail(self):
         self.map.execute("insert into assistant.source_items(source,id) values('gmail','bad'),('gmail','good')")
-        classified={'id':'good','relevant':False,'notify':False,'remember':False,'title':'Routine','reason':'No action.'}
+        classified={'id':'good','relevant':False,'notify':False,'remember':False,'title':'Routine','reason':'No action.','message':'No action.'}
         raw={'internalDate':'1788840000000','payload':{}}
         with patch('engine.integrations.google._get',side_effect=[{'internalDate':'invalid'},raw]):
             self.run_async(Background(self.map,lambda _:FakeRuntime([[call('classify',items=[classified])]])).triage())
@@ -154,7 +156,38 @@ class background_test(MapTest):
 
     def test_read_status_does_not_override_notification_decision(self):
         self.map.execute("insert into assistant.source_items(source,id) values('gmail','read-important')")
-        runtime=FakeRuntime([[call('classify',items=[{'id':'read-important','relevant':True,'notify':True,'remember':False,'title':'An important change','reason':'A commitment changed.'}])]])
+        runtime=FakeRuntime([[call('classify',items=[{'id':'read-important','relevant':True,'notify':True,'remember':False,'title':'An important change','reason':'A commitment changed.','message':'A commitment changed.'}])]])
         raw={'id':'read-important','internalDate':'1788840000000','labelIds':['INBOX'],'payload':{}}
         with patch('engine.integrations.google._get',return_value=raw):self.run_async(Background(self.map,lambda _:runtime).triage())
         self.assertTrue(self.map.value('select notify from assistant.attention'))
+
+    def test_reviewer_cannot_send_scheduled_reminders_early(self):
+        from engine.attention import notification_eligible
+        self.assertFalse(notification_eligible(self.map,[{'kind':'reminders','id':'future'}]))
+        self.assertFalse(notification_eligible(self.map,[{'kind':'plans','id':'1'}]))
+
+    def test_email_message_does_not_leak_classification_reason(self):
+        self.map.execute("insert into assistant.source_items(source,id) values('gmail','wording')")
+        item={'id':'wording','relevant':True,'notify':True,'remember':False,'title':'A reply',
+              'reason':'This should interrupt the user.','message':'Alex replied with the new time.'}
+        raw={'threadId':'wording','internalDate':'1788840000000','labelIds':['UNREAD'],'payload':{}}
+        with patch('engine.integrations.google._get',return_value=raw):
+            self.run_async(Background(self.map,lambda _:FakeRuntime([[call('classify',items=[item])]])).triage())
+        self.assertEqual(self.map.value("select detail from assistant.attention where source_id='wording'"),item['message'])
+        self.assertTrue(self.map.value("select exists(select 1 from assistant.source_items where source='runtime-usage')"))
+
+    def test_fact_from_announced_email_does_not_create_another_alert(self):
+        from engine.attention import notification_eligible
+        from engine.tools import Tools
+        from engine.conversation import Conversation
+        from engine.outbound import post
+        conversation=Conversation(self.map,'test','codex')
+        segment=conversation.open_segment('talk')
+        message=conversation.record(segment,'user','Alex replied.',{'source':'gmail','source_id':'already-announced'})
+        tools=Tools(self.map,'test');tools.message_id=message
+        entity=self.run_async(tools.entity_upsert({'type':'person','name':'Alex'}))['id']
+        self.run_async(tools.attribute_register({'name':'reply','value_type':'text','cardinality':'single'}))
+        fact=self.run_async(tools.fact_assert({'entity_id':str(entity),'attribute':'reply','value':'Today'}))
+        notice=self.map.value("insert into assistant.attention(source,source_id,title,detail,notify) values('gmail','already-announced','Alex replied','A new time',true) returning id")
+        post(self.map,'notice:'+str(notice),'Alex replied.',{'kind':'notice','id':str(notice)})
+        self.assertFalse(notification_eligible(self.map,[{'kind':'assertions','id':str(fact['id'])}]))

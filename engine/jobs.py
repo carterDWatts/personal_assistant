@@ -72,7 +72,7 @@ class Worker:
 
     async def once(self):
         if not self.map.value("select pg_try_advisory_lock(hashtextextended('assistant-jobs',0))"):return False
-        runtime=None;job=None;workspace=None;completed=[];pending=''
+        runtime=None;job=None;workspace=None;completed=[];pending='';started=time.monotonic()
         try:
             # A previous worker died. Never claim its task succeeded or silently repeat it.
             for old in self.map.rows("select * from assistant.jobs where status='running'"):
@@ -175,7 +175,10 @@ Do not ask the user to do research you can finish with the supplied tools. Do no
             return True
         finally:
             if runtime:
-                try:await asyncio.wait_for(runtime.close(),10)
+                try:
+                    from engine.usage import record
+                    metrics=await asyncio.wait_for(runtime.close(),10)
+                    record(self.map,'job',job['runtime'],metrics,started,len(job['task']))
                 except Exception:pass
             self.map.execute("select pg_advisory_unlock(hashtextextended('assistant-jobs',0))")
 

@@ -87,3 +87,22 @@ Speech dependencies: [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) and th
 For synthesis, run `python3 -m engine.voice.tts_models`, then `python3 -m scripts.check_synthesis`. This exercises real audio generation, cancellation and another utterance without reloading the model. An optional output WAV path saves a sample. It does not use your microphone or call a paid API. Kokoro weights are Apache-2.0; the accompanying eSpeak NG data is GPL-licensed. The weight license remains beside the cached model. See [Kokoro voice mapping](https://k2-fsa.github.io/sherpa/onnx/tts/pretrained_models/kokoro.html) and [eSpeak NG licensing](https://github.com/espeak-ng/espeak-ng/blob/master/COPYING).
 
 On the development Mac, the larger recognizer reduced first-clip word error from 16.7% to zero on the two public recordings; first partial text arrived around one second. These read-speech fixtures are regression checks, not evidence of accuracy on conversational speech in a room. Pi and mobile performance still need device testing.
+
+### Background eligibility and usage
+
+The scheduler owns reminder delivery times. Context review cannot turn a reminder
+into an early alert, and facts extracted from an already-announced source cannot
+independently announce that source again. Research preparation stays internal.
+The model decides relevance and wording after these checks, using learned rules.
+
+Context review checks revision markers before loading a prompt. It runs at most
+once per 30 minutes, and only after a memory change, completed job, or local date
+change. Mail triage receives standing rules and bounded matching facts. Memory
+extraction receives candidate facts, registries, and a short conversation window,
+with read tools for resolving missing context rather than the whole day snapshot.
+
+Background usage is recorded in `assistant.source_items` under `runtime-usage`:
+provider token/cache counters, elapsed time, and input size, without prompt text.
+Memory extraction already records metrics in `memory.memory_jobs`. Provider cost
+estimates are not subscription charges, and cached-token fields may overlap input
+token totals. Missing metrics are unknown, not zero usage.
