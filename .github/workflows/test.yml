@@ -21,4 +21,4 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: xcodebuild -project ios/Assistant.xcodeproj -scheme Assistant -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build
-      - run: swiftc -parse-as-library desktop/PersonalAssistant.swift shared/ContextImport.swift shared/BunnyGlyph.swift desktop/BunnyArtwork.swift desktop/OutputStream.swift desktop/LiveVoice.swift desktop/LocalSpeech.swift desktop/LocalVoice.swift desktop/VoiceTurn.swift -o /tmp/assistant-check -framework SwiftUI -framework AVFoundation
+      - run: swiftc -parse-as-library desktop/PersonalAssistant.swift shared/ContextImport.swift shared/DaySchedule.swift shared/BunnyGlyph.swift desktop/BunnyArtwork.swift desktop/OutputStream.swift desktop/LiveVoice.swift desktop/LocalSpeech.swift desktop/LocalVoice.swift desktop/VoiceTurn.swift -o /tmp/assistant-check -framework SwiftUI -framework AVFoundation

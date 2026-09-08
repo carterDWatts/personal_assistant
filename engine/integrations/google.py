@@ -208,6 +208,9 @@ async def calendar_create_event(args):
 
 def _calendar(args):
     now = datetime.now(timezone.utc)
+    if args.get('_day_view'):
+        from zoneinfo import ZoneInfo
+        now=now.astimezone(ZoneInfo(config.TIMEZONE)).replace(hour=0,minute=0,second=0,microsecond=0)
     calendars = _get("calendar/v3/users/me/calendarList").get("items", [])
     selected = [c for c in calendars if c.get("selected") or c.get("primary")]
     output = []

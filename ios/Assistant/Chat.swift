@@ -92,6 +92,7 @@ func plain(_ value: Any?) -> String {
     @Published var reminders: [ReminderItem] = []
     @Published var reminderStatus = ""
     @Published var plans: [PlanItem] = []
+    @Published var calendar: [String: Any] = [:]
     @Published var openQuestions = 0
     @Published var memoryPending = 0
     @Published var memoryErrors = 0
@@ -254,6 +255,7 @@ func plain(_ value: Any?) -> String {
         case "map":
             attention = (event["attention"] as? [[String: Any]] ?? []).map(AttentionItem.init)
             reminders = (event["reminders"] as? [[String: Any]] ?? []).map(ReminderItem.init)
+            calendar = event["calendar"] as? [String: Any] ?? [:]
             plans = (event["plans"] as? [[String: Any]] ?? []).map { PlanItem(item: plain($0["item"]), status: plain($0["status"])) }
             openQuestions = (event["questions"] as? NSNumber)?.intValue ?? 0
             memoryPending = (event["pending"] as? NSNumber)?.intValue ?? 0

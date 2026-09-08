@@ -21,6 +21,7 @@
 		756C2378C7F460D9BEBB21EE /* identity.json in Resources */ = {isa = PBXBuildFile; fileRef = 580BE68E2EA7EFBE168FF444 /* identity.json */; };
 		7E7862DFBFD553244702D495 /* RelayTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = C713842B995B63BEBCE8932C /* RelayTransport.swift */; };
 		8C0AE429407B4881090F61C2 /* ContextImport.swift in Sources */ = {isa = PBXBuildFile; fileRef = B74AEEBF9820A26218CCD184 /* ContextImport.swift */; };
+		A6D18B908AE5488A90171111 /* DaySchedule.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6D18B908AE5488A90172222 /* DaySchedule.swift */; };
 		A0E4E024E148CDD6D9073B95 /* input.wav in Resources */ = {isa = PBXBuildFile; fileRef = 6F8C7E076DFC1900D744A38C /* input.wav */; };
 		AD4ABC8E4D917F041D63CC44 /* Voice.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0497070F1E94B926A14D5A01 /* Voice.swift */; };
 		AF2DE7A02ACDE9D30C775CC7 /* voice-british.m4a in Resources */ = {isa = PBXBuildFile; fileRef = 54BD312561001569101CE03D /* voice-british.m4a */; };
@@ -74,6 +75,7 @@
 		9DB1C69949F8867309EA4FA5 /* Notifications.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Notifications.swift; sourceTree = "<group>"; };
 		B41DB425B0C177CC55CDA9A0 /* VoiceReplay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceReplay.swift; sourceTree = "<group>"; };
 		B74AEEBF9820A26218CCD184 /* ContextImport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContextImport.swift; sourceTree = "<group>"; };
+		A6D18B908AE5488A90172222 /* DaySchedule.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DaySchedule.swift; sourceTree = "<group>"; };
 		C10CBC59C32F901023B4AB71 /* Assistant.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = Assistant.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		C713842B995B63BEBCE8932C /* RelayTransport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RelayTransport.swift; sourceTree = "<group>"; };
 		C85DAEEEE55F2BFC90BE3CC9 /* VoiceTurn.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceTurn.swift; sourceTree = "<group>"; };
@@ -111,6 +113,7 @@
 			isa = PBXGroup;
 			children = (
 				B74AEEBF9820A26218CCD184 /* ContextImport.swift */,
+				A6D18B908AE5488A90172222 /* DaySchedule.swift */,
 			);
 			name = shared;
 			path = ../shared;
@@ -363,6 +366,7 @@
 				DE85CB8159AB83773B5C0DA4 /* Chat.swift in Sources */,
 				0C3FD95CC5D35890D472ECD1 /* Connections.swift in Sources */,
 				8C0AE429407B4881090F61C2 /* ContextImport.swift in Sources */,
+				A6D18B908AE5488A90171111 /* DaySchedule.swift in Sources */,
 				BC84ECD4FDE1408C3E8735EA /* Look.swift in Sources */,
 				27AE07C0E505531260112DCF /* Notifications.swift in Sources */,
 				CF3A4B4A55726D7311E86C5D /* RelaySocket.swift in Sources */,

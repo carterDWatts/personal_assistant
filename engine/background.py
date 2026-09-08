@@ -180,6 +180,13 @@ async def gather_sources(url,host):
             except Exception:
                 # No inference and no lost cursor on connection failure.
                 map_.execute("update assistant.source_cursors set checked_at=now(),last_error='Mail connection needs a retry' where source='gmail'")
+            try:
+                from engine.integrations.google import _calendar
+                calendar=await asyncio.to_thread(_calendar,{'days':7,'_day_view':True})
+                map_.execute("insert into assistant.source_items(source,id,payload,processed_at) values('calendar-view','current',%s,now()) on conflict(source,id) do update set payload=excluded.payload,processed_at=now(),last_error=null",(jsonb(calendar),))
+            except Exception:
+                map_.execute("insert into assistant.source_items(source,id,payload,last_error) values('calendar-view','current','{}','Calendar unavailable. Check your Google connection.') on conflict(source,id) do update set last_error=excluded.last_error")
+            await host.refresh_day()
             try: await asyncio.wait_for(host.stopping.wait(),120)
             except asyncio.TimeoutError: pass
     finally: map_.close()

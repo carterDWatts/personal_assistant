@@ -138,62 +138,60 @@ struct DayPanel: View {
         return "Memory up to date"
     }
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Text(Date().formatted(.dateTime.weekday(.wide))).font(.title2.weight(.semibold)).foregroundStyle(palette.ink)
-            Text(Date().formatted(.dateTime.month(.wide).day())).font(.subheadline).foregroundStyle(palette.muted).padding(.top, 2)
-            Rectangle().fill(palette.line).frame(height: 1).padding(.vertical, 12)
-            Button { chat.startMorning(); dismiss() } label: {
-                Label("Start morning", systemImage: "sun.horizon").frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.borderedProminent).tint(palette.accent)
-            .disabled(!chat.connected || chat.busy).padding(.bottom, 16)
-            ReminderPanel(chat: chat).padding(.bottom, 12)
-            if !chat.attention.isEmpty {
-                DisclosureGroup("What I noticed") {
-                    ScrollView {
-                        VStack(alignment: .leading, spacing: 10) {
-                            ForEach(chat.attention) { item in
-                                Button {
-                                    chat.discussNotification(kind: "notice", id: item.id, title: item.title)
-                                    dismiss()
-                                } label: {
-                                    VStack(alignment: .leading, spacing: 3) {
-                                        Text(item.title).font(.callout)
-                                        Text(item.detail).font(.caption).foregroundStyle(.secondary)
-                                        Text("Talk about this").font(.caption).foregroundStyle(palette.accent)
-                                    }
-                                }.buttonStyle(.plain)
+        ScrollView {
+            VStack(alignment: .leading, spacing: 20) {
+                DaySchedule(payload: chat.calendar, ink: palette.ink, muted: palette.muted, accent: palette.accent)
+                Divider()
+                Button { chat.startMorning(); dismiss() } label: { Label("Start morning", systemImage: "sun.horizon") }
+                .buttonStyle(.bordered).tint(palette.accent).disabled(!chat.connected || chat.busy)
+                DisclosureGroup("Reminders") { ReminderPanel(chat: chat).padding(.top, 10) }
+                if !chat.attention.isEmpty {
+                    DisclosureGroup("What I noticed") {
+                        ScrollView {
+                            VStack(alignment: .leading, spacing: 10) {
+                                ForEach(chat.attention) { item in
+                                    Button {
+                                        chat.discussNotification(kind: "notice", id: item.id, title: item.title)
+                                        dismiss()
+                                    } label: {
+                                        VStack(alignment: .leading, spacing: 3) {
+                                            Text(item.title).font(.callout)
+                                            Text(item.detail).font(.caption).foregroundStyle(.secondary)
+                                            Text("Talk about this").font(.caption).foregroundStyle(palette.accent)
+                                        }
+                                    }.buttonStyle(.plain)
+                                }
                             }
-                        }
-                    }.frame(maxHeight: 180)
-                }.padding(.bottom, 12)
-            }
-            if chat.plans.isEmpty {
-                Text("Nothing planned. Tell me what you’re doing and I’ll keep track.")
-                    .font(.callout).foregroundStyle(palette.muted).fixedSize(horizontal: false, vertical: true)
-            }
-            VStack(alignment: .leading, spacing: 10) {
-                ForEach(chat.plans) { plan in
-                    HStack(alignment: .top, spacing: 8) {
-                        Image(systemName: plan.status == "done" ? "checkmark.square.fill" : plan.status == "proposed" ? "square.dashed" : "square")
-                            .foregroundStyle(plan.status == "done" || plan.status == "proposed" ? palette.accent : palette.muted)
-                            .padding(.top, 1)
-                        VStack(alignment: .leading, spacing: 1) {
-                            Text(plan.item).font(.callout).foregroundStyle(plan.status == "skipped" || plan.status == "dropped" ? palette.muted : palette.ink)
-                                .strikethrough(plan.status == "skipped" || plan.status == "dropped").lineLimit(2)
-                            if plan.status == "proposed" { Text("Suggested").font(.caption).foregroundStyle(palette.accent) }
+                        }.frame(maxHeight: 180)
+                    }.padding(.bottom, 12)
+                }
+                DisclosureGroup("Plan notes") {
+                    if chat.plans.isEmpty {
+                        Text("Nothing planned. Tell me what you’re doing and I’ll keep track.")
+                        .font(.callout).foregroundStyle(palette.muted).fixedSize(horizontal: false, vertical: true)
+                    }
+                    VStack(alignment: .leading, spacing: 10) {
+                        ForEach(chat.plans) { plan in
+                            HStack(alignment: .top, spacing: 8) {
+                                Image(systemName: plan.status == "done" ? "checkmark.square.fill" : plan.status == "proposed" ? "square.dashed" : "square")
+                                .foregroundStyle(plan.status == "done" || plan.status == "proposed" ? palette.accent : palette.muted)
+                                .padding(.top, 1)
+                                VStack(alignment: .leading, spacing: 1) {
+                                    Text(plan.item).font(.callout).foregroundStyle(plan.status == "skipped" || plan.status == "dropped" ? palette.muted : palette.ink)
+                                    .strikethrough(plan.status == "skipped" || plan.status == "dropped").lineLimit(2)
+                                    if plan.status == "proposed" { Text("Suggested").font(.caption).foregroundStyle(palette.accent) }
+                                }
+                            }
                         }
                     }
                 }
+                HStack(spacing: 6) {
+                    Circle().fill(chat.memoryErrors > 0 ? Color.orange : chat.memoryPending > 0 ? palette.accent : palette.muted).frame(width: 6, height: 6)
+                    Text(state).font(.caption).foregroundStyle(palette.muted)
+                }.padding(.top, 16)
+                CornerGrowth(palette: palette, thinking: chat.busy)
+                .frame(width: 100, height: 100).frame(maxWidth: .infinity, alignment: .trailing)
             }
-            HStack(spacing: 6) {
-                Circle().fill(chat.memoryErrors > 0 ? Color.orange : chat.memoryPending > 0 ? palette.accent : palette.muted).frame(width: 6, height: 6)
-                Text(state).font(.caption).foregroundStyle(palette.muted)
-            }.padding(.top, 16)
-            Spacer(minLength: 12)
-            CornerGrowth(palette: palette, thinking: chat.busy)
-                .frame(width: 200, height: 200)
-                .frame(maxWidth: .infinity, alignment: .trailing)
         }
         .padding(22)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -491,7 +489,7 @@ struct ConversationView: View {
             Spacer()
             Circle().fill(chat.connected ? palette.accent : palette.muted).frame(width: 7, height: 7).accessibilityLabel(chat.status).padding(.trailing, 4)
             Button { showDay = true } label: { Image(systemName: "calendar") }
-                .buttonStyle(SquareButton(palette: palette, size: 36)).accessibilityLabel("Show the day")
+                .buttonStyle(SquareButton(palette: palette, size: 36)).accessibilityLabel("Open calendar")
             Menu {
                 Button("Clear", systemImage: "eraser") { chat.draft = ""; chat.connect(clear: true) }.disabled(!chat.connected || chat.busy)
                 Button("Start morning", systemImage: "sun.horizon") { chat.startMorning() }.disabled(!chat.connected || chat.busy)

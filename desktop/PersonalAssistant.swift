@@ -67,6 +67,7 @@ final class Chat: NSObject, ObservableObject {
     @Published var connectionPrompt: String? = nil
     @Published var connectionPromptSatisfied = false
     @Published var plans: [PlanItem] = []
+    @Published var calendar: [String: Any] = [:]
     @Published var openQuestions = 0
     @Published var memoryPending = 0
     @Published var memoryErrors = 0
@@ -252,6 +253,7 @@ final class Chat: NSObject, ObservableObject {
                     else { waiter.resume(returning: event["imports"] as? [[String: Any]] ?? []) }
                 }
             case "map":
+                calendar = event["calendar"] as? [String: Any] ?? [:]
                 plans = (event["plans"] as? [[String: Any]] ?? []).map { PlanItem(item: plain($0["item"]), status: plain($0["status"])) }
                 openQuestions = (event["questions"] as? NSNumber)?.intValue ?? 0
                 memoryPending = (event["pending"] as? NSNumber)?.intValue ?? 0
@@ -513,42 +515,41 @@ struct DayPanel: View {
         return "Memory up to date"
     }
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Text(Date().formatted(.dateTime.weekday(.wide))).font(.title2.weight(.semibold)).foregroundStyle(palette.ink)
-            Text(Date().formatted(.dateTime.month(.wide).day())).font(.subheadline).foregroundStyle(palette.muted).padding(.top, 2)
-            Rectangle().fill(palette.line).frame(height: 1).padding(.vertical, 12)
-            if chat.plans.isEmpty {
-                Text("Nothing planned. Say what you're doing and it will keep track.")
-                    .font(.callout).foregroundStyle(palette.muted).fixedSize(horizontal: false, vertical: true)
-            }
-            VStack(alignment: .leading, spacing: 9) {
-                ForEach(chat.plans) { plan in
-                    HStack(alignment: .top, spacing: 8) {
-                        Image(systemName: plan.status == "done" ? "checkmark.square.fill" : plan.status == "proposed" ? "square.dashed" : "square")
-                            .foregroundStyle(plan.status == "done" || plan.status == "proposed" ? palette.accent : palette.muted)
-                            .padding(.top, 1)
-                        VStack(alignment: .leading, spacing: 1) {
-                            Text(plan.item).font(.callout).foregroundStyle(plan.status == "skipped" || plan.status == "dropped" ? palette.muted : palette.ink)
-                                .strikethrough(plan.status == "skipped" || plan.status == "dropped").lineLimit(2)
-                            if plan.status == "proposed" { Text("Suggested").font(.caption).foregroundStyle(palette.accent) }
+        ScrollView {
+            VStack(alignment: .leading, spacing: 20) {
+                DaySchedule(payload: chat.calendar, ink: palette.ink, muted: palette.muted, accent: palette.accent)
+                Divider()
+                DisclosureGroup("Plan notes") {
+                    if chat.plans.isEmpty {
+                        Text("Nothing planned. Tell me what you’re doing and I’ll keep track.")
+                        .font(.callout).foregroundStyle(palette.muted).fixedSize(horizontal: false, vertical: true)
+                    }
+                    VStack(alignment: .leading, spacing: 9) {
+                        ForEach(chat.plans) { plan in
+                            HStack(alignment: .top, spacing: 8) {
+                                Image(systemName: plan.status == "done" ? "checkmark.square.fill" : plan.status == "proposed" ? "square.dashed" : "square")
+                                .foregroundStyle(plan.status == "done" || plan.status == "proposed" ? palette.accent : palette.muted)
+                                .padding(.top, 1)
+                                VStack(alignment: .leading, spacing: 1) {
+                                    Text(plan.item).font(.callout).foregroundStyle(plan.status == "skipped" || plan.status == "dropped" ? palette.muted : palette.ink)
+                                    .strikethrough(plan.status == "skipped" || plan.status == "dropped").lineLimit(2)
+                                    if plan.status == "proposed" { Text("Suggested").font(.caption).foregroundStyle(palette.accent) }
+                                }
+                            }
                         }
                     }
                 }
+                HStack(spacing: 6) {
+                    Circle().fill(chat.memoryErrors > 0 ? Color.orange : chat.memoryPending > 0 ? palette.accent : palette.muted).frame(width: 6, height: 6)
+                    Text(state).font(.caption).foregroundStyle(palette.muted)
+                }.padding(.top, 16)
+                CornerGrowth(palette: palette, thinking: chat.busy)
+                .frame(width: 100, height: 100).frame(maxWidth: .infinity, alignment: .trailing)
             }
-            HStack(spacing: 6) {
-                Circle().fill(chat.memoryErrors > 0 ? Color.orange : chat.memoryPending > 0 ? palette.accent : palette.muted).frame(width: 6, height: 6)
-                Text(state).font(.caption).foregroundStyle(palette.muted)
-            }.padding(.top, 16)
-            Spacer()
         }
         .padding(18)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(palette.surface.opacity(0.55))
-        .safeAreaInset(edge: .bottom, spacing: 0) {
-            CornerGrowth(palette: palette, thinking: chat.busy)
-                .frame(width: 180, height: 180)
-                .frame(maxWidth: .infinity, alignment: .trailing).padding(.trailing, 8)
-        }
     }
 }
 
@@ -835,7 +836,7 @@ struct SettingsPopover: View {
                 .help("Start a fresh chat and keep saved memory")
                 Button { showSettings.toggle() } label: { Image(systemName: "gearshape") }.help("Settings")
                     .popover(isPresented: $showSettings, arrowEdge: .bottom) { SettingsPopover(chat: chat) }
-                Button { withAnimation(.easeInOut(duration: 0.2)) { showMemory.toggle() } } label: { Image(systemName: "sidebar.right") }
+                Button { withAnimation(.easeInOut(duration: 0.2)) { showMemory.toggle() } } label: { Label("Calendar", systemImage: "calendar") }
                     .help(showMemory ? "Hide the day" : "Show the day")
             }
         }

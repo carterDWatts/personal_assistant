@@ -112,6 +112,7 @@ async def main():
                 emit("memory", text=text)
                 # What the memory panel shows: the latest things learned, today's plan, and what is still open.
                 emit("map",
+                     calendar=map_.value("select payload || jsonb_build_object('error',last_error) from assistant.source_items where source='calendar-view' and id='current'") or {},
                      learned=map_.rows("select entity_name, attribute, value, recorded_at from memory.current_assertions"
                                        " order by recorded_at desc limit 8"),
                      plans=map_.rows("select item, status from memory.plans where day = current_date order by id"),
