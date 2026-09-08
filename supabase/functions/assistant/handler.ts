@@ -1,6 +1,6 @@
 // Authentication is checked with Auth before the privileged RPC receives a user ID.
 type Config = { url: string; anonKey: string; serviceKey: string; identity?: { name: string } };
-const actions = new Set(["register", "bootstrap", "submit", "cancel", "events", "revoke"]);
+const actions = new Set(["register", "bootstrap", "submit", "cancel", "events", "revoke", "clear"]);
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const headers = {
   "Access-Control-Allow-Origin": "*",

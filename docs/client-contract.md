@@ -97,6 +97,7 @@ The gateway verifies the user with Supabase Auth. Never call `assistant_client` 
 | submit | client_message_id, text | turn_id, status |
 | events | after (cursor, initially 0) | events, has_more |
 | cancel | turn_id | status (cancellation_requested is not completion) |
+| clear | optional request_id (UUID, reuse on retry) | status cleared, cutoff |
 | revoke | device_id | revoked |
 
 On bootstrap, show history and replay from `replay_after`, which may be earlier than `cursor` when a reply is in progress. This reconstructs the active reply's prefix. Subsequent polls use the last applied cursor. Replies have one stable conversation_id across runtime restarts. Persisted `delta` uses `text`; `replace` also uses `text`. Timestamps use `created_at`.
@@ -107,6 +108,8 @@ The owner account is provisioned by an operator, and email verification occurs d
 
 The `day` object has day, learned, plans, questions, pending and errors. The worker publishes `map` and `memory` events after extraction changes and at day rollover. `identity` comes from root identity.json.
 
-Clear, paginated older history, reminder delivery, host Google authorization and Realtime subscriptions are not implemented in this transport yet. The existing Mac bridge remains usable independently.
+Clear refuses queued or running turns with conversation_busy. It writes a chat_cleared marker, preserves stored history and structured memory, and broadcasts history with empty messages to other clients. The next cloud reply opens a fresh runtime. Repeated no-argument calls before new activity are idempotent; use a stable request_id to make delayed retries safe even after new messages arrive.
+
+Paginated older history, reminder delivery, host Google authorization and Realtime subscriptions are not implemented in this transport yet. The existing Mac bridge remains usable independently.
 
 `tst/fixtures/relay.jsonl` contains event envelopes for a completed and cancelled turn and a separate HTTP busy response. Speech is not exercised by this fixture.

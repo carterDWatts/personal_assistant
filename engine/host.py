@@ -92,6 +92,8 @@ class Host:
             await self.call(self.relay.publish, self.active, batch)
 
     async def answer(self, turn):
+        if self.session and self.session.conv.cutoff() > self.session.seen_message:
+            await self.close_session()
         if self.session is None:
             self.session = Session(self.map, self.factory(), self.stream, 'cloud',
                                    auto_memory=False, before_tool=self.before_tool)

@@ -197,3 +197,52 @@ class relay_test(MapTest):
                 await host.close_session()
                 relay_map.close()
         self.run_async(check())
+
+    def test_clear_preserves_memory_and_restarts_runtime(self):
+        async def check():
+            self.map.execute("insert into memory.plans(day,item,origin,created_by) values(current_date,'Keep this plan','user','test')")
+            relay_map = Map(self.map.url)
+            relay = Relay(relay_map); relay.acquire()
+            first, second = FakeRuntime([[say('Old reply.')]]), FakeRuntime([[say('Fresh reply.')]])
+            runtimes = iter([first, second])
+            host = Host(relay, self.map, lambda: next(runtimes))
+            try:
+                self.submit('Old conversation detail')
+                await host.process(relay.claim())
+                segment = host.session.segment_id
+                original_messages = self.map.value('select count(*) from memory.messages')
+                request_id = str(uuid.uuid4())
+                cleared = self.client('clear', {'request_id':request_id})
+                self.assertEqual(cleared, self.client('clear', {'request_id':request_id}))
+                self.assertEqual(cleared, self.client('clear'))
+                self.assertEqual(self.client('bootstrap')['history'], [])
+                self.assertEqual(self.map.value('select count(*) from memory.messages'), original_messages + 1)
+                self.assertEqual(self.map.value('select count(*) from memory.plans'), 1)
+                self.assertEqual(self.map.value('select count(*) from memory.memory_jobs'), 1)
+                self.assertEqual(self.client('events')['events'][-1]['payload']['type'], 'history')
+                self.submit('Hello again')
+                await host.process(relay.claim())
+                self.assertTrue(first.closed)
+                self.assertNotEqual(segment, host.session.segment_id)
+                self.assertIsNone(second.opened['resume'])
+                self.assertNotIn('Old conversation detail', second.sent[0])
+                self.assertIn('Keep this plan', second.sent[0])
+                # A late retry must not clear a conversation that has since continued.
+                self.assertEqual(cleared, self.client('clear', {'request_id':request_id}))
+                self.assertEqual(self.client('bootstrap')['history'][-1]['content'], 'Fresh reply.')
+            finally:
+                await host.close_session(); relay_map.close()
+        self.run_async(check())
+
+    def test_clear_rejects_other_accounts_revoked_devices_and_active_turns(self):
+        with self.assertRaisesRegex(psycopg.Error, 'account_denied'):
+            self.client('clear', owner=uuid.uuid4())
+        with self.assertRaisesRegex(psycopg.Error, 'device_denied'):
+            self.client('clear', device=uuid.uuid4())
+        self.submit()
+        with self.assertRaisesRegex(psycopg.Error, 'conversation_busy'):
+            self.client('clear')
+        self.relay.acquire(); self.relay.claim()
+        with self.assertRaisesRegex(psycopg.Error, 'conversation_busy'):
+            self.client('clear')
+        self.assertEqual(self.map.value("select count(*) from memory.messages where payload->>'event'='chat_cleared'"), 0)

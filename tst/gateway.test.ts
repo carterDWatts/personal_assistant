@@ -55,3 +55,18 @@ test('bootstrap identity comes from the shared configuration', async () => {
   const response = await run(request({ action: 'bootstrap', device_id: device }));
   assert.equal((await response.json()).identity.name, 'New name');
 });
+
+test('clear is dispatched with the verified owner and stable request ID', async () => {
+  let calls = 0;
+  const run = handler(config, async (_url, options) => {
+    if (++calls === 1) return Response.json({ id: owner });
+    const body = JSON.parse(String(options?.body));
+    assert.equal(body.p_action, 'clear');
+    assert.equal(body.p_user, owner);
+    assert.equal(body.p_args.request_id, device);
+    return Response.json({ status: 'cleared', cutoff: 12 });
+  });
+  const response = await run(request({ action: 'clear', device_id: device, args: { request_id: device } }));
+  assert.equal(response.status, 200);
+  assert.equal((await response.json()).status, 'cleared');
+});
