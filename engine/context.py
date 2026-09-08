@@ -32,6 +32,12 @@ def snapshot_sections(map_, today=None, now=None, include_pending=True):
     return dict(zip(("clock", "facts", "relationships", "rules", "yesterday", "today", "questions", "changes", "reminders", "attention", "pending"), parts))
 
 
+def monitoring_block(map_):
+    state=map_.row("select count(*) as pending, min(created_at) as oldest from assistant.source_items where source='gmail' and processed_at is null")
+    cursor=map_.row("select checked_at,last_error from assistant.source_cursors where source='gmail'")
+    return 'Email monitoring status (pending mail has NOT been assessed; do not claim all mail is covered): '+dumps({'queue':state,'fetch':cursor})
+
+
 def pending_block(map_):
     rows = map_.rows("select m.content,m.created_at from memory.memory_jobs j join memory.messages m on m.id=j.message_id where j.status <> 'done' and m.role='user' and m.id > (select coalesce(max(id),0) from memory.messages where role='system' and payload->>'event'='chat_cleared') order by m.id desc limit 20")
     title = "Recent user statements awaiting structured memory. Use these directly; do not wait for extraction.\n"
@@ -74,6 +80,7 @@ class PreparedContext:
         result = dict(self.sections)
         result['clock'] = f"Map snapshot. Today is {now.strftime('%A')} {now.date().isoformat()}, {now.strftime('%H:%M')} local."
         result['pending'] = pending_block(self.map)
+        result['monitoring'] = monitoring_block(self.map)
         return result
 
 

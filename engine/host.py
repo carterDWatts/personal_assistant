@@ -291,9 +291,6 @@ async def memory_loop(url, host):
                 async def maintain():
                     await worker.drain(on_processed=host.refresh_day, can_process=idle)
                     if not idle(): return
-                    try: await background.triage()
-                    except asyncio.CancelledError: raise
-                    except Exception: pass
                     if idle():
                         from engine.attention import review
                         await review(map_, background.factory)
@@ -324,8 +321,9 @@ async def main():
     for sig in (signal.SIGTERM, signal.SIGINT):
         loop.add_signal_handler(sig, host.stopping.set)
     listener = asyncio.create_task(commands(relay_map.url, host))
-    from engine.background import gather_sources
+    from engine.background import gather_sources, classify_mail
     sources = asyncio.create_task(gather_sources(relay_map.url,host))
+    mail = asyncio.create_task(classify_mail(relay_map.url,host))
     from engine.notifications import run as notify
     notifications = asyncio.create_task(notify(relay_map.url, host))
     from engine.jobs import run as run_jobs
@@ -333,7 +331,7 @@ async def main():
     memory = asyncio.create_task(memory_loop(relay_map.url, host))
     running = asyncio.create_task(host.run())
     try:
-        done, _ = await asyncio.wait((running, memory, jobs), return_when=asyncio.FIRST_COMPLETED)
+        done, _ = await asyncio.wait((running, memory, jobs, mail), return_when=asyncio.FIRST_COMPLETED)
         for task in done:
             task.result()
     finally:
@@ -342,10 +340,11 @@ async def main():
         memory.cancel()
         notifications.cancel()
         sources.cancel()
+        mail.cancel()
         listener.cancel()
         with contextlib.suppress(Exception, asyncio.CancelledError):
             await asyncio.wait_for(running, 10)
-        await asyncio.gather(memory, jobs, listener, notifications, sources, return_exceptions=True)
+        await asyncio.gather(memory, jobs, listener, notifications, sources, mail, return_exceptions=True)
         relay_map.close()
         session_map.close()
 

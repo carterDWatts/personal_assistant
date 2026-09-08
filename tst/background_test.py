@@ -115,3 +115,12 @@ class background_test(MapTest):
             self.run_async(Background(self.map,lambda _:FakeRuntime([[call('classify',items=[classified])]])).triage())
         self.assertIsNone(self.map.value("select processed_at from assistant.source_items where id='bad'"))
         self.assertEqual(self.map.value("select payload->'classification' from assistant.source_items where id='good'"),classified)
+
+    def test_monitoring_failure_reports_once_and_recovers(self):
+        from engine.background import monitoring_alert
+        self.map.execute("insert into assistant.source_items(source,id,created_at) values('gmail','stuck',now()-interval '20 minutes')")
+        monitoring_alert(self.map);monitoring_alert(self.map)
+        self.assertEqual(self.map.value("select count(*) from assistant.attention where source='monitoring'"),1)
+        self.map.execute("update assistant.source_items set processed_at=now() where source='gmail'")
+        monitoring_alert(self.map)
+        self.assertFalse(self.map.value("select notify from assistant.attention where source='monitoring'"))

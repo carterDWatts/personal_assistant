@@ -99,7 +99,7 @@ class Dispatcher:
         if self.map.value("select exists(select 1 from assistant.attention_deliveries where sent_at>now()-interval '15 minutes')"): return False
         self.map.execute("insert into assistant.attention_deliveries(notice_id,device_id) select a.id,p.device_id from assistant.attention a cross join assistant.push_devices p join assistant.devices d on d.id=p.device_id where a.notify and a.created_at>now()-interval '1 day' and p.enabled and d.revoked_at is null on conflict do nothing")
         with self.map.conn.transaction():
-            row=self.map.row("select n.id,n.notice_id as reminder_id,n.device_id,p.token,p.environment,a.title,a.detail,a.source,a.source_id from assistant.attention_deliveries n join assistant.attention a on a.id=n.notice_id join assistant.push_devices p on p.device_id=n.device_id join assistant.devices d on d.id=n.device_id where n.sent_at is null and n.cancelled_at is null and n.retry_at<=now() and p.enabled and d.revoked_at is null order by n.retry_at for update of n skip locked limit 1")
+            row=self.map.row("select n.id,n.notice_id as reminder_id,n.device_id,p.token,p.environment,a.title,a.detail,a.source,a.source_id from assistant.attention_deliveries n join assistant.attention a on a.id=n.notice_id join assistant.push_devices p on p.device_id=n.device_id join assistant.devices d on d.id=n.device_id where a.notify and n.sent_at is null and n.cancelled_at is null and n.retry_at<=now() and p.enabled and d.revoked_at is null order by n.retry_at for update of n skip locked limit 1")
             if not row: return False
             try:
                 if row['source']=='gmail':
