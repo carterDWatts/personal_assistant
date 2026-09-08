@@ -9,8 +9,8 @@ VOICE_PYTHON="$PYTHON"
 APP="$ROOT/build/Personal Assistant.app"
 mkdir -p "$APP/Contents/MacOS"
 mkdir -p "$APP/Contents/Resources" "$ROOT/build/icon.iconset"
-swiftc -parse-as-library "$ROOT/scripts/make_icon.swift" "$ROOT/desktop/BunnyArtwork.swift" -o "$ROOT/build/make-icon" -framework SwiftUI
-"$ROOT/build/make-icon" "$ROOT/build/icon.iconset" "$ROOT/desktop/Assets/FlowerBed.png"
+swiftc -parse-as-library "$ROOT/scripts/make_icon.swift" -o "$ROOT/build/make-icon" -framework SwiftUI
+"$ROOT/build/make-icon" "$ROOT/build/icon.iconset" "$ROOT/desktop/Assets/AppIcon.png"
 cp "$ROOT/identity.json" "$APP/Contents/Resources/identity.json"
 cp "$ROOT/desktop/Assets/FlowerBed.png" "$APP/Contents/Resources/FlowerBed.png"
 iconutil -c icns "$ROOT/build/icon.iconset" -o "$APP/Contents/Resources/AppIcon.icns"

@@ -1,21 +1,21 @@
-// Renders the same Bunny Man artwork used inside the app at each macOS icon size.
+// Packages the shared app artwork at each macOS icon size.
 import SwiftUI
 
 @main struct MakeIcon {
     @MainActor static func main() throws {
         let out = URL(fileURLWithPath: CommandLine.arguments[1])
-        guard let flowers = NSImage(contentsOfFile: CommandLine.arguments[2]) else {
-            fatalError("Could not load flower artwork")
+        guard let source = NSImage(contentsOfFile: CommandLine.arguments[2]) else {
+            fatalError("Could not load app artwork")
         }
-        flowers.setName("FlowerBed")
         try FileManager.default.createDirectory(at: out, withIntermediateDirectories: true)
         let sizes = [("icon_16x16", 16), ("icon_16x16@2x", 32), ("icon_32x32", 32), ("icon_32x32@2x", 64), ("icon_128x128", 128),
                      ("icon_128x128@2x", 256), ("icon_256x256", 256), ("icon_256x256@2x", 512), ("icon_512x512", 512), ("icon_512x512@2x", 1024)]
         for (name, pixels) in sizes {
             let size = CGFloat(pixels)
-            let artwork = CornerGrowth(palette: .forScheme(.light))
+            let artwork = Image(nsImage: source)
+                .resizable()
+                .scaledToFit()
                 .frame(width: size * 0.8, height: size * 0.8)
-                .background(Color(red: 0.97, green: 0.95, blue: 0.88))
                 .clipShape(RoundedRectangle(cornerRadius: size * 0.16))
                 .padding(size * 0.1)
                 .environment(\.colorScheme, .light)
