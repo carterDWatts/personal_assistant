@@ -293,6 +293,9 @@ async def memory_loop(url, host):
                     try: await background.triage()
                     except asyncio.CancelledError: raise
                     except Exception: pass
+                    if idle():
+                        from engine.attention import review
+                        await review(map_, background.factory)
                     if idle(): await background.nightly()
                     if idle(): await worker.drain(on_processed=host.refresh_day, can_process=idle)
                 host.memory_work = asyncio.create_task(maintain())

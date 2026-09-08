@@ -138,3 +138,20 @@ for durable memory extraction is retained as an observation/transcript source.
 current views. It is reversible and does not mislabel them as false. A saved preference
 instructs subsequent extraction and email triage to ignore similar material. Archival
 is distinct from correcting false facts and from preserving genuinely expired states.
+
+Cross-memory attention review runs while conversation is idle, at most once per five
+minutes after a changed memory snapshot, with an hourly time-based recheck. It uses
+the same cheaper subscription runtime as email triage. It can flag a consequential
+risk, opportunity, conflict or deadline across current facts, relationships, plans and
+reminders. Every alert references current evidence, is deduplicated by category and
+evidence, and shares the unsolicited notification pacing. Evidence is rechecked at
+delivery. It cannot take external actions or create commitments. Coverage is limited
+to available memory and connected sources; this is not a guarantee of detecting every
+important development.
+
+Voice work remains pending: smoother, cleaner speech and quicker conversational
+openings. For work requiring a lookup or extended reasoning, acknowledge the user's
+actual request briefly before beginning that work, explain the specific lookup, and
+then continue with the result. Avoid canned acknowledgments on simple replies and
+never claim a task has started before it has. Validate first-audio latency, streaming,
+interruption, and complete playback together before calling the voice work finished.

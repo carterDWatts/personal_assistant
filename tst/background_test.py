@@ -75,3 +75,26 @@ class background_test(MapTest):
         with patch('engine.integrations.google._get',return_value=raw):
             self.run_async(Background(self.map,lambda _:FakeRuntime([[call('classify',items=items)]])).triage())
         self.assertEqual(self.map.value('select count(*) from assistant.attention'),1)
+
+    def test_emergent_review_deduplicates_and_skips_unchanged_map(self):
+        from engine.attention import review
+        from engine.tools import Tools
+        tools=Tools(self.map,'test')
+        entity=self.run_async(tools.entity_upsert({'type':'project','name':'An active project'}))['id']
+        self.run_async(tools.attribute_register({'name':'deadline','value_type':'text','cardinality':'single'}))
+        fact=self.run_async(tools.fact_assert({'entity_id':str(entity),'attribute':'deadline','value':'Tomorrow'}))
+        alert={'category':'deadline','title':'A deadline needs attention','reason':'A current commitment is approaching.','evidence':[{'kind':'assertions','id':str(fact['id'])}]}
+        runtime=FakeRuntime([[call('review_attention',alerts=[alert])]])
+        self.run_async(review(self.map,lambda _:runtime))
+        self.assertEqual(self.map.value("select count(*) from assistant.attention where source='context'"),1)
+        self.run_async(review(self.map,lambda _:self.fail('Unchanged memory must not invoke a model')))
+        self.map.execute("update assistant.source_items set available_at='2020-01-01',payload=null where source='context-review'")
+        self.run_async(review(self.map,lambda _:FakeRuntime([[call('review_attention',alerts=[alert])]])))
+        self.assertEqual(self.map.value("select count(*) from assistant.attention where source='context'"),1)
+
+    def test_emergent_review_rejects_missing_evidence(self):
+        from engine.attention import review
+        alert={'category':'risk','title':'An unsupported claim','reason':'No evidence.','evidence':[{'kind':'assertions','id':'00000000-0000-0000-0000-000000000000'}]}
+        self.run_async(review(self.map,lambda _:FakeRuntime([[call('review_attention',alerts=[alert])]])))
+        self.assertEqual(self.map.value("select count(*) from assistant.attention where source='context'"),0)
+        self.assertIsNotNone(self.map.value("select last_error from assistant.source_items where source='context-review'"))

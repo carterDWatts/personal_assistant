@@ -104,6 +104,15 @@ class Dispatcher:
                         unread=False
                     if not unread:
                         self.map.execute('update assistant.attention_deliveries set cancelled_at=now() where id=%s',(row['id'],)); return True
+                if row['source']=='context':
+                    from engine.attention import evidence
+                    from engine.tools import ToolError
+                    stored=self.map.value("select payload from assistant.source_items where source='context-alert' and id=%s",(row['source_id'],))
+                    try:
+                        if not stored: raise ToolError('Missing evidence')
+                        evidence(self.map,stored['evidence'])
+                    except ToolError:
+                        self.map.execute('update assistant.attention_deliveries set cancelled_at=now() where id=%s',(row['id'],));return True
                 row.update(notice=True,version=1,title=(row['title']+' — '+row['detail'])[:500])
                 status,reason=await self.push.send(row)
             except Exception: status,reason=503,'transport_unavailable'
