@@ -146,8 +146,16 @@ struct DayPanel: View {
                     ScrollView {
                         VStack(alignment: .leading, spacing: 10) {
                             ForEach(chat.attention) { item in
-                                Text(item.title).font(.callout)
-                                Text(item.detail).font(.caption).foregroundStyle(.secondary)
+                                Button {
+                                    chat.discussNotification(kind: "notice", id: item.id, title: item.title)
+                                    dismiss()
+                                } label: {
+                                    VStack(alignment: .leading, spacing: 3) {
+                                        Text(item.title).font(.callout)
+                                        Text(item.detail).font(.caption).foregroundStyle(.secondary)
+                                        Text("Talk about this").font(.caption).foregroundStyle(palette.accent)
+                                    }
+                                }.buttonStyle(.plain)
                             }
                         }
                     }.frame(maxHeight: 180)
@@ -400,6 +408,13 @@ struct ConversationView: View {
                 .overlay(alignment: .bottom) {
                     if chat.voice { VoiceGlow(voice: chat.liveVoice, palette: palette) }
                 }
+            if let selection = chat.notificationDiscussion {
+                HStack {
+                    Label(selection["title"] ?? "This notification", systemImage: "bell").font(.caption).lineLimit(2)
+                    Spacer()
+                    Button { chat.clearNotificationDiscussion() } label: { Image(systemName: "xmark") }.accessibilityLabel("Stop discussing this notification")
+                }.padding(12).background(palette.surface).padding(.horizontal,16)
+            }
             if chat.voice {
                 if typing { Composer(chat: chat, palette: palette).padding(.horizontal, 16).padding(.bottom, 10) }
                 VoiceBar(chat: chat, voice: chat.liveVoice, palette: palette, typing: $typing).padding(.horizontal, 16).padding(.bottom, 10)

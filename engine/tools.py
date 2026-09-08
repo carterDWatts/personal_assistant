@@ -335,6 +335,8 @@ class Tools:
             row = self.map.row("update memory.questions set times_asked = times_asked + 1, asked_at = now(), asked_in = %s"
                                " where id = %s and closed_at is null returning *", (args.get("conversation_id"), qid))
         elif action == "answered":
+            if self.map.value("select ref_table in ('assertions','relationships') from memory.questions where id=%s",(qid,)):
+                raise ToolError('Use memory_clarify to resolve the linked records and the question together.')
             row = self.map.row("update memory.questions set closed_at = now(), closed_reason = 'answered', answer = %s"
                                " where id = %s and closed_at is null returning *", (args.get("answer"), qid))
         elif action == "defer":

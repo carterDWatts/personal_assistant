@@ -44,6 +44,14 @@ import UserNotifications
     func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification) async -> UNNotificationPresentationOptions { [.banner,.sound,.list] }
     func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse) async {
         let info = response.notification.request.content.userInfo
+        if response.actionIdentifier == UNNotificationDefaultActionIdentifier {
+            let kind = info["notice_id"] != nil ? "notice" : "reminder"
+            if let id = (info["notice_id"] ?? info["reminder_id"]) as? String {
+                UserDefaults.standard.set(["kind":kind,"id":id,"title":response.notification.request.content.body], forKey: "notificationDiscussion")
+                onAction?()
+            }
+            return
+        }
         guard let id = info["reminder_id"] as? String, let version = info["version"] as? Int else { return }
         if ["done","snooze"].contains(response.actionIdentifier) {
             var pending = UserDefaults.standard.array(forKey: "reminderActions") as? [[String: Any]] ?? []

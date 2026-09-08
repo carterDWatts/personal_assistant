@@ -18,7 +18,7 @@ class Reconciliation:
                 if (ref['kind'],ref['id']) in seen: continue
                 seen.add((ref['kind'],ref['id']))
                 row=self.map.row(f"select * from memory.{ref['kind']} where id=%s for share",(ref['id'],))
-                if not row or row['rank']=='deprecated' or row['level']=='inferred' or not self.map.value('select %s::tstzrange @> now()',(row['valid'],)):
+                if not self.map.value(f'select exists(select 1 from memory.current_{ref["kind"]} where id=%s)',(ref['id'],)) or not row or row['rank']=='deprecated' or row['level']=='inferred' or not self.map.value('select %s::tstzrange @> now()',(row['valid'],)):
                     raise ToolError('Evidence must be current, non-deprecated, independently stated or synced records.')
                 sources.append((ref,row))
             if len(sources)<2: raise ToolError('Give at least two distinct evidence records.')
@@ -83,6 +83,7 @@ class Reconciliation:
                     confirmed=json.loads(result)
                     table='relationships' if op['tool']=='relationship_assert' else 'assertions'
                     self.map.execute(f"update memory.{table} set level='stated',confidence=1 where id=%s",(confirmed['id'],))
+                    self.map.execute(f"update memory.{table} set resolution_reason=%s where superseded_by=%s",(message['content'],confirmed['id']))
                 if op.get('as'):
                     import json
                     ids[op['as']]=json.loads(result)['id']
@@ -100,6 +101,25 @@ class Reconciliation:
             existing=self.map.row("select * from memory.rules where kind='preference' and status='active' and text=%s",(args['text'],))
             return existing or await self.tools.rule_add({'kind':'preference','text':args['text'],'status':'active','statement':message['content']})
 
+    async def archive(self,args):
+        message=self.map.row('select role,content from memory.messages where id=%s',(self.tools.message_id,)) if self.tools.message_id else None
+        if not message or message['role']!='user': raise ToolError('Archiving requires a direct user request.')
+        with self.map.conn.transaction():
+            pending=list(args['records']);seen=set()
+            while pending:
+                record=pending.pop();key=(record['kind'],record['id'])
+                if key in seen: continue
+                seen.add(key)
+                if not self.map.value(f"select exists(select 1 from memory.{record['kind']} where id=%s)",(record['id'],)): raise ToolError('Unknown memory record.')
+                if args.get('restore',False):
+                    self.map.execute('delete from memory.archived_records where kind=%s and id=%s',key)
+                else:
+                    self.map.execute('insert into memory.archived_records(kind,id,reason,message_id) values(%s,%s,%s,%s) on conflict do nothing',(*key,message['content'],self.tools.message_id))
+                    source='source_assertion_id' if record['kind']=='assertions' else 'source_relationship_id'
+                    for child in self.map.rows(f'select assertion_id,relationship_id from memory.derivations where {source}=%s',(record['id'],)):
+                        pending.append({'kind':'assertions' if child['assertion_id'] else 'relationships','id':str(child['assertion_id'] or child['relationship_id'])})
+            return {'saved':True,'records':len(seen)}
+
     def conversation_specs(self):
-        return [ToolSpec('preference_save','Save an explicit standing preference immediately. This includes whether to include news at all, sources, morning order, depth and interaction style. Replace superseded preference IDs atomically. Never turn a suggestion or inferred interest into an active preference.', _obj({'text':_s('standing preference in plain language'),'replaces':{'type':'array','items':{'type':'integer'}}},['text']),self.preference), ToolSpec('memory_clarify','Apply an authoritative direct user correction, or resolve a queued question from the user’s answer and commit all corrections atomically. Deprecate never-true claims; retract genuinely ended states with a known end time and reason. Do not invent dates. Read linked records before changing them.',
+        return [ToolSpec('memory_archive','Remove irrelevant facts or relationships from active memory at the user’s request without labeling them false. Their evidence and history remain recoverable. Also save an explicit ignore-topic preference when the user wants similar material excluded in future.',_obj({'records':{'type':'array','minItems':1,'maxItems':100,'items':REF},'restore':{'type':'boolean'}},['records']),self.archive), ToolSpec('preference_save','Save an explicit standing preference immediately. This includes whether to include news at all, sources, morning order, depth and interaction style. Replace superseded preference IDs atomically. Never turn a suggestion or inferred interest into an active preference.', _obj({'text':_s('standing preference in plain language'),'replaces':{'type':'array','items':{'type':'integer'}}},['text']),self.preference), ToolSpec('memory_clarify','Apply an authoritative direct user correction, or resolve a queued question from the user’s answer and commit all corrections atomically. Deprecate never-true claims; retract genuinely ended states with a known end time and reason. Do not invent dates. Read linked records before changing them.',
             _obj({'question_id':_i('queued question ID; omit for a direct correction'),'operations':{'type':'array','minItems':1,'maxItems':12,'items':_obj({'tool':_s('memory operation'),'arguments':{'type':'object'},'as':_s('optional result reference')},['tool','arguments'])}},['operations']),self.resolve)]

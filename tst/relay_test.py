@@ -392,3 +392,13 @@ class relay_test(MapTest):
             self.client('import_part', args, device=uuid.uuid4())
         self.assertTrue(self.client('import_part', args)['saved'])
         self.assertEqual(self.client('imports')['imports'][0]['title'], 'Notes')
+
+    def test_notification_reference_is_persisted_and_idempotent(self):
+        notice=self.map.value("insert into assistant.attention(source,source_id,title,detail) values('test',%s,'A useful update','Context to discuss') returning id",(str(uuid.uuid4()),))
+        args={'text':'Tell me about this','client_message_id':str(uuid.uuid4()),'notification':{'kind':'notice','id':str(notice)}}
+        result=self.client('submit',args)
+        self.assertEqual(self.map.value('select notification from assistant.turns where id=%s',(result['turn_id'],)),args['notification'])
+        self.assertEqual(self.client('submit',args)['turn_id'],result['turn_id'])
+        with self.assertRaises(psycopg.Error): self.client('submit',{**args,'notification':None})
+        from engine.notifications import discussion_context
+        self.assertIn('Context to discuss',discussion_context(self.map,args['notification']))

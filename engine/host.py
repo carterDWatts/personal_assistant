@@ -135,6 +135,9 @@ class Host:
         extra = ("Reply mode: live voice. Speak naturally in plain sentences, with a short complete opening thought. "
                  "No headings, tables, Markdown or spoken URLs. Keep the requested substance."
                  if turn.get('speech') else "Reply mode: written chat. Use natural paragraphs; add structure only where useful.")
+        if turn.get('notification'):
+            from engine.notifications import discussion_context
+            extra += '\n\n' + discussion_context(self.map,turn['notification'])
         if turn.get('mode') == 'morning':
             from engine.morning import prepare
             extra += "\n\n" + await prepare(self.stream)

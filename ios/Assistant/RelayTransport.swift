@@ -162,11 +162,12 @@ struct RelayError: LocalizedError {
         }
     }
 
-    func send(_ text: String, id: UUID, speech: Bool, model: String?, mode: String) {
+    func send(_ text: String, id: UUID, speech: Bool, model: String?, mode: String, notification: [String: String]?) {
         Task {
             do {
                 var args: [String: Any] = ["client_message_id": id.uuidString.lowercased(), "text": text]
                 args["mode"] = mode
+                if let notification { args["notification"] = notification }
                 if speech { args["speech"] = true }
                 if let model, !model.isEmpty { args["model"] = model }
                 VoiceDiagnostics.record("request_started")

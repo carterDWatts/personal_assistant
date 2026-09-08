@@ -23,7 +23,7 @@ def poll_mail(map_):
         page=_get('gmail/v1/users/me/messages',args)
         with map_.conn.transaction():
             for item in page.get('messages',[]):
-                map_.execute("insert into assistant.source_items(source,id) values('gmail',%s) on conflict do nothing",(item['id'],))
+                map_.execute("insert into assistant.source_items(source,id,payload) values('gmail',%s,%s) on conflict do nothing",(item['id'],jsonb({'backfill':row is None})))
         token=page.get('nextPageToken')
         if not token: break
     if token: raise RuntimeError('Mail scan will resume without advancing its cursor.')
@@ -52,8 +52,8 @@ class Background:
                 self.map.execute("update assistant.source_items set processed_at=now(),last_error='Message no longer available' where source='gmail' and id=%s",(item['id'],))
                 continue
             body=_body(raw.get('payload',{}))
-            value={'id':item['id'],'headers':raw.get('payload',{}).get('headers',[]),
-                   'labels':raw.get('labelIds',[]),'body':body[:12000],'truncated':len(body)>12000,
+            value={'id':item['id'],'backfill':bool((item.get('payload') or {}).get('backfill')),'headers':raw.get('payload',{}).get('headers',[]),
+                   'thread_id':raw.get('threadId',item['id']),'labels':raw.get('labelIds',[]),'body':body[:12000],'truncated':len(body)>12000,
                    'received_at':datetime.fromtimestamp(int(raw['internalDate'])/1000,timezone.utc).isoformat()}
             self.map.execute("update assistant.source_items set payload=%s where source='gmail' and id=%s",(jsonb(value),item['id']))
             batch.append(value)
@@ -67,14 +67,14 @@ class Background:
                 for result in args['items']:
                     item=known[result['id']]
                     if result['relevant']:
-                        notify=result['notify'] and 'UNREAD' in item['labels'] and 'SENT' not in item['labels']
-                        self.map.execute("insert into assistant.attention(source,source_id,title,detail,notify) values('gmail',%s,%s,%s,%s) on conflict do nothing",(item['id'],result['title'],result['reason'],notify))
+                        notify=result['notify'] and not item['backfill'] and 'UNREAD' in item['labels'] and 'SENT' not in item['labels']
+                        self.map.execute("insert into assistant.attention(source,source_id,title,detail,notify,thread_key) values('gmail',%s,%s,%s,%s,%s) on conflict do nothing",(item['id'],result['title'],result['reason'],notify,item['thread_id']+':'+item['received_at'][:10]))
                         if result['remember']:
                             segment=self.map.value("insert into memory.conversations(agent,device,runtime,runtime_policy_version) values('source-sync','gmail',%s,4) returning id",(config.RUNTIME,))
                             message=self.map.value("insert into memory.messages(conversation_id,seq,role,content,payload,created_at) values(%s,1,'system',%s,%s,%s) returning id",(segment,dumps(item),jsonb({'source':'gmail','source_id':item['id'],'external':True}),item['received_at']))
                             self.map.execute('insert into memory.memory_jobs(message_id) values(%s)',(message,))
                             self.map.execute("update assistant.source_items set message_id=%s where source='gmail' and id=%s",(message,item['id']))
-                    self.map.execute("update assistant.source_items set processed_at=now(),last_error=null where source='gmail' and id=%s",(item['id'],))
+                    self.map.execute("update assistant.source_items set processed_at=now(),last_error=null,payload=payload-'body'-'headers' where source='gmail' and id=%s",(item['id'],))
             saved=True
             return {'saved':True}
         schema={'type':'object','properties':{'items':{'type':'array','maxItems':5,'items':{'type':'object','properties':{
@@ -93,7 +93,7 @@ Sent mail can update context but must not notify the user about their own messag
         try:
             await runtime.open(prompt,[ToolSpec('classify','Save the classification of these emails.',schema,commit)])
             async def consume():
-                async for _ in runtime.send('Standing rules:\n'+context.rules_block(self.map)+'\nCurrent reminders:\n'+dumps(self.map.rows("select title,context,window_end from memory.reminders where status='open' limit 30"))+'\nNew email data:\n'+dumps(batch)): pass
+                async for _ in runtime.send(context.snapshot(self.map,include_pending=False)+'\nNew email data:\n'+dumps(batch)): pass
             await asyncio.wait_for(consume(),120)
             if not saved: raise RuntimeError('Email classification did not commit.')
         finally: await runtime.close()

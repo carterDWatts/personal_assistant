@@ -34,6 +34,7 @@ class background_test(MapTest):
         runtime=FakeRuntime([[call('classify',**classification)]])
         raw={'id':'abc','internalDate':'1788840000000','labelIds':['SENT','UNREAD'], 'payload':{'mimeType':'text/plain','body':{'data':base64.urlsafe_b64encode(b'Application submitted').decode()}}}
         with patch('engine.integrations.google._get',return_value=raw): self.run_async(Background(self.map,lambda _:runtime).triage())
+        self.assertIn('Facts (current',runtime.sent[0])
         self.assertFalse(self.map.value('select notify from assistant.attention'))
         self.assertEqual(self.map.value('select count(*) from memory.memory_jobs'),1)
         self.assertTrue(self.map.value("select (payload->>'external')::boolean from memory.messages"))
@@ -57,3 +58,20 @@ class background_test(MapTest):
         with patch('engine.background.datetime',Clock):
             self.run_async(Background(self.map,lambda _:FakeRuntime([[call('organize',questions=[])]])).nightly())
         self.assertIsNotNone(self.map.value('select completed_at from assistant.maintenance_runs'))
+
+    def test_initial_mail_sync_does_not_notify(self):
+        self.map.execute("insert into assistant.source_items(source,id,payload) values('gmail','initial','{\"backfill\":true}')")
+        classified={'items':[{'id':'initial','relevant':True,'notify':True,'remember':False,'title':'Past mail','reason':'An older item.'}]}
+        raw={'id':'initial','internalDate':'1788840000000','labelIds':['UNREAD'],'payload':{}}
+        with patch('engine.integrations.google._get',return_value=raw):
+            self.run_async(Background(self.map,lambda _:FakeRuntime([[call('classify',**classified)]])).triage())
+        self.assertFalse(self.map.value('select notify from assistant.attention'))
+        self.assertFalse(self.map.value("select payload ? 'body' from assistant.source_items"))
+
+    def test_same_email_thread_is_not_notified_twice_per_day(self):
+        self.map.execute("insert into assistant.source_items(source,id) values('gmail','one'),('gmail','two')")
+        items=[{'id':id,'relevant':True,'notify':True,'remember':False,'title':id,'reason':'A reply.'} for id in ('one','two')]
+        raw={'threadId':'same-thread','internalDate':'1788840000000','labelIds':['UNREAD'],'payload':{}}
+        with patch('engine.integrations.google._get',return_value=raw):
+            self.run_async(Background(self.map,lambda _:FakeRuntime([[call('classify',items=items)]])).triage())
+        self.assertEqual(self.map.value('select count(*) from assistant.attention'),1)

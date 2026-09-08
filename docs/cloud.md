@@ -124,3 +124,17 @@ Never-true claims are deprecated with a reason; ended states retain their validi
 interval and explanation. Original observations and revision history remain auditable. Completion and errors are recorded in
 `assistant.maintenance_runs`. The first deployment performs a catch-up review if
 that day's scheduled time has already passed.
+
+Notification taps carry a validated notice/reminder reference on the submitted turn.
+The host retrieves its context from the database; the phone never supplies authoritative
+notification content. The selected subject is visible in chat and can be dismissed.
+Attention items in the day panel can also be selected for discussion. Initial mailbox
+backfill does not alert. Email threads are deduplicated per day and unsolicited alerts
+are spaced at least fifteen minutes apart; timed reminder delivery is separate.
+Processed mail bodies are removed from the staging queue. Only source material chosen
+for durable memory extraction is retained as an observation/transcript source.
+
+`memory_archive` hides user-designated irrelevant facts and dependent inferences from
+current views. It is reversible and does not mislabel them as false. A saved preference
+instructs subsequent extraction and email triage to ignore similar material. Archival
+is distinct from correcting false facts and from preserving genuinely expired states.

@@ -44,6 +44,18 @@ func plain(_ value: Any?) -> String {
     @Published var status = "Starting…"
     @Published var memoryStatus = ""
     @Published var attention: [AttentionItem] = []
+    @Published var notificationDiscussion: [String: String]? = UserDefaults.standard.dictionary(forKey: "notificationDiscussion") as? [String: String]
+    func discussNotification(kind: String, id: String, title: String) {
+        notificationDiscussion = ["kind":kind,"id":id,"title":title]
+        UserDefaults.standard.set(notificationDiscussion, forKey: "notificationDiscussion")
+    }
+    func clearNotificationDiscussion() {
+        notificationDiscussion = nil
+        UserDefaults.standard.removeObject(forKey: "notificationDiscussion")
+    }
+    func loadNotificationDiscussion() {
+        notificationDiscussion = UserDefaults.standard.dictionary(forKey: "notificationDiscussion") as? [String: String]
+    }
     @Published var reminders: [ReminderItem] = []
     @Published var reminderStatus = ""
     @Published var plans: [PlanItem] = []
@@ -128,7 +140,7 @@ func plain(_ value: Any?) -> String {
         let transport = transport ?? (ProcessInfo.processInfo.arguments.contains("--sample") ? MockTransport() : RelayTransport())
         self.transport = transport
         Notifications.shared?.onToken = { [weak self] token in self?.registerPush(token) }
-        Notifications.shared?.onAction = { [weak self] in self?.flushReminderActions() }
+        Notifications.shared?.onAction = { [weak self] in self?.loadNotificationDiscussion(); self?.flushReminderActions() }
         liveVoice.onSpeech = { [weak self] in self?.interruptForSpeech() }
         liveVoice.onUtterance = { [weak self] text in self?.sendVoice(text) }
         liveVoice.onError = { [weak self] text in self?.voice = false; self?.status = text }
@@ -163,6 +175,7 @@ func plain(_ value: Any?) -> String {
             Task { @MainActor in
                 await Task.yield()
                 if let token = UserDefaults.standard.string(forKey: "pushToken") { registerPush(token) }
+                loadNotificationDiscussion()
                 flushReminderActions()
             }
             connected = true; busy = false; status = "Connected"
@@ -233,7 +246,7 @@ func plain(_ value: Any?) -> String {
         speechBuffer = ""
         if speak && voice { liveVoice.prepareReply() }
         messages.append(ChatMessage(role: "user", text: text)); busy = true
-        transport.send(text, id: UUID(), speech: speak && voice && hostSpeaks, model: selectedModel.isEmpty ? nil : selectedModel, mode: mode)
+        transport.send(text, id: UUID(), speech: speak && voice && hostSpeaks, model: selectedModel.isEmpty ? nil : selectedModel, mode: mode, notification: notificationDiscussion.map { ["kind":$0["kind"] ?? "", "id":$0["id"] ?? ""] })
     }
 
     func startMorning() {

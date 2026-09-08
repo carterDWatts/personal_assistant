@@ -62,3 +62,47 @@ class reconciliation_test(MapTest):
         self.user('That was never true.')
         self.run_async(self.r.resolve({'operations':[{'tool':'fact_deprecate','arguments':{'assertion_id':str(self.a['id'])}}]}))
         self.assertEqual(self.map.value('select rank from memory.assertions where id=%s',(self.a['id'],)),'deprecated')
+
+    def test_ended_fact_preserves_history_and_explanation(self):
+        from datetime import datetime,timezone,timedelta
+        start=(datetime.now(timezone.utc)-timedelta(days=10)).isoformat()
+        fact=self.run_async(self.tools.fact_assert({'entity_id':str(self.entity),'attribute':'derived','value':'old','valid_from':start}))
+        self.user('That was true until yesterday; I moved.')
+        end=(datetime.now(timezone.utc)-timedelta(days=1)).isoformat()
+        self.run_async(self.r.resolve({'operations':[{'tool':'fact_retract','arguments':{'assertion_id':str(fact['id']),'valid_to':end}}]}))
+        row=self.map.row('select * from memory.assertions where id=%s',(fact['id'],))
+        self.assertNotEqual(row['rank'],'deprecated')
+        self.assertIsNotNone(row['valid'].upper)
+        self.assertIn('moved',row['resolution_reason'])
+
+    def test_nightly_relationship_creation_has_evidence(self):
+        other=self.run_async(self.tools.entity_upsert({'type':'project','name':'Example project'}))['id']
+        self.run_async(self.tools.relation_register({'name':'interested_in','cardinality':'multi'}))
+        row=self.run_async(self.r.infer({'tool':'relationship_assert','arguments':{'subject_id':str(self.entity),'relation':'interested_in','object_id':str(other)},'evidence':[{'kind':'assertions','id':str(x['id'])} for x in (self.a,self.b)],'rationale':'Both records support interest.'}))
+        self.assertEqual(row['level'],'inferred')
+        self.assertEqual(self.map.value('select count(*) from memory.derivations where relationship_id=%s',(row['id'],)),2)
+        self.run_async(self.tools.fact_deprecate({'assertion_id':str(self.b['id']),'statement':'Wrong.'}))
+        self.assertEqual(self.map.value('select rank from memory.relationships where id=%s',(row['id'],)),'deprecated')
+
+    def test_linked_question_cannot_close_without_correction(self):
+        q=self.run_async(self.tools.question_add({'text':'Was this ever true?','ref_table':'assertions','ref_id':str(self.a['id'])}))['id']
+        with self.assertRaises(ToolError): self.run_async(self.tools.question_update({'question_id':q,'action':'answered','answer':'No'}))
+
+    def test_replacement_retains_the_users_explanation(self):
+        self.user('It changed to new because I moved.')
+        self.run_async(self.r.resolve({'operations':[{'tool':'fact_assert','arguments':{'entity_id':str(self.entity),'attribute':'a','value':'new'}}]}))
+        row=self.map.row('select rank,valid,resolution_reason from memory.assertions where id=%s',(self.a['id'],))
+        self.assertNotEqual(row['rank'],'deprecated')
+        self.assertIsNotNone(row['valid'].upper)
+        self.assertIn('because I moved',row['resolution_reason'])
+
+    def test_archive_hides_irrelevant_memory_without_calling_it_false(self):
+        derived=self.inference()
+        self.user('This subject does not matter. Stop keeping it in active memory.')
+        self.run_async(self.r.archive({'records':[{'kind':'assertions','id':str(self.a['id'])}]}))
+        self.assertEqual(self.map.value('select rank from memory.assertions where id=%s',(self.a['id'],)),'normal')
+        self.assertFalse(self.map.value('select exists(select 1 from memory.current_assertions where id=%s)',(self.a['id'],)))
+        self.assertFalse(self.map.value('select exists(select 1 from memory.current_assertions where id=%s)',(derived['id'],)))
+        with self.assertRaises(ToolError): self.inference()
+        self.run_async(self.r.archive({'records':[{'kind':'assertions','id':str(self.a['id'])}],'restore':True}))
+        self.assertTrue(self.map.value('select exists(select 1 from memory.current_assertions where id=%s)',(self.a['id'],)))

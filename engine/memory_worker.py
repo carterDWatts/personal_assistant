@@ -10,7 +10,7 @@ from jsonschema import validate
 from engine import config, context
 from engine.db import Map, dumps, jsonb
 from engine.runtime import load
-from engine.tools import Tools, ToolSpec, READ_TOOLS
+from engine.tools import Tools, ToolSpec, ToolError, READ_TOOLS
 
 LOCK = 'personal-assistant-memory-worker'
 
@@ -72,6 +72,9 @@ class Worker:
                 if (job.get('payload') or {}).get('kind') == 'history':
                     from engine.imports import validate_history
                     validate_history(operation['tool'], resolved)
+                if (job.get('payload') or {}).get('external') and operation['tool'] in ('fact_assert','relationship_assert'):
+                    # External claims cannot impersonate direct user testimony.
+                    resolved['level']='synced'
                 result = await spec.fn(resolved)
                 if operation.get('as'):
                     label = operation['as']
@@ -95,7 +98,8 @@ class Worker:
             all_specs = tools.specs()
             if not (job.get('payload') or {}).get('import_id') and not (job.get('payload') or {}).get('external'):
                 from engine.reminders import Reminders
-                all_specs += Reminders(tools).specs()
+                from engine.reconciliation import Reconciliation
+                all_specs += Reminders(tools).specs() + Reconciliation(tools).conversation_specs()
             writes = {s.name: s for s in all_specs if s.name not in READ_TOOLS}
             if (job.get('payload') or {}).get('kind') == 'history':
                 from engine.imports import HISTORY_WRITES

@@ -12,3 +12,9 @@ class news_test(TestCase):
     def test_failure_is_explicit(self):
         with patch('engine.integrations.news.fetch', side_effect=TimeoutError):
             self.assertIn('error', asyncio.run(headlines({})))
+    def test_morning_does_not_fetch_news_by_default(self):
+        from engine.morning import prepare
+        from unittest.mock import AsyncMock
+        with patch('engine.morning.run',new=AsyncMock(return_value=('available',False))) as run:
+            asyncio.run(prepare(None))
+        self.assertNotIn('news_headlines',[call.args[0].name for call in run.call_args_list])
