@@ -30,7 +30,7 @@ def snapshot_sections(map_, today=None, now=None, include_pending=True):
 
 
 def pending_block(map_):
-    rows = map_.rows("select m.content,m.created_at from memory.memory_jobs j join memory.messages m on m.id=j.message_id where j.status <> 'done' and m.id > (select coalesce(max(id),0) from memory.messages where role='system' and payload->>'event'='chat_cleared') order by m.id desc limit 20")
+    rows = map_.rows("select m.content,m.created_at from memory.memory_jobs j join memory.messages m on m.id=j.message_id where j.status <> 'done' and m.role='user' and m.id > (select coalesce(max(id),0) from memory.messages where role='system' and payload->>'event'='chat_cleared') order by m.id desc limit 20")
     title = "Recent user statements awaiting structured memory. Use these directly; do not wait for extraction.\n"
     return title + ("\n".join(f"[{m['created_at'].isoformat()}] {m['content']}" for m in reversed(rows)) if rows else "None pending.")
 

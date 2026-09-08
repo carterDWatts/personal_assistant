@@ -200,6 +200,9 @@ struct RelayError: LocalizedError {
 
     func close() { poller?.cancel(); socket.close() }
 
+    func importPart(_ args: [String: Any]) async throws { _ = try await call("import_part", args) }
+    func imports() async throws -> [[String: Any]] { try await call("imports")["imports"] as? [[String: Any]] ?? [] }
+
     func connections() async throws -> [[String: Any]] {
         try await call("connections")["providers"] as? [[String: Any]] ?? []
     }

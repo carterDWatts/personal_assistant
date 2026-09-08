@@ -19,6 +19,7 @@ targets:
     platform: iOS
     sources:
       - path: Assistant
+      - path: ../shared/ContextImport.swift
       - path: ../desktop/VoiceTurn.swift
       - path: ../identity.json
         buildPhase: resources

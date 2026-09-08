@@ -164,6 +164,25 @@ final class Chat: NSObject, ObservableObject {
     func connectGoogle(_ action: String = "google_connect") { connectionError = ""; googleConnecting = true; write(["type": action]) }
     func disconnectGoogle(_ action: String = "google_connect") { connectionError = ""; googleConnecting = true; write(["type": "google_disconnect", "connection": action]) }
 
+    private var importRequestID: String?
+    private var importWaiter: CheckedContinuation<[[String: Any]], Error>?
+    func importPart(_ args: [String: Any]) async throws { _ = try await importRequest(["type": "import_part", "args": args]) }
+    func imports() async throws -> [[String: Any]] { try await importRequest(["type": "imports"]) }
+    private func importRequest(_ args: [String: Any]) async throws -> [[String: Any]] {
+        while importWaiter != nil { try await Task.sleep(nanoseconds: 100_000_000) }
+        guard connected else { throw NSError(domain: "Import", code: 1) }
+        return try await withCheckedThrowingContinuation { continuation in
+            importWaiter = continuation
+            let id = UUID().uuidString
+            importRequestID = id
+            var request = args; request["request_id"] = id
+            write(request)
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 20_000_000_000)
+                if importRequestID == id, let waiter = importWaiter { importWaiter = nil; waiter.resume(throwing: NSError(domain: "Import", code: 2)) }
+            }
+        }
+    }
     private func write(_ value: [String: Any]) {
         guard let data = try? JSONSerialization.data(withJSONObject: value) else { return }
         do { try input?.write(contentsOf: data + Data([10])) } catch { status = "Connection closed" }
@@ -214,6 +233,12 @@ final class Chat: NSObject, ObservableObject {
                 if !voiceTurn.interrupted { speakSentences(flush: true) }
                 streamingID = nil
             case "memory": memoryStatus = text
+            case "imports":
+                if event["request_id"] as? String == importRequestID, let waiter = importWaiter {
+                    importWaiter = nil
+                    if event["error"] != nil { waiter.resume(throwing: NSError(domain: "Import", code: 3)) }
+                    else { waiter.resume(returning: event["imports"] as? [[String: Any]] ?? []) }
+                }
             case "map":
                 plans = (event["plans"] as? [[String: Any]] ?? []).map { PlanItem(item: plain($0["item"]), status: plain($0["status"])) }
                 openQuestions = (event["questions"] as? NSNumber)?.intValue ?? 0
@@ -745,6 +770,7 @@ struct SettingsPopover: View {
     @State private var showMemory = true
     @State private var showSettings = false
     @State private var showConnections = false
+    @State private var showImport = false
     @Environment(\.colorScheme) private var scheme
     private var palette: Palette { Palette.forScheme(scheme) }
     private let column: CGFloat = 680
@@ -775,6 +801,8 @@ struct SettingsPopover: View {
                 Button { showConnections.toggle() } label: { Image(systemName: "link") }
                     .help("Connections")
                     .popover(isPresented: $showConnections) { ConnectionsView(chat: chat) }
+                Button("Import context") { showImport = true }
+                    .sheet(isPresented: $showImport) { ContextImportView(upload: chat.importPart, refresh: chat.imports, runtime: chat.runtime) }
                 Button("Clear") {
                     chat.draft = ""
                     chat.connect(clear: true)

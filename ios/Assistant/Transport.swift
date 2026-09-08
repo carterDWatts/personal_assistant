@@ -11,6 +11,8 @@ import AVFoundation
     func foreground(_ active: Bool)
     func close()
     /// Connection setup for the host. Credentials go only through these, never through send.
+    func importPart(_ args: [String: Any]) async throws
+    func imports() async throws -> [[String: Any]]
     func connections() async throws -> [[String: Any]]
     func startConnection(provider: String, grant: String?) async throws -> (intent: String, url: URL?)
     func connectionState(intent: String) async throws -> (state: String, error: String?)
@@ -177,4 +179,9 @@ func isoDate(_ date: Date) -> String {
 struct MockError: LocalizedError {
     let errorDescription: String?
     init(_ text: String) { errorDescription = text }
+}
+
+@MainActor extension Transport {
+    func importPart(_ args: [String: Any]) async throws { throw ConnectionFailure("Imports are unavailable in preview.") }
+    func imports() async throws -> [[String: Any]] { [] }
 }

@@ -65,6 +65,8 @@ func plain(_ value: Any?) -> String {
     /// Words captured while a reply was still being interrupted; the voice bar joins them with the live transcript.
     var pendingSpeech: String? { voiceTurn.pending }
     private var voiceTurn = VoiceTurn()
+    func importPart(_ args: [String: Any]) async throws { try await transport.importPart(args) }
+    func imports() async throws -> [[String: Any]] { try await transport.imports() }
     private let transport: Transport
     private var receiving: Task<Void, Never>?
     private var speechBuffer = ""

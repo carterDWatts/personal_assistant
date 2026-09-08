@@ -54,9 +54,9 @@ class Worker:
 
     def oldest(self):
         return self.map.row(
-            "select j.*, m.content, m.created_at, m.conversation_id, c.runtime from memory.memory_jobs j"
+            "select j.*, m.content, m.created_at, m.conversation_id, m.payload, c.runtime from memory.memory_jobs j"
             " join memory.messages m on m.id=j.message_id join memory.conversations c on c.id=m.conversation_id"
-            " where j.status <> 'done' order by j.message_id limit 1")
+            " where j.status <> 'done' order by (m.payload ? 'import_id') is true, j.message_id limit 1")
 
     async def save(self, job, specs, args):
         # No network calls inside this transaction. Retrying a completed job is a no-op.
@@ -69,6 +69,9 @@ class Worker:
                 spec = specs[operation['tool']]
                 resolved = resolve_refs(operation['arguments'], ids)
                 validate(resolved, spec.schema)
+                if (job.get('payload') or {}).get('kind') == 'history':
+                    from engine.imports import validate_history
+                    validate_history(operation['tool'], resolved)
                 result = await spec.fn(resolved)
                 if operation.get('as'):
                     label = operation['as']
@@ -105,6 +108,9 @@ class Worker:
             # The batch carries the exact existing tool schemas so it can construct valid operations in one pass.
             schemas = [{'name':s.name,'description':s.description,'arguments':s.schema} for s in writes.values()]
             system = config.prompt('memory') + '\nAvailable operations:\n' + dumps(schemas)
+            if (job.get('payload') or {}).get('import_id'):
+                from engine.imports import INSTRUCTIONS
+                system += INSTRUCTIONS
             nearby = self.map.rows("select role,content,created_at from memory.messages where id<=%s and role in ('user','assistant') order by id desc limit 12", (job['message_id'],))
             reply = self.map.row("select content from memory.messages where conversation_id=%s and id>%s and role='assistant'"
                                  " and id < coalesce((select min(id) from memory.messages where conversation_id=%s and id>%s and role='user'),9223372036854775807) order by id limit 1",
@@ -114,6 +120,10 @@ class Worker:
             text = context.snapshot(self.map, include_pending=False) + '\nRegistries:\n' + dumps(registries)
             text += '\nNearby conversation:\n' + dumps(list(reversed(nearby)))
             text += '\nSelected message:\n' + dumps({'id':job['message_id'],'time':job['created_at'],'content':job['content'],'assistant_reply':reply})
+            if (job.get('payload') or {}).get('import_id'):
+                adjacent = self.map.rows('select part,content from memory.import_parts where import_id=%s and part between %s and %s order by part',
+                    (job['payload']['import_id'], max(0, job['payload']['part']-1), job['payload']['part']+1))
+                text += '\nImport metadata and adjacent source parts:\n' + dumps({'metadata':job['payload'], 'parts':adjacent})
             runtime = self.factory(job['runtime'])
             await runtime.open(system, [s for s in all_specs if s.name in READ_TOOLS] + [batch])
             async def consume():

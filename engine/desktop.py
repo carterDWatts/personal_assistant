@@ -136,6 +136,18 @@ async def main():
                             raise ValueError("Unknown connection")
                         connection_task = asyncio.create_task(service_action(action, provider, token))
                         token = None
+                elif action in ("import_part", "imports") and map_:
+                    from engine.db import jsonb
+                    try:
+                        if action == "import_part":
+                            result = map_.value("select memory.import_part(%s)", (jsonb(message["args"]),))
+                            from engine.memory_worker import kick
+                            kick(message["args"]["runtime"])
+                        else:
+                            result = {"imports": map_.value("select memory.import_status()")}
+                        emit("imports", request_id=message.get("request_id"), **result)
+                    except Exception:
+                        emit("imports", request_id=message.get("request_id"), error="The import was not saved. Retry with the same text.")
                 elif action == "connect":
                     if session:
                         raise ValueError("Already connected")

@@ -383,3 +383,12 @@ class relay_test(MapTest):
         with self.assertRaisesRegex(psycopg.Error, 'conversation_busy'):
             self.client('clear')
         self.assertEqual(self.map.value("select count(*) from memory.messages where payload->>'event'='chat_cleared'"), 0)
+
+    def test_imports_require_the_owner_and_registered_device(self):
+        args = {'id': str(uuid.uuid4()), 'title':'Notes','kind':'current','runtime':'codex','parts':1,'part':0,'text':'My bicycle is blue.'}
+        with self.assertRaisesRegex(psycopg.Error, 'account_denied'):
+            self.client('import_part', args, owner=uuid.uuid4())
+        with self.assertRaisesRegex(psycopg.Error, 'device_denied'):
+            self.client('import_part', args, device=uuid.uuid4())
+        self.assertTrue(self.client('import_part', args)['saved'])
+        self.assertEqual(self.client('imports')['imports'][0]['title'], 'Notes')

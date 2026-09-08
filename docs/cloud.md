@@ -68,3 +68,16 @@ The hosted voice uses Pocket TTS 3.1.0 on CPU. Model assets are cached in the im
 ## Planned event notifications
 
 Google Calendar remains authoritative for timed events. Advance event notifications are a later feature; any local event cache must be disposable and reconciled with Google, not a second editable calendar. Reminders are separate commitments with their own context and completion state.
+
+Context can be pasted through **Import context** on either app. Uploads are preserved
+in `memory.imports` / `memory.import_parts`; each completed upload queues bounded
+extraction jobs. Imports use system-source messages so they never appear as live
+user turns or flood the pending-chat context. Live messages take priority.
+Retries use the same import ID and part number; a changed replay is rejected.
+The source draft remains on the device until uploaded, with a private file mode.
+
+Current notes may update the map. Historical chats can create identities, questions
+and explicitly bounded past facts; the worker rejects changes to current mandates,
+plans and unbounded facts from historical imports. Unknown dates remain unknown.
+`context_import_search` retrieves the original sources, including details extraction
+omitted. Progress means extraction completed, not that every sentence became a fact.
