@@ -46,7 +46,7 @@ struct RelayError: LocalizedError {
         do {
             if clear {
                 // A fresh segment on the host keeps the map and archives the messages, the same as the Mac.
-                do { _ = try await call("clear") } catch let error as RelayError where error.code == "invalid_request" {
+                do { _ = try await call("clear", ["request_id": UUID().uuidString.lowercased()]) } catch let error as RelayError where error.code == "invalid_request" {
                     emit(["type": "status", "text": "Clearing isn’t available on the host yet"])
                 }
             }
