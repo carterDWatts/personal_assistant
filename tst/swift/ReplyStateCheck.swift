@@ -23,6 +23,15 @@ import Foundation
         precondition(rows.last!.pending)
         state.reset(messages: &rows)
         precondition(rows.allSatisfy { !$0.pending && !$0.text.isEmpty })
+        let stored: [String: Any] = ["id": 123, "role": "assistant", "content": "I found an answer.", "payload": ["reference": ["kind": "notice", "id": "notice-1"]]]
+        let notice = ChatMessage.stored(stored)!
+        precondition(notice.databaseID == "123" && notice.reference?["id"] == "notice-1")
+        state.begin("five", messages: &rows)
+        rows.append(notice)
+        precondition(state.update("Still answering.", turn: "five", replace: false, messages: &rows))
+        precondition(rows.last!.text == "I found an answer.")
+        state.end("five", messages: &rows)
+        precondition(rows.allSatisfy { !$0.pending })
         print("Finished and superseded turns cannot leave thinking rows.")
     }
 }

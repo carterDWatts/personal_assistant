@@ -47,7 +47,9 @@ import UserNotifications
         if response.actionIdentifier == UNNotificationDefaultActionIdentifier {
             let kind = info["notice_id"] != nil ? "notice" : "reminder"
             if let id = (info["notice_id"] ?? info["reminder_id"]) as? String {
-                UserDefaults.standard.set(["kind":kind,"id":id,"title":response.notification.request.content.body], forKey: "notificationDiscussion")
+                var selection = ["kind":kind,"id":id,"title":response.notification.request.content.body]
+                if let mid = info["message_id"] { selection["message_id"] = String(describing: mid) }
+                UserDefaults.standard.set(selection, forKey: "notificationDiscussion")
                 onAction?()
             }
             return

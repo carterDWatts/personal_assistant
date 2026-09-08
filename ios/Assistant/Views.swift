@@ -63,6 +63,7 @@ struct DayMarker: View {
 }
 
 struct MessageRow: View, Equatable {
+    var onReply: (() -> Void)? = nil
     let message: ChatMessage
     let palette: Palette
     static func == (a: MessageRow, b: MessageRow) -> Bool { a.message.id == b.message.id && a.message.text == b.message.text && a.message.pending == b.message.pending }
@@ -75,7 +76,10 @@ struct MessageRow: View, Equatable {
                     .padding(.horizontal, 12).padding(.vertical, 9)
                     .background(palette.bubble)
                     .overlay(Rectangle().stroke(palette.line, lineWidth: 1))
-                    .contextMenu { Button("Copy", systemImage: "doc.on.doc") { UIPasteboard.general.string = message.text } }
+                    .contextMenu {
+                            Button("Copy", systemImage: "doc.on.doc") { UIPasteboard.general.string = message.text }
+                            if message.reference != nil { Button("Reply", systemImage: "arrowshape.turn.up.left") { onReply?() } }
+                        }
             }
         } else {
             HStack(alignment: .top, spacing: 10) {
@@ -86,7 +90,10 @@ struct MessageRow: View, Equatable {
                     Text(inlineMarkdown(message.text))
                         .font(.body).lineSpacing(5).foregroundStyle(palette.ink)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .contextMenu { Button("Copy", systemImage: "doc.on.doc") { UIPasteboard.general.string = message.text } }
+                        .contextMenu {
+                            Button("Copy", systemImage: "doc.on.doc") { UIPasteboard.general.string = message.text }
+                            if message.reference != nil { Button("Reply", systemImage: "arrowshape.turn.up.left") { onReply?() } }
+                        }
                 }
             }.padding(.trailing, 12)
         }
@@ -429,9 +436,9 @@ struct ConversationView: View {
                 }
             if let selection = chat.notificationDiscussion {
                 HStack {
-                    Label(selection["title"] ?? "This notification", systemImage: "bell").font(.caption).lineLimit(2)
+                    Label("Replying to \(AssistantIdentity.name): " + (selection["title"] ?? ""), systemImage: "arrowshape.turn.up.left").font(.caption).lineLimit(2)
                     Spacer()
-                    Button { chat.clearNotificationDiscussion() } label: { Image(systemName: "xmark") }.accessibilityLabel("Stop discussing this notification")
+                    Button { chat.clearNotificationDiscussion() } label: { Image(systemName: "xmark") }.accessibilityLabel("Cancel reply")
                 }.padding(12).background(palette.surface).padding(.horizontal,16)
             }
             if chat.voice {
@@ -516,7 +523,7 @@ struct ConversationView: View {
                         if index == 0 || !Calendar.current.isDate(chat.messages[index - 1].at, inSameDayAs: message.at) {
                             DayMarker(date: message.at, palette: palette)
                         }
-                        MessageRow(message: message, palette: palette).equatable().id(message.id)
+                        MessageRow(onReply: { chat.reply(to: message) }, message: message, palette: palette).equatable().id(message.id)
                     }
                     if let prompt = chat.connectionPrompt {
                         ConnectionCard(chat: chat, prompt: prompt, palette: palette)
@@ -527,6 +534,7 @@ struct ConversationView: View {
                 }.padding(.horizontal, 18).padding(.top, 12).padding(.bottom, 12)
             }
             .scrollDismissesKeyboard(.interactively)
+            .onChange(of: chat.focusedMessage) { if let id = chat.focusedMessage { proxy.scrollTo(id, anchor: .center) } }
             .onChange(of: chat.messages.last?.text) { if follow { proxy.scrollTo("bottom", anchor: .bottom) } }
             .onChange(of: chat.messages.count) {
                 if follow || chat.messages.last?.role == "user" { proxy.scrollTo("bottom", anchor: .bottom) }

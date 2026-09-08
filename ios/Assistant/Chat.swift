@@ -45,9 +45,12 @@ func plain(_ value: Any?) -> String {
     @Published var memoryStatus = ""
     @Published var attention: [AttentionItem] = []
     @Published var notificationDiscussion: [String: String]? = UserDefaults.standard.dictionary(forKey: "notificationDiscussion") as? [String: String]
-    func discussNotification(kind: String, id: String, title: String) {
+    @Published var focusedMessage: UUID?
+    func discussNotification(kind: String, id: String, title: String, messageID: String? = nil) {
         notificationDiscussion = ["kind":kind,"id":id,"title":title]
+        if let messageID { notificationDiscussion?["message_id"] = messageID }
         UserDefaults.standard.set(notificationDiscussion, forKey: "notificationDiscussion")
+        showNotificationMessage()
     }
     func clearNotificationDiscussion() {
         notificationDiscussion = nil
@@ -55,6 +58,36 @@ func plain(_ value: Any?) -> String {
     }
     func loadNotificationDiscussion() {
         notificationDiscussion = UserDefaults.standard.dictionary(forKey: "notificationDiscussion") as? [String: String]
+        showNotificationMessage()
+    }
+    func reply(to message: ChatMessage) {
+        guard let reference = message.reference, let kind = reference["kind"], let id = reference["id"] else { return }
+        discussNotification(kind: kind, id: id, title: message.text, messageID: message.databaseID)
+    }
+    private func showNotificationMessage() {
+        guard let selection = notificationDiscussion else { return }
+        let reference = ["kind":selection["kind"] ?? "", "id":selection["id"] ?? ""]
+        var request = reference
+        if let mid = selection["message_id"] { request["message_id"] = mid }
+        if let existing = messages.last(where: { $0.reference == reference && (selection["message_id"] == nil || $0.databaseID == selection["message_id"]) }) { focusedMessage = existing.id; return }
+        guard connected else { return }
+        Task {
+            let result = try? await transport.reminderRequest("notification_message", request)
+            guard notificationDiscussion?["id"] == selection["id"] else { return }
+            if let row = result?["message"] as? [String: Any] {
+                appendProactive(row)
+            } else if let title = selection["title"], !title.isEmpty {
+                // Older notifications predate persisted outbound messages.
+                messages.append(ChatMessage(role: "assistant", text: title, reference: reference))
+            }
+            focusedMessage = messages.last(where: { $0.reference == reference && (selection["message_id"] == nil || $0.databaseID == selection["message_id"]) })?.id
+        }
+    }
+    private func appendProactive(_ row: [String: Any]) {
+        guard var message = ChatMessage.stored(row) else { return }
+        if let id = message.databaseID, messages.contains(where: { $0.databaseID == id }) { return }
+        message.at = parseDate(row["created_at"]) ?? Date()
+        messages.append(message)
     }
     @Published var reminders: [ReminderItem] = []
     @Published var reminderStatus = ""
@@ -154,6 +187,7 @@ func plain(_ value: Any?) -> String {
     }
 
     func connect(clear: Bool = false) {
+        if clear { clearNotificationDiscussion() }
         liveVoice.stop(); voice = false; voiceTurn = VoiceTurn()
         messages = []; memoryStatus = ""; replyState.reset(messages: &messages); connectionPrompt = nil
         busy = true; status = "Connecting…"
@@ -169,9 +203,12 @@ func plain(_ value: Any?) -> String {
             replyState.reset(messages: &messages)
             liveVoice.silencePlayback(); spokenTurns.removeAll(); playedChunks.removeAll()
             messages = (event["messages"] as? [[String: Any]] ?? []).compactMap { row in
-                guard let role = row["role"] as? String, let content = row["content"] as? String, !content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
-                return ChatMessage(role: role, text: content, at: parseDate(row["created_at"]) ?? Date())
+                guard var message = ChatMessage.stored(row) else { return nil }
+                message.at = parseDate(row["created_at"]) ?? Date()
+                return message
             }
+        case "proactive":
+            if let row = event["message"] as? [String: Any] { appendProactive(row) }
         case "ready":
             Task { @MainActor in
                 await Task.yield()
@@ -248,7 +285,8 @@ func plain(_ value: Any?) -> String {
         speechBuffer = ""
         if speak && voice { liveVoice.prepareReply() }
         messages.append(ChatMessage(role: "user", text: text)); busy = true
-        transport.send(text, id: UUID(), speech: speak && voice && hostSpeaks, model: selectedModel.isEmpty ? nil : selectedModel, mode: mode, notification: notificationDiscussion.map { ["kind":$0["kind"] ?? "", "id":$0["id"] ?? ""] })
+        transport.send(text, id: UUID(), speech: speak && voice && hostSpeaks, model: selectedModel.isEmpty ? nil : selectedModel, mode: mode, notification: notificationDiscussion.map { $0.filter { ["kind", "id", "message_id"].contains($0.key) } })
+        clearNotificationDiscussion()
     }
 
     func startMorning() {

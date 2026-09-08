@@ -20,6 +20,8 @@ struct ChatMessage: Identifiable {
     let role: String
     var text: String
     var at: Date = Date()
+    var databaseID: String? = nil
+    var reference: [String: String]? = nil
 }
 
 struct PlanItem: Identifiable {
@@ -48,6 +50,8 @@ func plain(_ value: Any?) -> String {
 @MainActor
 final class Chat: NSObject, ObservableObject {
     @Published var messages: [ChatMessage] = []
+    @Published var replyingTo: ChatMessage?
+    func reply(to message: ChatMessage) { replyingTo = message }
     @Published var draft = UserDefaults.standard.string(forKey: "draft") ?? "" {
         didSet { UserDefaults.standard.set(draft, forKey: "draft") }
     }
@@ -216,7 +220,14 @@ final class Chat: NSObject, ObservableObject {
             case "history":
                 messages = (event["messages"] as? [[String: Any]] ?? []).compactMap { row in
                     guard let role = row["role"] as? String, let content = row["content"] as? String else { return nil }
-                    return ChatMessage(role: role, text: content, at: parseDate(row["created_at"]) ?? Date())
+                    return ChatMessage(role: role, text: content, at: parseDate(row["created_at"]) ?? Date(), databaseID: row["id"].map { String(describing: $0) }, reference: (row["payload"] as? [String: Any])?["reference"] as? [String: String])
+                }
+            case "proactive":
+                if let row = event["message"] as? [String: Any], let content = row["content"] as? String {
+                    let id = row["id"].map { String(describing: $0) }
+                    if !messages.contains(where: { $0.databaseID == id }) {
+                        messages.append(ChatMessage(role: "assistant", text: content, at: parseDate(row["created_at"]) ?? Date(), databaseID: id, reference: (row["payload"] as? [String: Any])?["reference"] as? [String: String]))
+                    }
                 }
             case "ready":
                 connected = true; busy = false; status = "Connected"
@@ -262,7 +273,13 @@ final class Chat: NSObject, ObservableObject {
         liveVoice.silencePlayback()
         speechBuffer = ""
         messages.append(ChatMessage(role: "user", text: text)); busy = true
-        write(["type": "send", "text": text])
+        var command: [String: Any] = ["type": "send", "text": text]
+        if var reference = replyingTo?.reference {
+            if let mid = replyingTo?.databaseID { reference["message_id"] = mid }
+            command["notification"] = reference
+        }
+        write(command)
+        replyingTo = nil
     }
 
     private func interruptForSpeech() {
@@ -412,6 +429,7 @@ struct DayMarker: View {
 }
 
 struct MessageRow: View {
+    var onReply: (() -> Void)? = nil
     let message: ChatMessage
     let palette: Palette
     @State private var hovering = false
@@ -439,6 +457,7 @@ struct MessageRow: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 HStack(spacing: 6) {
+                    if message.reference != nil { Button("Reply") { onReply?() }.buttonStyle(.borderless) }
                     Text(message.at.formatted(.dateTime.hour().minute())).font(.caption).foregroundStyle(palette.muted)
                     Button {
                         NSPasteboard.general.clearContents()
@@ -854,7 +873,7 @@ struct SettingsPopover: View {
                             if index == 0 || !Calendar.current.isDate(chat.messages[index - 1].at, inSameDayAs: message.at) {
                                 DayMarker(date: message.at, palette: palette)
                             }
-                            MessageRow(message: message, palette: palette).id(message.id)
+                            MessageRow(onReply: { chat.reply(to: message) }, message: message, palette: palette).id(message.id)
                         }
                         if chat.connectionPrompt != nil { ChatConnectionPrompt(chat: chat) }
                         Color.clear.frame(height: 1).id("bottom")
@@ -875,6 +894,12 @@ struct SettingsPopover: View {
                             .buttonStyle(.bordered).padding(.bottom, 8).accessibilityLabel("Scroll to latest")
                     }
                 }
+            }
+            if let message = chat.replyingTo {
+                HStack {
+                    Label("Replying to \(AssistantIdentity.name): " + message.text, systemImage: "arrowshape.turn.up.left").font(.caption).lineLimit(2)
+                    Button { chat.replyingTo = nil } label: { Image(systemName: "xmark") }.buttonStyle(.borderless)
+                }.padding(.horizontal, 32).padding(.vertical, 8)
             }
             Composer(chat: chat, palette: palette)
                 .frame(maxWidth: column).frame(maxWidth: .infinity)
