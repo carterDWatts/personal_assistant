@@ -7,3 +7,4 @@ sherpa-onnx==1.13.7
 sherpa-onnx-core==1.13.7
 numpy==2.4.2
 cryptography==50.0.0
+pocket-tts==3.1.0

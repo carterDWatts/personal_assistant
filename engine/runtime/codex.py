@@ -85,7 +85,7 @@ class CodexRuntime:
         state.mkdir(parents=True, exist_ok=True, mode=0o700)
         toolsets = state / "toolsets"
         toolsets.mkdir(exist_ok=True, mode=0o700)
-        signature = hashlib.sha256(json.dumps([(t.name, t.schema) for t in tools], sort_keys=True).encode()).hexdigest()
+        signature = hashlib.sha256(json.dumps([system_prompt, [(t.name, t.description, t.schema) for t in tools]], sort_keys=True).encode()).hexdigest()
         def manifest(session):
             return toolsets / (hashlib.sha256(session.encode()).hexdigest() + ".txt")
         # Codex cannot change dynamic tools on resume. Reseed through Session when they change.

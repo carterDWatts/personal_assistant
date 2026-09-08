@@ -112,6 +112,52 @@ def calendars(args):
     return google._get('calendar/v3/users/me/calendarList', {'maxResults':100, **({'pageToken':args['page_token']} if args.get('page_token') else {})})
 
 
+def calendar_path(args):
+    return 'calendar/v3/calendars/' + quote(args['calendar_id'],safe='')
+
+
+def calendar_details(args):
+    return google._get(calendar_path(args))
+
+
+def calendar_body(args):
+    if args.get('time_zone'):
+        try: ZoneInfo(args['time_zone'])
+        except (ZoneInfoNotFoundError,ValueError): raise ToolError('Use an IANA time zone.') from None
+    return {dst:args[src] for src,dst in [('title','summary'),('description','description'),('time_zone','timeZone'),('location','location')] if src in args}
+
+
+def create_calendar(args):
+    body=calendar_body(args)
+    # Calendar insert has no client ID. Read all pages before retrying a named creation.
+    token=None
+    while True:
+        listing=calendars({'page_token':token} if token else {})
+        for item in listing.get('items',[]):
+            if item.get('accessRole')=='owner' and item.get('summary')==body['summary']:
+                return {'created':False,'calendar':google._get('calendar/v3/calendars/'+quote(item['id'],safe='')),
+                        'note':'An owned calendar with that name already exists. Use it rather than create a duplicate.'}
+        token=listing.get('nextPageToken')
+        if not token: break
+    return {'created':True,'calendar':google._request('POST','calendar/v3/calendars',body=body,required_scope=google.CALENDAR_SCOPE)}
+
+
+def update_calendar(args):
+    current=calendar_details(args)
+    if current.get('etag')!=args['etag']: raise ToolError('The calendar changed. Read it again first.')
+    body=calendar_body(args['changes'])
+    if not body: raise ToolError('Provide the calendar fields to change.')
+    return google._request('PATCH',calendar_path(args),body=body,headers={'If-Match':args['etag']},required_scope=google.CALENDAR_SCOPE)
+
+
+def delete_calendar(args):
+    if args['calendar_id']=='primary': raise ToolError('The primary calendar cannot be deleted.')
+    current=calendar_details(args)
+    if current.get('etag')!=args['etag']: raise ToolError('The calendar changed. Read it again first.')
+    google._request('DELETE',calendar_path(args),headers={'If-Match':args['etag']},required_scope=google.CALENDAR_SCOPE)
+    return {'calendar_id':args['calendar_id'],'deleted':True}
+
+
 def wrap(fn):
     async def call(args):
         result = await asyncio.to_thread(fn,args)
@@ -144,7 +190,12 @@ selection = {**identity,'etag':string,'scope':{'type':'string','enum':['occurren
 
 
 def specs():
+    calendar_fields={'title':string,'description':text,'time_zone':string,'location':text}
     return [
+        ToolSpec('google_calendar_create', 'Create a new secondary calendar when requested. This is different from an event. Returns an existing owned calendar with the same name instead of duplicating it. Calendar management may need an additional Google grant.',obj(calendar_fields,['title']),wrap(create_calendar)),
+        ToolSpec('google_calendar_get', 'Read calendar metadata, time zone and etag before changing a calendar.',obj({'calendar_id':string},['calendar_id']),wrap(calendar_details)),
+        ToolSpec('google_calendar_update', 'Rename a calendar or change its description, location or time zone when requested. Use its current etag.',obj({'calendar_id':string,'etag':string,'changes':obj(calendar_fields)},['calendar_id','etag','changes']),wrap(update_calendar)),
+        ToolSpec('google_calendar_delete', 'Delete an entire secondary calendar and all its events only when the user explicitly asks for that. This is not event deletion. Identify the calendar and read its current etag first; clarify if the request is ambiguous.',obj({'calendar_id':string,'etag':string},['calendar_id','etag']),wrap(delete_calendar)),
         ToolSpec('google_calendar_list','List accessible calendars, IDs, time zones and access roles. Follow nextPageToken if present.',obj({'page_token':string}),wrap(calendars)),
         ToolSpec('google_calendar_search','Search events by text and/or ISO time range, including past events. Returns IDs, etags and recurringEventId. Follow nextPageToken for more.',obj({'calendar_id':string,'query':string,'start':string,'end':string,'page_token':string}),wrap(search)),
         ToolSpec('google_calendar_get_event','Read full current event details and etag before editing or deleting. Use recurringEventId to read a series parent.',obj(identity,['event_id']),wrap(event)),

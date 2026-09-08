@@ -16,16 +16,7 @@ from pathlib import Path
 from engine import config
 
 
-def chunk(buffer, flush=False, limit=180):
-    # Prefer whole sentences; bound latency without splitting words.
-    match = re.search(r'[.!?\n](?:\s|$)', buffer)
-    if match and match.end() <= limit: return buffer[:match.end()].strip(), buffer[match.end():]
-    if len(buffer) >= limit:
-        end = buffer.rfind(' ', 0, limit)
-        if end > 0: return buffer[:end], buffer[end + 1:]
-        if len(buffer) >= limit: return buffer[:limit], buffer[limit:]
-    if flush and buffer.strip(): return buffer.strip(), ''
-    return None, buffer
+from engine.voice.phrasing import phrase as chunk, spoken, trim_padding, protected_boundary
 
 
 class Storage:
@@ -72,9 +63,13 @@ class Speech:
         try:
             from engine.voice.kokoro import create_voice
             self.storage = Storage()
-            self.voice = await asyncio.to_thread(create_voice)
-            # Warm the model before advertising readiness.
-            await asyncio.to_thread(self.voice.generate, 'Ready.', sid=self.settings.get('speaker', 16))
+            if self.settings.get('model') == 'pocket':
+                from engine.voice.pocket import PocketVoice
+                self.voice = await asyncio.to_thread(PocketVoice, self.settings.get('name','michael'))
+                await asyncio.to_thread(lambda: list(self.voice.stream('Ready.',threading.Event())))
+            else:
+                self.voice = await asyncio.to_thread(create_voice)
+                await asyncio.to_thread(self.voice.generate, 'Ready.', sid=self.settings.get('speaker',16))
             await self.cleanup()
             return True
         except Exception as error:
@@ -116,7 +111,7 @@ class Speech:
         self.buffer += text
         while True:
             # The second clip must be ready before the short opening finishes.
-            limit = 36 if self.first_chunk else 90 if self.chunks_queued == 1 else 180
+            limit = 72 if self.first_chunk else 120 if self.chunks_queued == 1 else 240
             part, self.buffer = chunk(self.buffer, limit=limit)
             if part is None: break
             if any(c.isalnum() for c in part): self.first_chunk = False
@@ -127,12 +122,12 @@ class Speech:
     async def flush_opening(self):
         # Start a short opening while later text is still arriving. A trailing
         # token can be half a word, so leave it for the next chunk.
-        await asyncio.sleep(.06)
+        await asyncio.sleep(.12)
         if not self.first_chunk or self.cancel.is_set(): return
-        boundary = self.buffer.rfind(' ')
+        boundary = protected_boundary(self.buffer, self.buffer.rfind(' '))
         if boundary < 0: return
         opening = self.buffer[:boundary].strip()
-        if len(opening.split()) < 2: return
+        if len(opening.split()) < 4 or "[" in opening: return
         self.buffer = self.buffer[boundary + 1:]
         self.first_chunk = False
         self.enqueue(opening)
@@ -165,7 +160,7 @@ class Speech:
         generated = time.monotonic()
         if cancelled.is_set() or len(result.samples) == 0: return None
         import numpy as np
-        samples = np.asarray(result.samples, dtype='<f4')
+        samples = trim_padding(np.asarray(result.samples, dtype='<f4'), result.sample_rate, text)
         # Opening phrases fit in a small PCM WAV. No encoder process or codec delay.
         # Longer clips stay compressed to keep network and replay payloads bounded.
         if len(samples) * 2 + 44 <= 64_000:
@@ -186,6 +181,32 @@ class Speech:
             print(f'Synthesis timing: generate_seconds={generated-started:.3f} encode_seconds={time.monotonic()-generated:.3f} format=aac', flush=True)
             return output.read_bytes(), round(len(samples) / result.sample_rate * 1000)
 
+    def next_packet(self, stream, cancelled):
+        with self.render_lock:
+            if cancelled.is_set():
+                stream.close()
+                return None
+            samples=next(stream,None)
+            if samples is None: return None
+            import numpy as np
+            if not np.isfinite(samples).all(): raise RuntimeError('Invalid speech samples')
+            output=io.BytesIO()
+            with wave.open(output,'wb') as wav:
+                wav.setnchannels(1);wav.setsampwidth(2);wav.setframerate(self.voice.sample_rate)
+                wav.writeframes((np.clip(samples,-1,1)*32767).astype('<i2').tobytes())
+            return output.getvalue(),round(len(samples)/self.voice.sample_rate*1000)
+
+    async def packets(self,text,cancelled):
+        if hasattr(self.voice,'stream'):
+            stream=self.voice.stream(text,cancelled)
+            while not cancelled.is_set():
+                packet=await asyncio.to_thread(self.next_packet,stream,cancelled)
+                if packet is None: break
+                yield packet
+        else:
+            result=await asyncio.to_thread(self.render,text,cancelled)
+            if result is not None: yield result
+
     async def run(self, turn, cancelled, queue):
         status = 'success'
         timings = {}
@@ -198,31 +219,30 @@ class Speech:
                 except asyncio.TimeoutError: continue
                 if text is None: break
                 # Formatting is for the chat, not the voice.
-                text = re.sub(r'[*#`]', '', text).strip()
+                text = spoken(text)
                 if not any(c.isalnum() for c in text): continue
                 started = time.monotonic()
-                result = await asyncio.to_thread(self.render, text, cancelled)
-                rendered = time.monotonic()
-                if cancelled.is_set(): break
-                if result is None: continue
-                # publish_speech checks cancellation atomically with publication.
-                seq += 1
-                if len(result[0]) <= 64_000:
-                    mime = 'wav' if result[0].startswith(b'RIFF') else 'mp4'
-                    url = f'data:audio/{mime};base64,' + base64.b64encode(result[0]).decode('ascii')
-                else:
-                    name = f'{turn}/{seq}.m4a'
-                    await self.host.call(self.host.relay.map.execute,
-                        'insert into assistant.speech_objects(path) values(%s) on conflict do nothing', (name,))
-                    url = await asyncio.to_thread(self.storage.upload, name, result[0])
-                if cancelled.is_set(): break
-                if not await self.host.call(self.host.relay.publish_speech, turn,
-                    {'type': 'speech', 'seq': seq, 'url': url, 'duration_ms': result[1], 'text': text,
-                     'render_seconds': round(rendered-started, 3)}): break
-                if seq == 1:
-                    timings = {'render_seconds': round(rendered-started, 3),
-                               'delivery_seconds': round(time.monotonic()-rendered, 3)}
-                    print(f'Speech timing: render_seconds={rendered-started:.3f} delivery_seconds={time.monotonic()-rendered:.3f}', flush=True)
+                async for result in self.packets(text,cancelled):
+                    rendered = time.monotonic()
+                    if cancelled.is_set(): break
+                    # publish_speech checks cancellation atomically with publication.
+                    seq += 1
+                    if len(result[0]) <= 64_000:
+                        mime = 'wav' if result[0].startswith(b'RIFF') else 'mp4'
+                        url = f'data:audio/{mime};base64,' + base64.b64encode(result[0]).decode('ascii')
+                    else:
+                        name = f'{turn}/{seq}.m4a'
+                        await self.host.call(self.host.relay.map.execute,
+                            'insert into assistant.speech_objects(path) values(%s) on conflict do nothing', (name,))
+                        url = await asyncio.to_thread(self.storage.upload, name, result[0])
+                    if cancelled.is_set(): break
+                    if not await self.host.call(self.host.relay.publish_speech, turn,
+                        {'type': 'speech', 'seq': seq, 'url': url, 'duration_ms': result[1], 'text': text,
+                         'render_seconds': round(rendered-started, 3)}): break
+                    if seq == 1:
+                        timings = {'render_seconds': round(rendered-started, 3),
+                                   'delivery_seconds': round(time.monotonic()-rendered, 3)}
+                        print(f'Speech timing: render_seconds={rendered-started:.3f} delivery_seconds={time.monotonic()-rendered:.3f}', flush=True)
         except Exception as error:
             status = 'error'
             print(f'Speech failed ({type(error).__name__}).', flush=True)

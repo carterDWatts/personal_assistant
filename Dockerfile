@@ -12,7 +12,10 @@ RUN ln -s /usr/local/lib/node_modules/@openai/codex/bin/codex.js /usr/local/bin/
     && useradd --uid 10001 --gid 10001 --home-dir /data assistant
 WORKDIR /app
 COPY requirements-host.txt .
+RUN pip install --no-cache-dir torch==2.14.0 --index-url https://download.pytorch.org/whl/cpu
 RUN pip install --no-cache-dir -r requirements-host.txt
+ENV HF_HOME=/opt/assistant-pocket
+RUN python -c "from pocket_tts import TTSModel; m=TTSModel.load_model(language='english_2026-04',temp=.3); m.get_state_for_audio_prompt('michael')"
 COPY engine/voice/tts_models.py /tmp/install_voice.py
 ENV ASSISTANT_VOICE_MODEL_DIR=/opt/assistant-voice
 RUN python /tmp/install_voice.py && rm /tmp/install_voice.py

@@ -1,8 +1,9 @@
 {
   "name": "Bunny Man",
   "voice": {
-    "model": "kokoro",
+    "model": "pocket",
     "speaker": 16,
-    "speed": 1.1
+    "speed": 1.1,
+    "name": "michael"
   }
 }

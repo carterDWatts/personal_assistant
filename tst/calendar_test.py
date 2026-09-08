@@ -66,3 +66,22 @@ class calendar_test(unittest.IsolatedAsyncioTestCase):
             _,failed=await run(specs['google_calendar_update_event'],{'event_id':'series','etag':'v1','scope':'series','changes':{'arbitrary':'field'}})
             self.assertTrue(failed)
             request.assert_not_called()
+
+    def test_calendar_creation_does_not_duplicate_an_existing_name(self):
+        with patch.object(calendar,'calendars',return_value={'items':[{'id':'owned','summary':'Work','accessRole':'owner'}]}),patch.object(google,'_get',return_value={'id':'owned'}),patch.object(google,'_request') as request:
+            result=calendar.create_calendar({'title':'Work'})
+            self.assertFalse(result['created'])
+            request.assert_not_called()
+
+    def test_calendar_creation_requests_management_scope(self):
+        with patch.object(calendar,'calendars',return_value={'items':[]}),patch.object(google,'_request',return_value={'id':'new'}) as request:
+            result=calendar.create_calendar({'title':'Work','time_zone':'America/Los_Angeles'})
+            self.assertTrue(result['created'])
+            self.assertEqual(request.call_args.kwargs['required_scope'],google.CALENDAR_SCOPE)
+            self.assertEqual(request.call_args.kwargs['body']['timeZone'],'America/Los_Angeles')
+        credentials=Mock(valid=True)
+        credentials.has_scopes.side_effect=lambda scopes: google.CALENDAR_SCOPE not in scopes
+        with patch.object(google,'_credentials',return_value=credentials),patch.object(google,'AuthorizedSession') as network:
+            with self.assertRaises(google.ConnectionRequired):
+                google._request('POST','calendar/v3/calendars',body={'summary':'Work'},required_scope=google.CALENDAR_SCOPE)
+            network.assert_not_called()

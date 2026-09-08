@@ -23,16 +23,16 @@ class speech_test(unittest.TestCase):
             speech.cleanup = AsyncMock(side_effect=AssertionError('Cleanup blocked speech'))
             await speech.begin({'id': 'turn', 'speech': True})
             try:
-                speech.feed('I can hel')
+                speech.feed('I can help you wi')
                 for _ in range(50):
                     if events: break
                     await asyncio.sleep(.01)
-                self.assertEqual(events[0]['text'], 'I can')
+                self.assertEqual(events[0]['text'], 'I can help you')
                 self.assertFalse(speech.task.done())
-                speech.feed('p with that.')
+                speech.feed('th that.')
                 speech.finish('completed')
                 await speech.task
-                self.assertEqual([e['text'] for e in events if e['type'] == 'speech'], ['I can', 'help with that.'])
+                self.assertEqual([e['text'] for e in events if e['type'] == 'speech'], ['I can help you', 'with that.'])
                 self.assertIn('render_seconds', events[-1])
                 self.assertIn('delivery_seconds', events[-1])
                 speech.cleanup.assert_not_awaited()
@@ -111,4 +111,61 @@ class speech_test(unittest.TestCase):
             self.assertEqual([event['seq'] for event in events[:-1]], list(range(1, 61)))
             self.assertEqual(events[-1]['status'], 'success')
             self.assertEqual(base64.b64decode(events[0]['url'].split(',', 1)[1]), b'audio')
+        asyncio.run(check())
+
+    def test_links_abbreviations_and_decimals_remain_whole(self):
+        from engine.voice.phrasing import spoken
+        text='Ask Dr. Smith about the 3.5 mile walk. Then see [the forecast](https://example.com/forecast).'
+        part,rest=chunk(text)
+        self.assertEqual(part,'Ask Dr. Smith about the 3.5 mile walk.')
+        self.assertEqual(spoken(rest),'Then see the forecast.')
+        link='[the forecast](https://example.com/'+'x'*100+') is helpful.'
+        part,rest=chunk(link,limit=40)
+        self.assertIsNone(part)
+        self.assertEqual(spoken(chunk(rest,True)[0]),'the forecast is helpful.')
+        self.assertEqual(spoken('## Today\n- **Gym** at 9\n- Lunch at noon'),'Today Gym at 9 Lunch at noon')
+
+    def test_audio_padding_preserves_quiet_edges_and_punctuation_pause(self):
+        import numpy as np
+        from engine.voice.phrasing import trim_padding
+        rate=24000
+        speech=np.concatenate([np.ones(240)*.001,np.ones(2400)*.1,np.ones(240)*.001])
+        padded=np.concatenate([np.zeros(12000),speech,np.zeros(12000)])
+        sentence=trim_padding(padded,rate,'That works.')
+        fragment=trim_padding(padded,rate,'That works')
+        self.assertLess(len(sentence),len(padded))
+        self.assertGreater(len(sentence),len(fragment))
+        np.testing.assert_array_equal(sentence[840:840+len(speech)],speech)
+
+    def test_streamed_audio_arrives_before_synthesis_finishes(self):
+        import numpy as np
+        async def check():
+            events=[]
+            release=threading.Event()
+            def stream(text,cancel):
+                yield np.ones(7680,dtype=np.float32)*.1
+                release.wait(2)
+                if not cancel.is_set(): yield np.ones(23040,dtype=np.float32)*.2
+            class Relay:
+                def publish_speech(self,turn,payload): events.append(payload); return True
+            async def call(fn,*args): return fn(*args)
+            speech=Speech(SimpleNamespace(relay=Relay(),call=call))
+            speech.voice=SimpleNamespace(stream=stream,sample_rate=24000)
+            speech.storage=object()
+            await speech.begin({'id':'test','speech':True})
+            try:
+                speech.feed('That works. ')
+                speech.finish('completed')
+                for _ in range(100):
+                    if events: break
+                    await asyncio.sleep(.01)
+                self.assertEqual(events[0]['duration_ms'],320)
+                self.assertFalse(speech.task.done())
+                release.set()
+                await speech.task
+                self.assertEqual([e['seq'] for e in events if e['type']=='speech'],[1,2])
+                self.assertEqual(events[-1]['status'],'success')
+            finally:
+                release.set()
+                await speech.close()
         asyncio.run(check())

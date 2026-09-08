@@ -3,7 +3,7 @@ import type { Config } from './handler.ts';
 const scope = 'https://www.googleapis.com/auth/';
 const grants: Record<string, {slot: string; scopes: string[]}> = {
   calendar: {slot: 'google_connect', scopes: [scope+'calendar.readonly', scope+'gmail.readonly']},
-  calendar_write: {slot: 'google_connect', scopes: [scope+'calendar.readonly', scope+'gmail.readonly', scope+'calendar.events']},
+  calendar_write: {slot: 'google_connect', scopes: [scope+'calendar.readonly', scope+'gmail.readonly', scope+'calendar.events', scope+'calendar.calendars']},
   tasks: {slot: 'google_tasks', scopes: [scope+'tasks.readonly']},
   drive: {slot: 'google_drive', scopes: [scope+'drive.readonly']},
   contacts: {slot: 'google_contacts', scopes: [scope+'contacts.readonly']},

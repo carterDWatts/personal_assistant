@@ -15,7 +15,7 @@ The Mac app offers connection buttons in the conversation when a relevant tool n
 
 A failed connection does not replace an existing credential. The secure setup field sends credentials only to the private desktop bridge and OS Keychain, never to Session.send, chat history, tool arguments or the memory worker. Test and production credentials occupy separate Keychain entries. Disconnect removes the local credential; revoke at the provider to invalidate it on every device. Optional Google grants use separate entries so they cannot replace Calendar/Gmail access.
 
-Calendar mutations use the Calendar changes grant. Event edits and deletions require a current etag; recurrence scope is explicit so a single occurrence cannot silently become a whole-series change. Guest notifications default to all; suppression must be explicitly requested.
+Calendar and event mutations use the Calendar changes grant. Creating, renaming or deleting a secondary calendar additionally requests calendar.calendars; existing event-only connections can upgrade in chat. Event edits and deletions require a current etag; recurrence scope is explicit so a single occurrence cannot silently become a whole-series change. Guest notifications default to all; suppression must be explicitly requested.
 
 Google scopes are `tasks.readonly`, `drive.readonly` and `contacts.readonly`. Drive read access includes spreadsheet reads. The developer Google Cloud project must enable Tasks, Drive, Sheets and People APIs; users only approve the requested Google permission. OAuth consent remains subject to the project's testing/verification settings.
 

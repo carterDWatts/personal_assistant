@@ -60,3 +60,11 @@ Speech stays on devices. Google credentials stored in the Mac Keychain are not y
 `scripts/test.sh` runs the database migrations and Python/Swift checks against a throwaway database. `node --test tst/gateway.test.ts` checks authentication boundaries and error handling. Docker builds use an allowlist so local credentials and app bundles cannot enter the build context.
 
 The public certificate in `deploy/supabase-ca.crt` comes from Supabase's [certificate download](https://supabase-downloads.s3-ap-southeast-1.amazonaws.com/prod/ssl/prod-ca-2021.crt). It expires April 26, 2031. SHA-256: `807025ad50d4ed219d2c9c7d299c004f824eb00cf7f65afef607d07b72e6cafa`. It enables `sslmode=verify-full`; it contains no private key.
+
+## Voice
+
+The hosted voice uses Pocket TTS 3.1.0 on CPU. Model assets are cached in the image, and the voice stays loaded. Audio starts with a 320 ms packet, then streams in roughly 960 ms packets. Kokoro remains the local Mac voice. No speech API is billed.
+
+## Planned event notifications
+
+Google Calendar remains authoritative for timed events. Advance event notifications are a later feature; any local event cache must be disposable and reconciled with Google, not a second editable calendar. Reminders are separate commitments with their own context and completion state.
