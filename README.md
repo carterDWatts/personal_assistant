@@ -1,87 +1,71 @@
-# Personal assistant
+![Bunny Man architecture](docs/assets/architecture.png)
 
-A personal assistant built around a shared knowledge map. The map is a Postgres schema on Supabase that every agent on every device reads and writes: facts as time-bounded assertions with full transition history, relationships between entities, an append-only log of everything that happened, and the plans, rules and questions that drive a short spoken check-in every morning.
+# Bunny Man
 
-## Layout
+I want an assistant I can tell something once and come back to from any device. It should know what changed, remember why, and notice when something needs my attention without waiting for me to bring it up.
 
-```
-assistant.py           talk, morning, snapshot, status
-engine/                the conversation engine: map access, tools, context, runtimes
-prompts/               the persona and the morning instructions
-supabase/migrations/   the schema, in SQL
-supabase/tests/        behavioral checks for the schema
-eval/                  knowledge-update and abstention cases
-scripts/                test.sh runs the suite, testdb.sh keeps a local test map, push.sh pushes migrations
-docs/knowledge-map.md  how the map works
-docs/engine.md         how the engine works
-docs/research/         the research the design rests on
-docs/design-v0.1.md    the original design doc
-```
+I built Bunny Man around a shared knowledge map in Postgres. The iPhone app, Mac app, and model sessions use the same structured memory and conversation history. I can switch between Claude and ChatGPT, restart the runtime, or pick up on another device and continue with the same context.
 
-## Running it
+The important part is that continuity belongs to the system. It doesn't depend on keeping one model process alive forever.
 
-```bash
-pip3 install -r requirements.txt
-export ASSISTANT_DATABASE_URL='postgresql://...'   # the project's session pooler URI
-python3 assistant.py talk
-```
+![A sourced fact is inferred from, revised, and retrieved by a fresh model session](docs/assets/memory.gif)
 
-For anything exploratory, use the test map instead of the real one:
+*An illustrative walkthrough of the implemented memory paths. The records are fictional.*
 
-```bash
-scripts/testdb.sh up                                # a local Postgres with the migrations applied
-export ASSISTANT_TEST_DATABASE_URL="$(scripts/testdb.sh url)"
-python3 assistant.py talk --test
-```
+## How the memory works
 
-`docs/engine.md` covers the rest.
+The map stores entities, aliases, attributes, relationships, standing rules, plans, outcomes, and reminders. Conversations remain available as evidence and context, but the structured map determines the state the assistant reads.
 
-## The map
+- **Two clocks.** Facts record when they were true and when the system learned them. A late correction can change the current answer without erasing the previous understanding.
+- **Explicit transitions.** Something that stopped being true is closed into history. Something that was never true is deprecated. Those are different operations, and both keep the source and reason.
+- **Evidence-linked inference.** Nightly review can derive relationships and surface inconsistencies. Inferences reference their supporting facts. Database triggers invalidate dependent inferences when that support changes.
+- **Authoritative correction.** A user clarification updates the affected knowledge and closes its question in one transaction. The nightly model cannot silently overwrite a stated fact.
+- **Database-enforced writes.** Typed registries, foreign keys, interval constraints, locks, and immutable revisions handle the parts that need to be deterministic. A model proposes meaning; SQL controls how it becomes state.
 
-`docs/knowledge-map.md` explains the schema. To prove a change before pushing it:
+Every user message queues a durable extraction job. A smaller model processes it asynchronously, so saving memory doesn't hold up a conversation. Explicit preferences and corrections can be written during the turn. Both paths use the same validated operations.
 
-```bash
+## Keeping a conversation continuous
+
+Each session starts with a bounded snapshot of current knowledge and recent messages. The engine caches that context, sends changed sections as memory updates, and exposes search, entity views, and history tools for deeper retrieval. It doesn't paste the entire database into every prompt.
+
+The hosted runtime stays warm between turns. The phone sends durable requests through an authenticated Supabase relay and replays persisted response events after reconnecting. Claude and Codex sit behind separate adapters, so the memory, tools, and conversation aren't tied to one provider.
+
+## What I use it for
+
+Typed and interruptible voice conversations, a morning review that learns my preferences, calendar planning, contextual reminders, email triage, and importing large blocks of existing context. A background reviewer looks across the map for emerging needs. Alerts carry evidence, are deduplicated and paced, and can be opened directly into a conversation about that notification.
+
+The phone streams Pocket TTS from the host. The Mac has local speech. Google Calendar remains authoritative for calendar events; reminders track commitments and completion separately.
+
+## Stack and verification
+
+SwiftUI on iOS and macOS, Python for the engine, Supabase/Postgres for memory and the relay, and a Railway worker defined in code. Model inference uses my existing subscriptions; this is currently a personal, single-owner deployment.
+
+The test suite covers temporal updates, concurrent writes, inference invalidation, clarification transactions, notification deduplication, reconnect behavior, and streamed replies. Xcode tests replay audio and verify microphone mute and voice previews without requiring repeated manual phone tests.
+
+```sh
 scripts/test.sh
 ```
 
-To push migrations to the project:
+This creates a throwaway database, applies the migrations, and runs the SQL, Python, and shared Swift checks. It does not reset the app's persistent test memory.
 
-```bash
-supabase link --project-ref koauvyfxewczcajnlrfp
-supabase db push
-```
+## Running and exploring it
 
-## The eval set
+- [Knowledge map](docs/knowledge-map.md): the schema and update semantics.
+- [Engine](docs/engine.md): sessions, context, tools, and runtime adapters.
+- [Cloud deployment](docs/cloud.md): authentication, infrastructure, notifications, and the hosted worker.
+- [Client contract](docs/client-contract.md): phone/host communication.
+- [Connections](docs/connections.md): service integrations and setup.
 
-`eval/cases.json` holds knowledge-update and abstention cases: what was said or synced, the question, the answer the assistant must give, and what the current views must show. It is the regression check for extraction, retrieval and consolidation, written before any of that logic exists so the logic is held to it rather than the other way round.
+```sh
+pip3 install -r requirements.txt
+export ASSISTANT_DATABASE_URL='postgresql://...'
+python3 assistant.py talk
 
-## Mac app
-
-```bash
+# Build the Mac app
 scripts/build-mac.sh
-open "build/Personal Assistant.app"
+open 'build/Bunny Man.app'
 ```
 
-The build uses `python3`; set `PYTHON` if your dependencies are in a different interpreter. The app runs the engine from this checkout, so keep the folder in place. It reads literal `export ASSISTANT_DATABASE_URL=...` and `ASSISTANT_TEST_DATABASE_URL=...` lines from `~/.zshrc` when launched from Finder. It never executes that file. Test mode defaults to the local database created by `scripts/testdb.sh up` if no test URL is set.
+Open `ios/Assistant.xcodeproj` for the phone app. The assistant's name is centralized in `identity.json`. Development and deployment track `main`.
 
-The window is one conversation with day markers rather than separate chats, a panel on the right with the day's plan, and a bar to type or talk. The model and the memory environment live behind the gear; there is no new-conversation button because there is only ever one conversation. The app connects automatically when opened and remembers your selected model and memory environment. Choosing Claude or ChatGPT, or switching test memory, reconnects automatically. Both models use the same shared transcript and knowledge map. Replies use the current conversation immediately; a smaller model saves structured memory in the background, with its progress shown separately. Speech models preload when the app opens and stay warm between voice conversations; preloading does not activate the microphone. Talk opens a compact floating voice panel with live captions and both sides of the conversation. The rest of the chat stays interactive. The microphone stays on during replies; speaking interrupts playback and generation. End stops voice mode. Switching to another app or minimizing this window also stops voice, so the microphone does not remain active in the background. Allow Microphone when macOS asks. Speech is transcribed locally through sherpa-onnx: a fast Zipformer supplies live words and Kroko corrects them during speech, then verifies the completed utterance; it never goes to Apple's speech service. The build downloads pinned recognition and speech models once. Your words appear in a fixed live-transcription panel as you speak. Kokoro's Michael voice generates American English locally at 1.1× speed, played through an echo-cancelled audio engine. Each sentence finishes generating before playback so it cannot stall between model chunks; following sentences generate while playback continues. A one-second silence threshold leaves room for pauses within an utterance; model buffering adds some delay before submission. Actual interruption timing depends on speech recognition and your audio devices. Local unsigned development builds may require renewed macOS permission after rebuilding.
-
-ChatGPT uses your Codex subscription login through the official app server. Sign in with `codex login` if needed. API-key accounts are rejected. `ASSISTANT_OPENAI_MODEL` optionally selects a model; otherwise Codex chooses its default. Claude uses the existing Claude login and rejects API billing environment variables. Reported SDK dollar estimates are not invoices or proof of subscription charges.
-
-Recognition uses [Kroko's community model](https://huggingface.co/Banafo/Kroko-ASR) under CC-BY-SA. Synthesis uses [Kokoro](https://k2-fsa.github.io/sherpa/onnx/tts/pretrained_models/kokoro.html). Both run locally without a speech API. Run `python3 -m scripts.check_voice` and `python3 -m scripts.check_synthesis` to test recorded audio and interruption without opening the microphone.
-
-The experimental American Lower CSM adapter remains available through `python -m engine.voice.synthesize --american-lower` in the environment installed from `requirements-voice-mac.txt`; install its assets with `python -m engine.voice.csm_models`. It requires Apple Silicon and macOS 15 or later, uses about 9 GB of model memory, and generates slower than playback on this Mac. Its reference is from [Expresso](https://speechbot.github.io/expresso/) (Nguyen et al., Meta), distributed through [Kyutai's voice collection](https://huggingface.co/kyutai/tts-voices) under CC BY-NC 4.0, with generated playback lowered by 0.75 semitone. It is retained for noncommercial experiments, not used by the app.
-
-For terminal ChatGPT conversations:
-
-```bash
-ASSISTANT_RUNTIME=codex python3 assistant.py talk
-```
-
-The assistant’s name lives in `identity.json`. Both model adapters use it through the shared persona in `prompts/persona.md`, and the Mac build copies it into the app. To rename the character, edit that one value and rebuild the app; storage paths and conversation history do not change.
-
-## Connections
-
-Open Connections (the link button) in the app. Weather works automatically through [Open-Meteo](https://open-meteo.com/), with forecasts cached for at most five minutes. Google connects Calendar and Gmail through the system browser and stores its tokens in the operating system keychain, separately for test and production. Calendar supports creating personal events; email is read-only. Existing connections need **Enable calendar editing** once to grant the added permission. Disconnect removes this device’s token without deleting memory or disconnecting other devices.
-
-Developer setup, once per distribution: enable Calendar and Gmail in a Google Cloud project, configure the consent screen, and create a Desktop OAuth client. Keep its downloaded JSON at the ignored `google-client.json` in the project root. Customers only use **Connect Google**; they do not create clients or enter API keys. Without that registration this build labels Google sign-in unavailable. Public distribution requires Google’s applicable [OAuth verification](https://developers.google.com/identity/protocols/oauth2/production-readiness/restricted-scope-verification), particularly for Gmail access. The current sign-in callback is for desktop; mobile needs its platform’s native Google sign-in adapter.
+The next work is improving retrieval beyond the initial snapshot and making voice consistently comfortable. Memory search is currently lexical, inference still needs review, and this isn't yet a multi-user product. A standalone morning device is planned.

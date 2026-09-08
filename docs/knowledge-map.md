@@ -40,7 +40,7 @@ Plans hold planned versus actual per day. A plan the agent derived from the map 
 
 ## Access
 
-Every table has row-level security enabled with no policies, so only the service role can reach the schema. Devices use the service role key. The Claude app reaches the map through Supabase's own MCP connector.
+The knowledge tables have row-level security enabled and privileged access is kept on the engine host. The iPhone authenticates through Supabase Auth and sends validated commands through the gateway; it never receives database or service-role credentials. The current deployment allows one owner. Both model adapters use the engine's memory tools.
 
 ## Applying it
 
