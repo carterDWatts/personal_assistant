@@ -100,7 +100,7 @@ class Speech:
         if not self.task or self.task.done(): return
         self.buffer += text
         while True:
-            part, self.buffer = chunk(self.buffer, limit=64 if self.first_chunk else 180)
+            part, self.buffer = chunk(self.buffer, limit=36 if self.first_chunk else 180)
             if part is None: break
             if any(c.isalnum() for c in part): self.first_chunk = False
             self.enqueue(part)

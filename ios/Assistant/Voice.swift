@@ -56,6 +56,9 @@ private final class Capture: @unchecked Sendable {
     private var signalAt = Date.distantPast
     private var endpoint: Task<Void, Never>?
     private var refresh: Task<Void, Never>?
+    private var watchdog: Task<Void, Never>?
+    private var lastBuffer = Date.distantPast
+    private var captureRestarts = 0
     private var onDevice = true
     private var recognitionFailures = 0
     private var startToken = UUID()
@@ -75,7 +78,9 @@ private final class Capture: @unchecked Sendable {
     init() {
         capture.onLevel = { [weak self] level in
             Task { @MainActor [weak self] in
-                guard let self, !self.muted, abs(self.inputLevel - level) > 0.03 else { return }
+                guard let self, self.active else { return }
+                self.lastBuffer = Date()
+                guard !self.muted else { return }
                 self.inputLevel = level
                 if level > 0.04 && !self.speaking { self.signalAt = Date() }
             }
@@ -107,6 +112,7 @@ private final class Capture: @unchecked Sendable {
             guard speech == .authorized else { self.onError?("Allow speech recognition in Settings to talk."); return }
             self.onDevice = UserDefaults.standard.object(forKey: "onDeviceRecognition") as? Bool ?? true
             self.recognitionFailures = 0
+            self.captureRestarts = 0
             self.begin()
         }
     }
@@ -135,6 +141,8 @@ private final class Capture: @unchecked Sendable {
         engine.prepare()
         do { try engine.start() } catch { input.removeTap(onBus: 0); failed("The microphone couldn’t start: \(error.localizedDescription)"); return }
         active = true
+        lastBuffer = Date()
+        watchCapture()
         let route = session.currentRoute.inputs.map(\.portType.rawValue).joined(separator: ",")
         log.notice("voice started, input \(route, privacy: .public), format \(input.outputFormat(forBus: 0).description, privacy: .public), on-device \(self.onDevice)")
         listen()
@@ -144,6 +152,26 @@ private final class Capture: @unchecked Sendable {
                 try? await Task.sleep(for: .seconds(45))
                 guard let self, self.active, !self.muted, self.transcript.isEmpty else { continue }
                 self.listen()
+            }
+        }
+    }
+
+    private func watchCapture() {
+        watchdog?.cancel()
+        watchdog = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .milliseconds(500))
+                guard !Task.isCancelled, let self, self.active else { return }
+                guard !self.muted, Date().timeIntervalSince(self.lastBuffer) > 2 else { continue }
+                guard self.captureRestarts < 2 else {
+                    self.failed("The microphone stopped delivering audio. Please reconnect your microphone.")
+                    return
+                }
+                self.captureRestarts += 1
+                self.log.notice("restarting stalled microphone")
+                self.stop()
+                self.begin()
+                return
             }
         }
     }
@@ -360,7 +388,7 @@ private final class Capture: @unchecked Sendable {
         let wasActive = active
         active = false
         silencePlayback()
-        endpoint?.cancel(); refresh?.cancel()
+        endpoint?.cancel(); refresh?.cancel(); watchdog?.cancel()
         listening = UUID()
         task?.cancel(); task = nil
         request?.endAudio(); request = nil

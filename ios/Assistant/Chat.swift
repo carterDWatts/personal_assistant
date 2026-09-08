@@ -12,13 +12,6 @@ enum AssistantIdentity {
     private struct Identity: Decodable { let name: String }
 }
 
-struct ChatMessage: Identifiable {
-    let id = UUID()
-    let role: String
-    var text: String
-    var at: Date = Date()
-}
-
 struct PlanItem: Identifiable {
     let id = UUID()
     let item, status: String
@@ -74,7 +67,7 @@ func plain(_ value: Any?) -> String {
     private let transport: Transport
     private var receiving: Task<Void, Never>?
     private var speechBuffer = ""
-    private var streamingID: UUID?
+    private var replyState = ReplyState()
 
     init(transport: Transport? = nil) {
         let transport = transport ?? (ProcessInfo.processInfo.arguments.contains("--sample") ? MockTransport() : RelayTransport())
@@ -92,19 +85,21 @@ func plain(_ value: Any?) -> String {
 
     func connect(clear: Bool = false) {
         liveVoice.stop(); voice = false; voiceTurn = VoiceTurn()
-        messages = []; memoryStatus = ""; streamingID = nil; connectionPrompt = nil
+        messages = []; memoryStatus = ""; replyState.reset(messages: &messages); connectionPrompt = nil
         busy = true; status = "Connecting…"
         transport.connect(clear: clear)
     }
 
     private func receive(_ event: [String: Any]) {
         guard let type = event["type"] as? String else { return }
+        let turn = event["turn_id"] as? String
         let text = event["text"] as? String ?? event["message"] as? String ?? ""
         switch type {
         case "history":
+            replyState.reset(messages: &messages)
             liveVoice.silencePlayback(); spokenTurns.removeAll(); playedChunks.removeAll()
             messages = (event["messages"] as? [[String: Any]] ?? []).compactMap { row in
-                guard let role = row["role"] as? String, let content = row["content"] as? String else { return nil }
+                guard let role = row["role"] as? String, let content = row["content"] as? String, !content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
                 return ChatMessage(role: role, text: content, at: parseDate(row["created_at"]) ?? Date())
             }
         case "ready":
@@ -112,14 +107,13 @@ func plain(_ value: Any?) -> String {
             if let pending = voiceTurn.ready(), voice { submit(pending) }
         case "start":
             busy = true; speechBuffer = ""
-            let item = ChatMessage(role: "assistant", text: "")
-            streamingID = item.id; messages.append(item); status = "Thinking…"
+            replyState.begin(turn, messages: &messages); status = "Thinking…"
         case "capabilities":
             hostSpeaks = event["speech"] as? Bool == true
             models = (event["models"] as? [[String: Any]] ?? []).compactMap(ModelChoice.init)
             if !models.contains(where: { $0.id == selectedModel }) { selectedModel = "" }
         case "delta":
-            if let i = messages.firstIndex(where: { $0.id == streamingID }) { messages[i].text += text }
+            guard replyState.update(text, turn: turn, replace: false, messages: &messages) else { return }
             if hostSpeaks { status = "Replying…" }
             else if !voiceTurn.interrupted { speechBuffer += text; speakSentences(flush: false); status = "Replying…" }
         case "submitted":
@@ -134,10 +128,10 @@ func plain(_ value: Any?) -> String {
             if let turn = event["turn_id"] as? String { spokenTurns.remove(turn) }
             if event["status"] as? String == "error" { status = "Speech didn’t come through; the text is here." }
         case "replace":
-            if let i = messages.firstIndex(where: { $0.id == streamingID }) { messages[i].text = text }
+            _ = replyState.update(text, turn: turn, replace: true, messages: &messages)
         case "end":
+            guard replyState.end(turn, messages: &messages) else { return }
             if !hostSpeaks && !voiceTurn.interrupted { speakSentences(flush: true) }
-            streamingID = nil
         case "connection_required":
             connectionPrompt = ConnectionPrompt(event: event, request: messages.last(where: { $0.role == "user" })?.text)
         case "connections":
@@ -150,6 +144,8 @@ func plain(_ value: Any?) -> String {
             memoryErrors = (event["errors"] as? NSNumber)?.intValue ?? 0
         case "status": status = text.replacingOccurrences(of: "_", with: " ")
         case "error":
+            guard turn == nil || replyState.accepts(turn) else { return }
+            replyState.end(turn, messages: &messages)
             busy = false; status = text; voice = false; liveVoice.stop(); voiceTurn = VoiceTurn()
             if let unsent = event["unsent"] as? String {
                 if messages.last?.role == "user" && messages.last?.text == unsent { messages.removeLast() }
@@ -167,6 +163,7 @@ func plain(_ value: Any?) -> String {
     }
 
     private func submit(_ text: String, speak: Bool = true) {
+        replyState.reset(messages: &messages)
         liveVoice.silencePlayback()
         spokenTurns.removeAll(); playedChunks.removeAll()
         speechBuffer = ""

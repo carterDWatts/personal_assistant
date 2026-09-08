@@ -100,11 +100,13 @@ struct RelayError: LocalizedError {
 
     private func handle(_ envelope: [String: Any]) {
         guard var payload = envelope["payload"] as? [String: Any], let type = payload["type"] as? String else { return }
+        payload["turn_id"] = envelope["turn_id"]
         switch type {
         case "start":
             activeTurn = envelope["turn_id"] as? String
             emit(payload)
         case "end":
+            if let current = activeTurn, let ended = envelope["turn_id"] as? String, current != ended { return }
             activeTurn = nil
             emit(payload)
             emit(["type": "ready"])
@@ -127,7 +129,12 @@ struct RelayError: LocalizedError {
             while !Task.isCancelled {
                 guard let self else { return }
                 let busy = self.activeTurn != nil || self.audioTurn != nil
-                try? await Task.sleep(for: busy ? .milliseconds(250) : .seconds(3))
+                // A submitted turn must wake an idle poll immediately.
+                for _ in 0..<(busy ? 2 : 30) {
+                    try? await Task.sleep(for: .milliseconds(100))
+                    if Task.isCancelled { return }
+                    if !busy && (self.activeTurn != nil || self.audioTurn != nil) { break }
+                }
                 guard !Task.isCancelled, self.inFront else { continue }
                 do {
                     try await self.drain()

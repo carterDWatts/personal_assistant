@@ -65,7 +65,7 @@ struct DayMarker: View {
 struct MessageRow: View, Equatable {
     let message: ChatMessage
     let palette: Palette
-    static func == (a: MessageRow, b: MessageRow) -> Bool { a.message.id == b.message.id && a.message.text == b.message.text }
+    static func == (a: MessageRow, b: MessageRow) -> Bool { a.message.id == b.message.id && a.message.text == b.message.text && a.message.pending == b.message.pending }
     var body: some View {
         if message.role == "user" {
             HStack(alignment: .top) {
@@ -80,7 +80,7 @@ struct MessageRow: View, Equatable {
         } else {
             HStack(alignment: .top, spacing: 10) {
                 Mark(palette: palette).frame(width: 22, height: 22).padding(.top, 2)
-                if message.text.isEmpty {
+                if message.pending && message.text.isEmpty {
                     ThinkingDots(color: palette.accent)
                 } else {
                     Text(inlineMarkdown(message.text))

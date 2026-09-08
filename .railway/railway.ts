@@ -4,7 +4,8 @@ export default defineRailway(() => {
   const state = volume("worker-state", { region: "us-east4-eqdc4a", sizeMB: 1024 });
   const worker = service("worker", {
     source: github("carterDWatts/personal_assistant", { branch: "design" }),
-    build: { builder: "DOCKERFILE", dockerfilePath: "Dockerfile" },
+    build: { builder: "DOCKERFILE", dockerfilePath: "Dockerfile",
+      watchPatterns: ["/Dockerfile", "/requirements-host.txt", "/engine/**", "/prompts/**", "/identity.json", "/scripts/host-entry.py", "/deploy/**"] },
     replicas: { "us-east4": 1 },
     deploy: {
       sleepApplication: false,
@@ -19,6 +20,8 @@ export default defineRailway(() => {
       ASSISTANT_EFFORT: "low",
       ASSISTANT_TIMEZONE: "America/Los_Angeles",
       ASSISTANT_DATABASE_URL: preserve(),
+      ASSISTANT_STORAGE_KEY: preserve(),
+      ASSISTANT_SUPABASE_URL: "https://koauvyfxewczcajnlrfp.supabase.co",
       ASSISTANT_CODEX_AUTH_JSON: preserve(),
       CLAUDE_CODE_OAUTH_TOKEN: preserve(),
     },
