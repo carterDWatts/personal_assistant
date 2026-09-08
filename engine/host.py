@@ -4,6 +4,7 @@ import asyncio
 import contextlib
 import json
 import signal
+import psycopg
 
 from engine import config
 from engine.integrations.google import CONNECTION_ACTIONS
@@ -67,6 +68,7 @@ class Host:
         self.active = None
         self.stopping = asyncio.Event()
         self.ready = asyncio.Event()
+        self.wake = asyncio.Event()
         self.relay_lock = asyncio.Lock()
         self.day_lock = asyncio.Lock()
         self.day = None
@@ -195,17 +197,31 @@ class Host:
                     if self.speech and self.speech.storage:
                         with contextlib.suppress(Exception): await self.speech.cleanup()
                     heartbeat = asyncio.get_running_loop().time()
+                self.wake.clear()
                 turn = await self.call(self.relay.claim)
                 if turn:
                     await self.process(turn)
                 else:
-                    await asyncio.sleep(1)
+                    with contextlib.suppress(asyncio.TimeoutError):
+                        await asyncio.wait_for(self.wake.wait(), 10)
         finally:
             await self.close_session()
             if self.speech: await self.speech.close()
             if acquired:
                 with contextlib.suppress(Exception):
                     await self.call(self.relay.release)
+
+
+async def commands(url, host):
+    # A separate connection wakes idle workers immediately without frequent polling.
+    while not host.stopping.is_set():
+        try:
+            async with await psycopg.AsyncConnection.connect(url, autocommit=True) as connection:
+                await connection.execute('listen assistant_commands')
+                async for _ in connection.notifies():
+                    host.wake.set()
+        except Exception:
+            await asyncio.sleep(2)
 
 
 async def memory_loop(url, host):
@@ -232,6 +248,7 @@ async def main():
     loop = asyncio.get_running_loop()
     for sig in (signal.SIGTERM, signal.SIGINT):
         loop.add_signal_handler(sig, host.stopping.set)
+    listener = asyncio.create_task(commands(relay_map.url, host))
     memory = asyncio.create_task(memory_loop(relay_map.url, host))
     running = asyncio.create_task(host.run())
     try:
@@ -241,9 +258,10 @@ async def main():
     finally:
         host.stopping.set()
         memory.cancel()
+        listener.cancel()
         with contextlib.suppress(Exception, asyncio.CancelledError):
             await asyncio.wait_for(running, 10)
-        await asyncio.gather(memory, return_exceptions=True)
+        await asyncio.gather(memory, listener, return_exceptions=True)
         relay_map.close()
         session_map.close()
 

@@ -177,7 +177,6 @@ func plain(_ value: Any?) -> String {
     private func interruptForSpeech() {
         liveVoice.silencePlayback(); speechBuffer = ""
         spokenTurns.removeAll(); playedChunks.removeAll()
-        transport.stop()
         voiceTurn.pausePlayback(busy: busy)
         status = "Listening…"
     }

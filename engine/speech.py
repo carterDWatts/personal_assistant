@@ -13,14 +13,14 @@ from pathlib import Path
 from engine import config
 
 
-def chunk(buffer, flush=False):
+def chunk(buffer, flush=False, limit=180):
     # Prefer whole sentences; bound latency without splitting words.
     match = re.search(r'[.!?\n](?:\s|$)', buffer)
-    if match and match.end() <= 180: return buffer[:match.end()].strip(), buffer[match.end():]
-    if len(buffer) >= 120:
-        end = buffer.rfind(' ', 0, 180)
+    if match and match.end() <= limit: return buffer[:match.end()].strip(), buffer[match.end():]
+    if len(buffer) >= limit:
+        end = buffer.rfind(' ', 0, limit)
         if end > 0: return buffer[:end], buffer[end + 1:]
-        if len(buffer) >= 180: return buffer[:180], buffer[180:]
+        if len(buffer) >= limit: return buffer[:limit], buffer[limit:]
     if flush and buffer.strip(): return buffer.strip(), ''
     return None, buffer
 
@@ -54,6 +54,7 @@ class Speech:
         self.task = None
         self.cancel = threading.Event()
         self.buffer = ''
+        self.first_chunk = True
         self.queue = None
         self.overflow = False
         self.turn = None
@@ -88,6 +89,7 @@ class Speech:
         await self.close()
         self.turn = turn['id']
         self.buffer = ''
+        self.first_chunk = True
         self.overflow = False
         self.cancel = threading.Event()
         self.queue = asyncio.Queue(maxsize=32)
@@ -98,8 +100,9 @@ class Speech:
         if not self.task or self.task.done(): return
         self.buffer += text
         while True:
-            part, self.buffer = chunk(self.buffer)
+            part, self.buffer = chunk(self.buffer, limit=64 if self.first_chunk else 180)
             if part is None: break
+            if any(c.isalnum() for c in part): self.first_chunk = False
             self.enqueue(part)
 
     def enqueue(self, part):

@@ -67,6 +67,22 @@ struct PlaybackEcho {
         if playing { endedAt = now; playing = false }
     }
 
+    // Partial recognition often begins with one word from the speaker. Wait for
+    // enough evidence to distinguish an interruption before stopping playback.
+    func suppressDuringPlayback(_ text: String, final: Bool, now: Date = Date()) -> Bool {
+        guard playing || now.timeIntervalSince(endedAt) <= 1 else { return false }
+        if matches(text, now: now) { return true }
+        let heard = tokens(text)
+        let commands: Set<String> = ["stop", "wait", "quiet", "hold on"]
+        if commands.contains(heard.joined(separator: " ")) { return false }
+        if heard.count < 3 { return !final }
+        guard heard.count <= words.count else { return false }
+        let tolerance = max(1, heard.count / 4)
+        return (0...(words.count - heard.count)).contains { start in
+            zip(heard, words[start..<(start + heard.count)]).filter { $0 != $1 }.count <= tolerance
+        }
+    }
+
     func matches(_ text: String, now: Date = Date()) -> Bool {
         guard playing || now.timeIntervalSince(endedAt) <= 2 else { return false }
         let heard = tokens(text)

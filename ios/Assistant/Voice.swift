@@ -42,7 +42,7 @@ private final class Capture: @unchecked Sendable {
     var onError: ((String) -> Void)?
 
     /// Silence that ends an utterance. Long enough to think mid-sentence, short enough to feel answered.
-    static let pause: TimeInterval = 1.4
+    static let pause: TimeInterval = 1.0
 
     private let engine = AVAudioEngine()
     private let player = AVAudioPlayerNode()
@@ -53,6 +53,7 @@ private final class Capture: @unchecked Sendable {
     private var task: SFSpeechRecognitionTask?
     private var listening = UUID()
     private var heardAt = Date()
+    private var signalAt = Date.distantPast
     private var endpoint: Task<Void, Never>?
     private var refresh: Task<Void, Never>?
     private var onDevice = true
@@ -76,6 +77,7 @@ private final class Capture: @unchecked Sendable {
             Task { @MainActor [weak self] in
                 guard let self, !self.muted, abs(self.inputLevel - level) > 0.03 else { return }
                 self.inputLevel = level
+                if level > 0.04 && !self.speaking { self.signalAt = Date() }
             }
         }
         capture.onSample = { [weak self] count, rms, format in
@@ -179,7 +181,7 @@ private final class Capture: @unchecked Sendable {
         if let result {
             let text = result.bestTranscription.formattedString
             if !text.isEmpty {
-                if text.split(separator: " ").count >= 3 && echo.matches(text) {
+                if echo.suppressDuringPlayback(text, final: result.isFinal) {
                     log.notice("ignored playback echo")
                     if result.isFinal { listen() }
                     return
@@ -214,9 +216,15 @@ private final class Capture: @unchecked Sendable {
     private func armEndpoint() {
         endpoint?.cancel()
         endpoint = Task { [weak self] in
-            try? await Task.sleep(for: .seconds(Self.pause))
-            guard !Task.isCancelled, let self, self.active else { return }
-            if Date().timeIntervalSince(self.heardAt) >= Self.pause - 0.05 { self.finish() }
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .milliseconds(100))
+                guard !Task.isCancelled, let self, self.active else { return }
+                let sinceWords = Date().timeIntervalSince(self.heardAt)
+                let sinceSound = Date().timeIntervalSince(self.signalAt)
+                if sinceWords >= Self.pause && (sinceSound >= Self.pause || sinceWords >= 3) {
+                    self.finish(); return
+                }
+            }
         }
     }
 
