@@ -1,4 +1,5 @@
 import asyncio
+import base64
 import threading
 import unittest
 from types import SimpleNamespace
@@ -57,4 +58,5 @@ class speech_test(unittest.TestCase):
             self.assertEqual([event['type'] for event in events], ['speech', 'speech', 'speech_end'])
             self.assertEqual([event['seq'] for event in events[:-1]], [1, 2])
             self.assertEqual(events[-1]['status'], 'success')
+            self.assertEqual(base64.b64decode(events[0]['url'].split(',', 1)[1]), b'audio')
         asyncio.run(check())

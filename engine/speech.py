@@ -1,5 +1,6 @@
 """Stream CPU speech independently of text completion. Audio never enters memory."""
 import asyncio
+import base64
 import json
 import os
 import re
@@ -59,6 +60,7 @@ class Speech:
         self.overflow = False
         self.turn = None
         self.last_cleanup = 0
+        self.last_audio_cleanup = 0
         self.settings = json.loads((config.ROOT / 'identity.json').read_text()).get('voice', {})
 
     async def start(self):
@@ -76,6 +78,12 @@ class Speech:
             return False
 
     async def cleanup(self):
+        if time.monotonic() - self.last_audio_cleanup >= 60:
+            # Audio is transient delivery data, never conversation memory.
+            await self.host.call(self.host.relay.map.execute,
+                "update assistant.events set payload=payload-'url' "
+                "where created_at<now()-interval '10 minutes' and payload->>'url' like 'data:audio/mp4;base64,%'")
+            self.last_audio_cleanup = time.monotonic()
         if time.monotonic() - self.last_cleanup < 3600: return
         names = await self.host.call(self.host.relay.map.rows,
             "select path from assistant.speech_objects where created_at < now()-interval '1 day' limit 100")
@@ -156,11 +164,13 @@ class Speech:
                 if result is None: continue
                 if await self.host.call(self.host.relay.cancelled, turn): break
                 seq += 1
-                name = f'{turn}/{seq}.m4a'
-                # Register before upload, so cleanup also covers a crash between upload and publish.
-                await self.host.call(self.host.relay.map.execute,
-                    'insert into assistant.speech_objects(path) values(%s) on conflict do nothing', (name,))
-                url = await asyncio.to_thread(self.storage.upload, name, result[0])
+                if len(result[0]) <= 64_000:
+                    url = 'data:audio/mp4;base64,' + base64.b64encode(result[0]).decode('ascii')
+                else:
+                    name = f'{turn}/{seq}.m4a'
+                    await self.host.call(self.host.relay.map.execute,
+                        'insert into assistant.speech_objects(path) values(%s) on conflict do nothing', (name,))
+                    url = await asyncio.to_thread(self.storage.upload, name, result[0])
                 if cancelled.is_set(): break
                 if not await self.host.call(self.host.relay.publish_speech, turn,
                     {'type': 'speech', 'seq': seq, 'url': url, 'duration_ms': result[1], 'text': text}): break

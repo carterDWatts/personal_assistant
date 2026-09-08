@@ -614,7 +614,7 @@ struct ConnectionsView: View {
                     } else {
                         Text("Google sign-in isn’t available in this build yet.").font(.callout).foregroundStyle(.secondary)
                     }
-                    Text("Bunny Man can add calendar events when you ask. Email is read-only.").font(.caption).foregroundStyle(.secondary)
+                    Text("I can add calendar events when you ask. I can read your email, but I can’t send it.").font(.caption).foregroundStyle(.secondary)
                 }
             }
             Divider()
@@ -817,7 +817,7 @@ struct SettingsPopover: View {
                         if chat.messages.isEmpty {
                             VStack(alignment: .leading, spacing: 8) {
                                 Text("I’m \(AssistantIdentity.name). What’s on your mind?").font(.title2).foregroundStyle(palette.ink)
-                                Text("It keeps what matters, on every device, and picks the thread back up wherever you are.")
+                                Text("I keep what matters, on every device, and pick the thread back up wherever you are.")
                                     .font(.callout).foregroundStyle(palette.muted).frame(maxWidth: 420, alignment: .leading)
                             }.padding(.top, 80)
                         }

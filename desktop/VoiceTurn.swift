@@ -83,6 +83,10 @@ struct PlaybackEcho {
         }
     }
 
+    func isRecent(now: Date = Date()) -> Bool {
+        playing || now.timeIntervalSince(endedAt) <= 2
+    }
+
     func matches(_ text: String, now: Date = Date()) -> Bool {
         guard playing || now.timeIntervalSince(endedAt) <= 2 else { return false }
         let heard = tokens(text)
@@ -92,5 +96,19 @@ struct PlaybackEcho {
         return (0...(words.count - heard.count)).contains { start in
             zip(heard, words[start..<(start + heard.count)]).filter { $0 != $1 }.count <= tolerance
         }
+    }
+}
+
+// Let recognition revise a tentative fragment before it interrupts the speaker.
+struct PlaybackInterruption {
+    private var firstCandidate: Date?
+    mutating func accept(_ text: String, guarded: Bool, final: Bool, now: Date = Date()) -> Bool {
+        guard guarded else { firstCandidate = nil; return true }
+        let words = text.lowercased().split(whereSeparator: { !$0.isLetter && !$0.isNumber })
+        let command = words.joined(separator: " ")
+        if ["stop", "wait", "quiet", "hold on"].contains(command) { return true }
+        guard words.count >= 4 else { return false }
+        if firstCandidate == nil { firstCandidate = now }
+        return final || now.timeIntervalSince(firstCandidate!) >= 0.35
     }
 }

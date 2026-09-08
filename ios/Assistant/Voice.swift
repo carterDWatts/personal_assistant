@@ -72,6 +72,7 @@ private final class Capture: @unchecked Sendable {
     private var playing = 0
     private var playback = UUID()
     private var echo = PlaybackEcho()
+    private var interruption = PlaybackInterruption()
     private var observers: [NSObjectProtocol] = []
     private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "assistant", category: "voice")
 
@@ -197,6 +198,7 @@ private final class Capture: @unchecked Sendable {
         let token = UUID()
         listening = token
         transcript = ""
+        interruption = PlaybackInterruption()
         heardAt = Date()
         task = recognizer.recognitionTask(with: request) { [weak self] result, error in
             Task { @MainActor [weak self] in self?.recognized(token, result, error) }
@@ -210,7 +212,12 @@ private final class Capture: @unchecked Sendable {
             let text = result.bestTranscription.formattedString
             if !text.isEmpty {
                 if echo.suppressDuringPlayback(text, final: result.isFinal) {
+                    interruption = PlaybackInterruption()
                     log.notice("ignored playback echo")
+                    if result.isFinal { listen() }
+                    return
+                }
+                if !interruption.accept(text, guarded: echo.isRecent(), final: result.isFinal) {
                     if result.isFinal { listen() }
                     return
                 }
@@ -261,7 +268,7 @@ private final class Capture: @unchecked Sendable {
         let text = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
         request?.endAudio()
         listen()
-        if !text.isEmpty { onUtterance?(text) }
+        if !text.isEmpty { log.notice("utterance submitted"); onUtterance?(text) }
     }
 
     /// Muting drops the microphone from the recognizer; playback continues and the level meter rests.
@@ -301,8 +308,17 @@ private final class Capture: @unchecked Sendable {
         download = Task { [weak self] in
             var buffer: AVAudioPCMBuffer?
             do {
-                let (data, response) = try await URLSession.shared.data(from: url)
-                if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) { throw URLError(.badServerResponse) }
+                let data: Data
+                let prefix = "data:audio/mp4;base64,"
+                if url.absoluteString.hasPrefix(prefix) {
+                    let encoded = String(url.absoluteString.dropFirst(prefix.count))
+                    guard encoded.count <= 86_000, let decoded = Data(base64Encoded: encoded) else { throw URLError(.cannotDecodeContentData) }
+                    data = decoded
+                } else {
+                    let (downloaded, response) = try await URLSession.shared.data(from: url)
+                    if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) { throw URLError(.badServerResponse) }
+                    data = downloaded
+                }
                 guard data.count <= 5_000_000 else { throw URLError(.dataLengthExceedsMaximum) }
                 let file = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + "." + (url.pathExtension.isEmpty ? "m4a" : url.pathExtension))
                 try data.write(to: file)

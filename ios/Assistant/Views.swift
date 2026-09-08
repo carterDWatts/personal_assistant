@@ -418,7 +418,7 @@ struct ConversationView: View {
                     if chat.messages.isEmpty {
                         VStack(alignment: .leading, spacing: 8) {
                             Text("I’m \(AssistantIdentity.name). What’s on your mind?").font(.title2).foregroundStyle(palette.ink)
-                            Text("It keeps what matters, on every device, and picks the thread back up wherever you are.")
+                            Text("I keep what matters, on every device, and pick the thread back up wherever you are.")
                                 .font(.callout).foregroundStyle(palette.muted)
                         }.padding(.top, 60)
                     }

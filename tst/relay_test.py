@@ -51,6 +51,23 @@ class relay_test(MapTest):
         self.client('cancel', first)
         self.assertFalse(self.relay.publish_speech(turn['id'], {'type': 'speech', 'seq': 2}))
 
+    def test_inline_audio_expires_without_erasing_reply_text(self):
+        from engine.speech import Speech
+        from types import SimpleNamespace
+        import time
+        self.relay.acquire()
+        self.submit()
+        turn = self.relay.claim()
+        self.relay.publish_speech(turn['id'], {'type': 'speech', 'url': 'data:audio/mp4;base64,YXVkaW8=', 'text': 'Hello'})
+        self.map.execute("update assistant.events set created_at=now()-interval '11 minutes'")
+        async def call(method, *args): return method(*args)
+        speech = Speech(SimpleNamespace(relay=self.relay, call=call))
+        speech.last_cleanup = time.monotonic()
+        asyncio.run(speech.cleanup())
+        payload = self.client('events')['events'][-1]['payload']
+        self.assertNotIn('url', payload)
+        self.assertEqual(payload['text'], 'Hello')
+
     def test_owner_and_revocation_are_enforced(self):
         with self.assertRaisesRegex(psycopg.Error, 'account_denied'):
             self.client('bootstrap', owner=uuid.uuid4())

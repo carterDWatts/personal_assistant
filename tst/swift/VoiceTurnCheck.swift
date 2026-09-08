@@ -51,6 +51,14 @@ import Foundation
         echo.record("Tomorrow is free", now: now.addingTimeInterval(4))
         precondition(!echo.matches("Of course", now: now.addingTimeInterval(4)))
         precondition(echo.matches("Tomorrow is free", now: now.addingTimeInterval(4)))
+        var interruption = PlaybackInterruption()
+        precondition(!interruption.accept("garbled words", guarded: true, final: true, now: now))
+        precondition(!interruption.accept("Actually tomorrow is much better", guarded: true, final: false, now: now))
+        precondition(interruption.accept("Actually tomorrow is much better", guarded: true, final: false, now: now.addingTimeInterval(0.4)))
+        precondition(interruption.accept("stop", guarded: true, final: false, now: now))
+        precondition(interruption.accept("Yes", guarded: false, final: true, now: now))
+        let audioURL = URL(string: "data:audio/mp4;base64,YXVkaW8=")!
+        precondition(Data(base64Encoded: String(audioURL.absoluteString.dropFirst("data:audio/mp4;base64,".count))) == Data("audio".utf8))
         var incomplete = "This is still"
         precondition(nextSpeechChunk(&incomplete, flush: false) == nil)
         precondition(incomplete == "This is still")
