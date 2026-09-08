@@ -4,6 +4,7 @@ import asyncio
 import contextlib
 import json
 import signal
+import os
 import time
 import psycopg
 
@@ -110,20 +111,25 @@ class Host:
             batch, self.stream.pending = self.stream.pending, []
             await self.call(self.relay.publish, self.active, batch)
 
-    async def answer(self, turn):
-        if self.session and (self.session.conv.cutoff() > self.session.seen_message or turn.get("model") != self.model_id):
+    async def prepare_session(self, model=None):
+        if config.RUNTIME == 'codex' and model == 'codex/' + os.environ.get('ASSISTANT_OPENAI_MODEL', ''):
+            model = None
+        if self.session and (self.session.conv.cutoff() > self.session.seen_message or model != self.model_id):
             await self.close_session()
         if self.session is None:
             opened = time.monotonic()
-            choice = next((m for m in self.models if m['id'] == turn.get('model')), None)
-            if turn.get('model') and not choice and not self.custom_factory:
+            choice = next((m for m in self.models if m['id'] == model), None)
+            if model and not choice and not self.custom_factory:
                 raise RuntimeError('The selected model is no longer available on this host.')
             runtime = load(choice['runtime'])(model=choice['model']) if choice else self.factory()
-            self.model_id = turn.get('model')
+            self.model_id = model
             self.session = Session(self.map, runtime, self.stream, 'cloud',
                                    auto_memory=False, before_tool=self.before_tool)
             await self.session.open()
             self.stream.timing('session_open_seconds', time.monotonic() - opened)
+
+    async def answer(self, turn):
+        await self.prepare_session(turn.get('model'))
         await self.session.send(turn['text'])
 
     async def interrupt(self, task):
@@ -205,6 +211,13 @@ class Host:
             self.models = await available()
             self.speech = Speech(self)
             speech_ready = await self.speech.start()
+            # Opening a harness does not generate a reply or consume an inference turn.
+            model = self.map.value('select model from assistant.turns order by created_at desc limit 1')
+            try:
+                await self.prepare_session(model)
+            except Exception as error:
+                await self.close_session()
+                print(f'Session preload unavailable ({type(error).__name__}).', flush=True)
             await self.call(self.relay.capabilities, {'models': self.models, 'speech': speech_ready})
             print('Host connected.', flush=True)
             await self.refresh_day()

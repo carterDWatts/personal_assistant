@@ -165,6 +165,27 @@ class relay_test(MapTest):
             self.map.execute('set local role service_role')
             self.assertIn('history', self.client('bootstrap'))
 
+    def test_preloaded_session_is_reused_by_first_message(self):
+        async def check():
+            relay_map = Map(self.map.url)
+            relay = Relay(relay_map)
+            relay.acquire()
+            runtime = FakeRuntime([[say('Hello')]])
+            host = Host(relay, self.map, lambda: runtime)
+            try:
+                await host.prepare_session()
+                prepared = host.session
+                self.assertIsNotNone(prepared.prepared.sections)
+                self.assertEqual(runtime.sent, [])
+                self.submit()
+                await host.process(relay.claim())
+                self.assertIs(host.session, prepared)
+                self.assertNotIn('session_open_seconds', host.stream.timings)
+            finally:
+                await host.close_session()
+                relay_map.close()
+        self.run_async(check())
+
     def test_host_streams_and_reuses_runtime(self):
         async def check():
             relay_map = Map(self.map.url)

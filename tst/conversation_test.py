@@ -37,6 +37,14 @@ class conversation_test(MapTest):
         self.assertIn("on phone] user: car is in the garage", seed3)
         self.assertTrue(seed3.index("user: hello") < seed3.index("car is in the garage"))
 
+    def test_same_session_resumes_on_later_days(self):
+        conv = Conversation(self.map, 'cloud', 'fake')
+        segment, _, _ = conv.resolve('talk')
+        conv.record(segment, 'user', 'Hello')
+        conv.set_runtime_session(segment, 'persistent-session')
+        self.map.execute("update memory.conversations set day=current_date-1 where id=%s", (segment,))
+        self.assertEqual(conv.resolve('talk'), (segment, 'persistent-session', None))
+
     def test_clear_starts_a_fresh_runtime_and_keeps_history(self):
         conv = Conversation(self.map, "mac", "fake")
         old, _, _ = conv.resolve("talk")

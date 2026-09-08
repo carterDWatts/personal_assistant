@@ -5,6 +5,18 @@ from engine.tools import ToolSpec
 
 
 class codex_test(unittest.IsolatedAsyncioTestCase):
+    async def test_compaction_invalidates_cached_context(self):
+        import json
+        runtime = CodexRuntime()
+        runtime.session_id = 'thread'
+        class Process:
+            stdout = asyncio.StreamReader()
+        runtime.process = Process()
+        runtime.process.stdout.feed_data((json.dumps({'method':'thread/compacted','params':{'threadId':'thread'}})+'\n').encode())
+        runtime.process.stdout.feed_eof()
+        await runtime._read()
+        self.assertEqual(runtime.context_revision, 1)
+
     async def test_streaming_tool_round_trip(self):
         runtime = CodexRuntime(model="selected-model")
         runtime.session_id = 'thread'

@@ -25,13 +25,54 @@ def snapshot_sections(map_, today=None, now=None, include_pending=True):
     parts.append("Open questions, best first\n" + questions_block(map_, today))
     parts.append("Recent changes (last 7 days)\n" + transitions_block(map_, today))
     if include_pending:
-        pending = map_.rows("select m.content,m.created_at from memory.memory_jobs j join memory.messages m on m.id=j.message_id where j.status <> 'done' and m.id > (select coalesce(max(id),0) from memory.messages where role='system' and payload->>'event'='chat_cleared') order by m.id desc limit 20")
-        if pending:
-            parts.append("Recent user statements awaiting structured memory. Use these directly; do not wait for extraction.\n" +
-                         "\n".join(f"[{m['created_at'].isoformat()}] {m['content']}" for m in reversed(pending)))
-        else:
-            parts.append("Recent user statements awaiting structured memory.\nNone pending.")
+        parts.append(pending_block(map_))
     return dict(zip(("clock", "facts", "relationships", "rules", "yesterday", "today", "questions", "changes", "pending"), parts))
+
+
+def pending_block(map_):
+    rows = map_.rows("select m.content,m.created_at from memory.memory_jobs j join memory.messages m on m.id=j.message_id where j.status <> 'done' and m.id > (select coalesce(max(id),0) from memory.messages where role='system' and payload->>'event'='chat_cleared') order by m.id desc limit 20")
+    title = "Recent user statements awaiting structured memory. Use these directly; do not wait for extraction.\n"
+    return title + ("\n".join(f"[{m['created_at'].isoformat()}] {m['content']}" for m in reversed(rows)) if rows else "None pending.")
+
+
+class PreparedContext:
+    """Reuse structured sections until a committed write or a time boundary changes them."""
+    def __init__(self, map_):
+        self.map = map_
+        self.version = None
+        self.sections = None
+        self.expires = None
+
+    def read(self):
+        state = self.map.row("select version,now() as now from memory.context_version where singleton")
+        if self.sections is not None and self.version == state['version'] and state['now'] < self.expires:
+            return self.result(state['now'])
+        with self.map.conn.transaction():
+            self.map.execute("set transaction isolation level repeatable read, read only")
+            state = self.map.row("select version,now() as now from memory.context_version where singleton")
+            now = state['now'].astimezone(ZoneInfo(config.TIMEZONE))
+            if self.sections is None or self.version != state['version'] or now >= self.expires:
+                sections = snapshot_sections(self.map, now=now, include_pending=False)
+                # Facts can become current, expire or need reconfirmation without a write.
+                boundary = self.map.value("select min(at) from ("
+                    "select lower(valid) as at from memory.assertions union all "
+                    "select upper(valid) from memory.assertions union all "
+                    "select lower(valid) from memory.relationships union all "
+                    "select upper(valid) from memory.relationships union all "
+                    "select a.last_confirmed_at+t.stale_after from memory.assertions a "
+                    "join memory.attributes t on t.name=a.attribute) times where at >= now()")
+                midnight = datetime.combine(now.date()+timedelta(days=1), datetime.min.time(), tzinfo=now.tzinfo)
+                self.expires = min(midnight, boundary) if boundary else midnight
+                self.sections, self.version = sections, state['version']
+            return self.result(now)
+
+    def result(self, now):
+        now = now.astimezone(ZoneInfo(config.TIMEZONE))
+        result = dict(self.sections)
+        result['clock'] = f"Map snapshot. Today is {now.strftime('%A')} {now.date().isoformat()}, {now.strftime('%H:%M')} local."
+        result['pending'] = pending_block(self.map)
+        return result
+
 
 
 def update(previous, current):

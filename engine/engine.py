@@ -23,6 +23,8 @@ class Session:
         self.auto_memory = auto_memory
         self.before_tool = before_tool
         self.sent_snapshot = None
+        self.context_revision = 0
+        self.prepared = context.PreparedContext(map_)
 
     async def open(self, mode="talk"):
         self.segment_id, resume, self.seed = self.conv.resolve(mode)
@@ -48,6 +50,7 @@ class Session:
             self.seed = self.conv.seed_text(self.conv.tail(30))
         if self.runtime.session_id:
             self.conv.set_runtime_session(self.segment_id, self.runtime.session_id)
+        self.prepared.read()
         if self.auto_memory:
             memory_worker.kick(self.runtime.name)
         if mode == "morning":
@@ -56,7 +59,10 @@ class Session:
     async def send(self, text, role="user"):
         # Refresh on every turn, including resumed sessions. Model context is a cache.
         started = time.monotonic()
-        sections = context.snapshot_sections(self.map)
+        sections = self.prepared.read()
+        revision = getattr(self.runtime, 'context_revision', 0)
+        if revision != self.context_revision:
+            self.sent_snapshot = None
         opening = context.update(self.sent_snapshot, sections)
         recent = self.map.rows(
             "select id, role, content, created_at from memory.messages where id > %s and conversation_id <> %s"
@@ -74,7 +80,8 @@ class Session:
         try:
             await turn(self.runtime, self.conv, self.tools, self.io, self.segment_id, mid,
                        f"{opening}\n\nThe user says:\n{text}")
-            self.sent_snapshot = sections
+            self.sent_snapshot = sections if getattr(self.runtime, 'context_revision', 0) == revision else None
+            self.context_revision = getattr(self.runtime, 'context_revision', 0)
         except BaseException:
             self.sent_snapshot = None
             self.ended_by = "error"

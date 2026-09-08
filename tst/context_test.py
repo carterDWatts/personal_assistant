@@ -7,6 +7,42 @@ from tst.helpers import MapTest
 
 
 class context_test(MapTest):
+    def test_prepared_context_reuses_and_invalidates_on_committed_changes(self):
+        from unittest.mock import patch
+        cache = context.PreparedContext(self.map)
+        with patch.object(context, 'snapshot_sections', wraps=context.snapshot_sections) as build:
+            cache.read()
+            cache.read()
+            self.assertEqual(build.call_count, 1)
+            self.map.execute("insert into memory.rules(kind,text,created_by) values('mandate','Be brief','test')")
+            self.assertIn('Be brief', cache.read()['rules'])
+            self.map.execute("update memory.rules set text='Be thorough'")
+            self.assertIn('Be thorough', cache.read()['rules'])
+            self.map.execute('delete from memory.rules')
+            self.assertNotIn('Be thorough', cache.read()['rules'])
+            self.assertEqual(build.call_count, 4)
+            try:
+                with self.map.conn.transaction():
+                    self.map.execute("insert into memory.rules(kind,text,created_by) values('mandate','Rolled back','test')")
+                    raise RuntimeError('rollback')
+            except RuntimeError:
+                pass
+            self.assertNotIn('Rolled back', cache.read()['rules'])
+            self.assertEqual(build.call_count, 4)
+
+    def test_prepared_context_expires_when_fact_validity_ends(self):
+        import time
+        self.map.execute("insert into memory.attributes(name,value_type,cardinality,created_by) values('location','text','single','test')")
+        entity = self.map.call('upsert_entity', p_type='vehicle', p_name='Bike', p_created_by='test')
+        self.map.execute("insert into memory.assertions(entity_id,attribute,value,cardinality,valid,asserted_by) "
+                         "values(%s,'location','\"Garage\"','single',tstzrange(now()-interval '1 day',now()+interval '0.3 seconds'),'test')", (entity['id'],))
+        cache = context.PreparedContext(self.map)
+        self.assertIn('Garage', cache.read()['facts'])
+        version = cache.version
+        time.sleep(.35)
+        self.assertNotIn('Garage', cache.read()['facts'])
+        self.assertEqual(cache.version, version)
+
     def test_empty_map(self):
         text = context.snapshot(self.map, date(2026, 9, 7))
         self.assertIn("Today is Monday 2026-09-07", text)

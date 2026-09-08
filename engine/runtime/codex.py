@@ -26,6 +26,7 @@ class CodexRuntime:
         self.process = None
         self.session_id = None
         self.resumed = False
+        self.context_revision = 0
         self.turn_id = None
         self.interrupt_requested = False
         self.metrics = Metrics()
@@ -56,6 +57,12 @@ class CodexRuntime:
         try:
             while line := await self.process.stdout.readline():
                 message = json.loads(line)
+                params = message.get('params', {})
+                if params.get('threadId') == self.session_id and (
+                    message.get('method') == 'thread/compacted' or
+                    (message.get('method') == 'item/completed' and params.get('item', {}).get('type') == 'contextCompaction')
+                ):
+                    self.context_revision += 1
                 if "method" not in message and "id" in message:
                     future = self.pending.get(message["id"])
                     if future and not future.done():
