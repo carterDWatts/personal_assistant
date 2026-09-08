@@ -485,11 +485,10 @@ struct ConversationView: View {
                     Image(systemName: "chevron.down").font(.caption2)
                 }.foregroundStyle(palette.ink)
             }.disabled(chat.busy || chat.models.isEmpty).accessibilityLabel("Choose model")
-            Text(Date().formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day())).font(.subheadline).foregroundStyle(palette.muted)
             Spacer()
             Circle().fill(chat.connected ? palette.accent : palette.muted).frame(width: 7, height: 7).accessibilityLabel(chat.status).padding(.trailing, 4)
-            Button { showDay = true } label: { Image(systemName: "calendar") }
-                .buttonStyle(SquareButton(palette: palette, size: 36)).accessibilityLabel("Open calendar")
+            Button { showDay = true } label: { Label("Calendar", systemImage: "calendar").font(.subheadline) }
+                .buttonStyle(.bordered).tint(palette.accent).accessibilityLabel("Open calendar")
             Menu {
                 Button("Clear", systemImage: "eraser") { chat.draft = ""; chat.connect(clear: true) }.disabled(!chat.connected || chat.busy)
                 Button("Start morning", systemImage: "sun.horizon") { chat.startMorning() }.disabled(!chat.connected || chat.busy)
