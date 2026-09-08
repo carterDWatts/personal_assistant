@@ -57,8 +57,7 @@ private final class Capture: @unchecked Sendable {
     private var heardAt = Date()
     private var signalAt = Date.distantPast
     private var endpoint: Task<Void, Never>?
-    private var finalizing = false
-    private var finalResult: Task<Void, Never>?
+    private var utterancePrefix = ""
     private var refresh: Task<Void, Never>?
     private var watchdog: Task<Void, Never>?
     private var lastBuffer = Date.distantPast
@@ -192,6 +191,7 @@ private final class Capture: @unchecked Sendable {
 
     #if DEBUG
     var lastInputSound: Date { signalAt }
+    private(set) var playedBufferCount = 0
 
     func beginReplay() async throws {
         stop()
@@ -250,9 +250,9 @@ private final class Capture: @unchecked Sendable {
         onError?(text)
     }
 
-    private func listen() {
+    private func listen(preservingUtterance: Bool = false) {
         guard active, !muted else { return }
-        finalResult?.cancel(); finalizing = false
+        utterancePrefix = preservingUtterance ? transcript.trimmingCharacters(in: .whitespacesAndNewlines) : ""
         listening = UUID()
         task?.cancel(); task = nil
         guard let recognizer, recognizer.isAvailable else { failed("Speech recognition isn’t available right now."); return }
@@ -265,10 +265,10 @@ private final class Capture: @unchecked Sendable {
         capture.attach(request)
         let token = UUID()
         listening = token
-        transcript = ""
+        transcript = utterancePrefix
         interruption = PlaybackInterruption()
         heardEcho = false
-        heardAt = Date()
+        if !preservingUtterance { heardAt = Date() }
         task = recognizer.recognitionTask(with: request) { [weak self] result, error in
             Task { @MainActor [weak self] in self?.recognized(token, result, error) }
         }
@@ -294,13 +294,17 @@ private final class Capture: @unchecked Sendable {
                 }
                 recognitionFailures = 0
                 let first = transcript.isEmpty
-                if text != transcript { transcript = text; heardAt = Date() }
+                let combined = utterancePrefix.isEmpty ? text : utterancePrefix + " " + text
+                if combined != transcript { transcript = combined; heardAt = Date() }
                 if first { log.notice("heard speech"); onSpeech?() }
-                if result.isFinal { commitUtterance() } else if !finalizing { armEndpoint() }
+                // A recognizer segment ending is not the user yielding the floor.
+                if result.isFinal { listen(preservingUtterance: true) }
+                armEndpoint()
                 return
             }
             if result.isFinal {
-                if transcript.isEmpty { listen() } else { commitUtterance() }
+                listen(preservingUtterance: !transcript.isEmpty)
+                if !transcript.isEmpty { armEndpoint() }
                 return
             }
         }
@@ -308,7 +312,6 @@ private final class Capture: @unchecked Sendable {
             let failure = error as NSError
             VoiceDiagnostics.record("recognition_error", ["code": Double(failure.code)])
             log.error("recognition ended: \(failure.domain, privacy: .public) \(failure.code) \(failure.localizedDescription, privacy: .public)")
-            if !transcript.isEmpty { commitUtterance(); return }
             recognitionFailures += 1
             guard recognitionFailures <= 4 else {
                 failed("Speech recognition stopped. Tap Talk to reconnect."); return
@@ -318,7 +321,8 @@ private final class Capture: @unchecked Sendable {
             Task { [weak self] in
                 try? await Task.sleep(for: .seconds(delay))
                 guard let self, self.active, self.listening == token else { return }
-                self.listen()
+                self.listen(preservingUtterance: !self.transcript.isEmpty)
+                if !self.transcript.isEmpty { self.armEndpoint() }
             }
         }
     }
@@ -331,33 +335,17 @@ private final class Capture: @unchecked Sendable {
                 guard !Task.isCancelled, let self, self.active else { return }
                 let sinceWords = Date().timeIntervalSince(self.heardAt)
                 let sinceSound = Date().timeIntervalSince(self.signalAt)
-                let sentenceEnded = self.transcript.last.map { ".!?".contains($0) } ?? false
-                let silence = sentenceEnded ? 0.5 : 1.0
-                if sinceWords >= 0.2 && (sinceSound >= silence || sinceWords >= 3) {
-                    self.finish(); return
+                // Punctuation is an ASR guess. A thinking pause must not surrender
+                // the turn, and stalled text must never override ongoing speech.
+                if sinceWords >= 0.25 && sinceSound >= voicePause(self.transcript) {
+                    self.commitUtterance(); return
                 }
             }
         }
     }
 
-    private func finish() {
-        guard !finalizing else { return }
-        endpoint?.cancel()
-        finalizing = true
-        capture.attach(nil)
-        request?.endAudio()
-        // Give the recognizer its final correction before replacing the request.
-        let token = listening
-        finalResult = Task { [weak self] in
-            try? await Task.sleep(for: .milliseconds(250))
-            guard !Task.isCancelled, let self, self.active, self.listening == token else { return }
-            self.commitUtterance()
-        }
-    }
-
     private func commitUtterance() {
         endpoint?.cancel()
-        finalResult?.cancel()
         let text = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
         if !text.isEmpty { VoiceDiagnostics.record("utterance_submitted", ["since_sound": Date().timeIntervalSince(signalAt), "since_words": Date().timeIntervalSince(heardAt)]) }
         request?.endAudio()
@@ -370,7 +358,7 @@ private final class Capture: @unchecked Sendable {
         guard active, value != muted else { return }
         muted = value
         if value {
-            endpoint?.cancel(); finalResult?.cancel(); finalizing = false
+            endpoint?.cancel()
             listening = UUID(); task?.cancel(); task = nil
             request?.endAudio(); request = nil
             capture.attach(nil)
@@ -395,7 +383,7 @@ private final class Capture: @unchecked Sendable {
     }
 
     private func fetch() {
-        guard !fetching, !hosted.isEmpty else { return }
+        guard !fetching, playing < 2, !hosted.isEmpty else { return }
         let (url, text) = hosted.removeFirst()
         fetching = true
         let generation = playback
@@ -496,6 +484,10 @@ private final class Capture: @unchecked Sendable {
     private func played(_ generation: UUID) {
         guard generation == playback else { return }
         playing -= 1
+        #if DEBUG
+        playedBufferCount += 1
+        #endif
+        fetch()
         if playing == 0 && !rendering && queue.isEmpty && !fetching && hosted.isEmpty {
             speaking = false; echo.finished()
             if replyAudioComplete { setMode(.listening) }
@@ -550,7 +542,7 @@ private final class Capture: @unchecked Sendable {
         mode = nil
         replyAudioComplete = true
         silencePlayback()
-        endpoint?.cancel(); finalResult?.cancel(); finalizing = false; refresh?.cancel(); watchdog?.cancel()
+        endpoint?.cancel(); refresh?.cancel(); watchdog?.cancel()
         listening = UUID()
         task?.cancel(); task = nil
         request?.endAudio(); request = nil

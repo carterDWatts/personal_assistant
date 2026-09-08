@@ -77,6 +77,39 @@ import AVFoundation
         XCTAssertTrue(utterances.first?.lowercased().contains("does this take input") == true, utterances.description)
     }
 
+    func testLongThinkingPauseStaysInOneUtterance() async throws {
+        let voice = LiveVoice()
+        defer { voice.stop() }
+        var utterances: [String] = []
+        voice.onUtterance = { utterances.append($0) }
+        voice.onError = { XCTFail($0) }
+        try await voice.beginReplay()
+        let file = try XCTUnwrap(Bundle(for: Self.self).url(forResource: "pause", withExtension: "wav"))
+        try await voice.feedRecording(file, pauseExtension: 0.45)
+        XCTAssertEqual(utterances.count, 1, utterances.description)
+        XCTAssertTrue(utterances.first?.lowercased().contains("how quickly") == true)
+        XCTAssertTrue(utterances.first?.lowercased().contains("does this take input") == true)
+    }
+
+    func testQueuedReplyPlaysEveryChunk() async throws {
+        let voice = LiveVoice()
+        defer { voice.stop() }
+        try await voice.beginReplay()
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".wav")
+        defer { try? FileManager.default.removeItem(at: url) }
+        let buffer = try XCTUnwrap(VoiceCue.thinking.buffer())
+        do {
+            let file = try AVAudioFile(forWriting: url, settings: buffer.format.settings)
+            try file.write(from: buffer)
+        }
+        voice.prepareReply()
+        for i in 0..<12 { voice.play(url, text: "Reply part \(i)") }
+        voice.finishReplyAudio()
+        for _ in 0..<200 where voice.playedBufferCount < 12 { try await Task.sleep(for: .milliseconds(20)) }
+        XCTAssertEqual(voice.playedBufferCount, 12)
+        XCTAssertFalse(voice.speaking)
+    }
+
     func testPlaybackEchoDoesNotSubmitAUserTurn() async throws {
         let voice = LiveVoice()
         defer { voice.stop() }

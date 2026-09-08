@@ -57,7 +57,8 @@ struct PlaybackEcho {
 
     mutating func record(_ text: String, now: Date = Date()) {
         if !playing && now.timeIntervalSince(endedAt) > 2 { words.removeAll() }
-        words = Array((words + tokens(text)).suffix(100))
+        // Include the audible chunk, one prefetched chunk, and delayed echo.
+        words = Array((words + tokens(text)).suffix(400))
         playing = true
     }
 
@@ -111,4 +112,15 @@ struct PlaybackInterruption {
         if firstCandidate == nil { firstCandidate = now }
         return final || now.timeIntervalSince(firstCandidate!) >= 0.35
     }
+}
+
+
+// Local timing only: no model call, and ASR punctuation cannot shorten the pause.
+func voicePause(_ text: String) -> TimeInterval {
+    let words = text.lowercased().split(whereSeparator: { !$0.isLetter && !$0.isNumber }).map(String.init)
+    let unfinished: Set<String> = ["and", "but", "because", "so", "if", "when", "to", "with", "about", "the", "a", "an", "of", "for", "that", "is", "are", "was", "would", "could", "should", "my", "your", "like", "also"]
+    let phrase = words.suffix(2).joined(separator: " ")
+    if unfinished.contains(words.last ?? "") || ["i think", "i mean", "i want", "let me", "how quickly", "how long"].contains(phrase) { return 1.8 }
+    if words.count > 20 { return 1.65 }
+    return words.count > 7 ? 1.4 : 1.0
 }

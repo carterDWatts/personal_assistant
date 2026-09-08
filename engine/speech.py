@@ -103,7 +103,9 @@ class Speech:
         self.first_chunk = True
         self.overflow = False
         self.cancel = threading.Event()
-        self.queue = asyncio.Queue(maxsize=32)
+        # Queue text only; audio is rendered one clip at a time. Long replies
+        # must not lose their remaining sentences because synthesis is slower.
+        self.queue = asyncio.Queue()
         if turn.get('speech'):
             self.task = asyncio.create_task(self.run(self.turn, self.cancel, self.queue))
 
