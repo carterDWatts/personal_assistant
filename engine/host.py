@@ -162,12 +162,20 @@ class Host:
         task.add_done_callback(lambda _: self.stream.changed.set())
         status = 'completed'
         heartbeat = asyncio.get_running_loop().time()
+        checked_cancel = 0
         try:
             while not task.done():
                 with contextlib.suppress(asyncio.TimeoutError):
                     await asyncio.wait_for(self.stream.changed.wait(), .15)
                 await self.flush()
-                if self.stopping.is_set() or await self.call(self.relay.cancelled, self.active):
+                now = asyncio.get_running_loop().time()
+                cancelled = self.stopping.is_set()
+                # Token bursts must not each pay for another database round trip.
+                # Publication and tool execution still check the active lease.
+                if not cancelled and now - checked_cancel >= .25:
+                    cancelled = await self.call(self.relay.cancelled, self.active)
+                    checked_cancel = asyncio.get_running_loop().time()
+                if cancelled:
                     status = 'cancelled'
                     await self.interrupt(task)
                     break

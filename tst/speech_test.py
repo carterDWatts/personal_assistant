@@ -20,6 +20,7 @@ class speech_test(unittest.TestCase):
             speech.storage = object()
             speech.last_cleanup = __import__('time').monotonic()
             speech.render = lambda text, cancel: (b'audio', 500)
+            speech.cleanup = AsyncMock(side_effect=AssertionError('Cleanup blocked speech'))
             await speech.begin({'id': 'turn', 'speech': True})
             try:
                 speech.feed('I can hel')
@@ -32,6 +33,9 @@ class speech_test(unittest.TestCase):
                 speech.finish('completed')
                 await speech.task
                 self.assertEqual([e['text'] for e in events if e['type'] == 'speech'], ['I can', 'help with that.'])
+                self.assertIn('render_seconds', events[-1])
+                self.assertIn('delivery_seconds', events[-1])
+                speech.cleanup.assert_not_awaited()
             finally:
                 await speech.close()
         asyncio.run(check())

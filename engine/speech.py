@@ -188,9 +188,10 @@ class Speech:
 
     async def run(self, turn, cancelled, queue):
         status = 'success'
+        timings = {}
         try:
             if not self.voice or not self.storage: raise RuntimeError('Speech not ready')
-            await self.cleanup()
+            # Cleanup runs at startup and on the idle host heartbeat.
             seq = 0
             while not cancelled.is_set():
                 try: text = await asyncio.wait_for(queue.get(), .3)
@@ -216,15 +217,18 @@ class Speech:
                     url = await asyncio.to_thread(self.storage.upload, name, result[0])
                 if cancelled.is_set(): break
                 if not await self.host.call(self.host.relay.publish_speech, turn,
-                    {'type': 'speech', 'seq': seq, 'url': url, 'duration_ms': result[1], 'text': text}): break
+                    {'type': 'speech', 'seq': seq, 'url': url, 'duration_ms': result[1], 'text': text,
+                     'render_seconds': round(rendered-started, 3)}): break
                 if seq == 1:
+                    timings = {'render_seconds': round(rendered-started, 3),
+                               'delivery_seconds': round(time.monotonic()-rendered, 3)}
                     print(f'Speech timing: render_seconds={rendered-started:.3f} delivery_seconds={time.monotonic()-rendered:.3f}', flush=True)
         except Exception as error:
             status = 'error'
             print(f'Speech failed ({type(error).__name__}).', flush=True)
         finally:
             if self.overflow: status = 'error'
-            await self.host.call(self.host.relay.publish_speech, turn, {'type': 'speech_end', 'status': status})
+            await self.host.call(self.host.relay.publish_speech, turn, {'type': 'speech_end', 'status': status, **timings})
 
     async def close(self):
         self.cancel.set()
