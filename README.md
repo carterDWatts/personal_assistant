@@ -1,6 +1,6 @@
-[![A mechanical model of Bunny Man’s shared memory: evidence enters, facts connect and change, and a new session retrieves context.](docs/assets/memory.gif)](docs/assets/memory.mp4)
+[![A mechanical model of Bunny Man’s shared memory: live sources update current facts and relationships, with evidence retained across model sessions.](docs/assets/memory.gif)](docs/assets/memory.mp4)
 
-[Watch the full-resolution video](docs/assets/memory.mp4) · A conceptual model of the implemented memory paths.
+[Watch the full-resolution video](docs/assets/memory.mp4) · A conceptual model of the implemented memory paths. Green connections represent relationships; gold marks inferred knowledge. Evidence and superseded states remain underneath the live map.
 
 # Bunny Man
 
