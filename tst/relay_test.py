@@ -188,6 +188,30 @@ class relay_test(MapTest):
                 relay_map.close()
         self.run_async(check())
 
+    def test_short_speech_does_not_wait_for_day_refresh(self):
+        async def check():
+            from types import SimpleNamespace
+            relay_map = Map(self.map.url)
+            relay = Relay(relay_map)
+            relay.acquire()
+            runtime = FakeRuntime([[say('Hello')]])
+            host = Host(relay, self.map, lambda: runtime)
+            flushed = asyncio.Event()
+            async def begin(turn): pass
+            async def refresh():
+                await asyncio.wait_for(flushed.wait(), .5)
+            host.speech = SimpleNamespace(begin=begin, feed=lambda text: None,
+                                          finish=lambda status: flushed.set())
+            host.refresh_day = refresh
+            try:
+                self.submit()
+                await host.process(relay.claim())
+                self.assertTrue(flushed.is_set())
+            finally:
+                await host.close_session()
+                relay_map.close()
+        self.run_async(check())
+
     def test_failed_login_is_terminal_and_does_not_expose_diagnostics(self):
         async def check():
             class Failed(FakeRuntime):

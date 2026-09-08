@@ -1,6 +1,7 @@
 """Conversation lifecycle shared by terminal and desktop clients."""
 
 import inspect
+import time
 from engine import context
 from engine.config import prompt
 from engine.conversation import Conversation
@@ -54,6 +55,7 @@ class Session:
 
     async def send(self, text, role="user"):
         # Refresh on every turn, including resumed sessions. Model context is a cache.
+        started = time.monotonic()
         sections = context.snapshot_sections(self.map)
         opening = context.update(self.sent_snapshot, sections)
         recent = self.map.rows(
@@ -67,6 +69,8 @@ class Session:
             opening += "\n\n" + self.seed
             self.seed = None
         mid = self.conv.record(self.segment_id, role, text)
+        if timing := getattr(self.io, "timing", None):
+            timing("context_seconds", time.monotonic() - started)
         try:
             await turn(self.runtime, self.conv, self.tools, self.io, self.segment_id, mid,
                        f"{opening}\n\nThe user says:\n{text}")
@@ -120,8 +124,14 @@ async def turn(runtime, conv, tools, io, segment_id, message_id, text):
     completed, pending = [], ""
     failed = True
     io.start_turn()
+    started = time.monotonic()
+    first_text = True
     try:
         async for ev in runtime.send(text):
+            if first_text and ev.kind in ("text", "assistant_text") and ev.text:
+                first_text = False
+                if timing := getattr(io, "timing", None):
+                    timing("model_first_text_seconds", time.monotonic() - started)
             if ev.kind == "text":
                 pending += ev.text
                 io.delta(ev.text)

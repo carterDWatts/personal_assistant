@@ -159,7 +159,9 @@ class Speech:
                 # Formatting is for the chat, not the voice.
                 text = re.sub(r'[*#`]', '', text).strip()
                 if not any(c.isalnum() for c in text): continue
+                started = time.monotonic()
                 result = await asyncio.to_thread(self.render, text, cancelled)
+                rendered = time.monotonic()
                 if cancelled.is_set(): break
                 if result is None: continue
                 if await self.host.call(self.host.relay.cancelled, turn): break
@@ -174,6 +176,8 @@ class Speech:
                 if cancelled.is_set(): break
                 if not await self.host.call(self.host.relay.publish_speech, turn,
                     {'type': 'speech', 'seq': seq, 'url': url, 'duration_ms': result[1], 'text': text}): break
+                if seq == 1:
+                    print(f'Speech timing: render_seconds={rendered-started:.3f} delivery_seconds={time.monotonic()-rendered:.3f}', flush=True)
         except Exception as error:
             status = 'error'
             print(f'Speech failed ({type(error).__name__}).', flush=True)

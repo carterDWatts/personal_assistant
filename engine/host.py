@@ -4,6 +4,7 @@ import asyncio
 import contextlib
 import json
 import signal
+import time
 import psycopg
 
 from engine import config
@@ -20,6 +21,10 @@ class Stream:
     def __init__(self):
         self.pending = []
         self.audio = None
+        self.timings = {}
+
+    def timing(self, name, seconds):
+        self.timings[name] = round(seconds, 3)
 
     def start_turn(self):
         pass  # Claiming the durable request already emitted start.
@@ -104,6 +109,7 @@ class Host:
         if self.session and (self.session.conv.cutoff() > self.session.seen_message or turn.get("model") != self.model_id):
             await self.close_session()
         if self.session is None:
+            opened = time.monotonic()
             choice = next((m for m in self.models if m['id'] == turn.get('model')), None)
             if turn.get('model') and not choice and not self.custom_factory:
                 raise RuntimeError('The selected model is no longer available on this host.')
@@ -112,6 +118,7 @@ class Host:
             self.session = Session(self.map, runtime, self.stream, 'cloud',
                                    auto_memory=False, before_tool=self.before_tool)
             await self.session.open()
+            self.stream.timing('session_open_seconds', time.monotonic() - opened)
         await self.session.send(turn['text'])
 
     async def interrupt(self, task):
@@ -133,6 +140,7 @@ class Host:
             await session.close()
 
     async def process(self, turn):
+        self.stream.timings = {}
         if self.memory_work and not self.memory_work.done():
             self.memory_work.cancel()
         self.active = turn['id']
@@ -160,11 +168,11 @@ class Host:
                     status = 'failed'
                     self.stream.pending.append({'type': 'error', 'message':
                         'The subscription runtime could not finish. Check the host login or usage limit before retrying.'})
+            if self.speech:
+                self.speech.finish(status)
             await self.flush()
             await self.refresh_day()
             await self.call(self.relay.finish, self.active, status)
-            if self.speech:
-                self.speech.finish(status)
         finally:
             if not task.done():
                 await self.interrupt(task)
@@ -172,6 +180,7 @@ class Host:
             if status != 'completed' or self.stopping.is_set():
                 await self.close_session()
             self.active = None
+            print('Reply timing: ' + json.dumps(self.stream.timings), flush=True)
 
     async def run(self):
         acquired = False
