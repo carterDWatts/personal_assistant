@@ -4,7 +4,7 @@ One Railway worker runs the subscription runtime. Supabase holds the map, owner 
 
 Railway project: `9b4aa82e-47a4-4325-9a42-b443f8cfb1a4` (`personal-assistant`). Service: `worker`. Supabase project: `koauvyfxewczcajnlrfp`.
 
-The infrastructure definition is `.railway/railway.ts`: one replica, sleeping disabled, persistent `/data`, 1 CPU and a 4 GiB memory ceiling. Railway charges actual resource usage; the ceiling is not a monthly spending cap. No workspace-wide cap is set because the workspace contains other applications.
+The infrastructure definition is `.railway/railway.ts`: one replica, sleeping disabled, persistent `/data`, 2 CPUs and a 4 GiB memory ceiling. Railway charges actual resource usage; the ceiling is not a monthly spending cap. No workspace-wide cap is set because the workspace contains other applications.
 
 ## Deploy
 
@@ -26,7 +26,7 @@ python scripts/cloud.py auth
 
 Review the plan before applying it. It should target only personal-assistant. For a new deployment, create and link a separate Railway project before applying the same definition. Update the explicit Supabase project in the provisioning script before targeting another database. Owner binding refuses to replace an existing owner.
 
-The worker also builds from the GitHub `design` branch. Test before pushing. Database migrations remain an explicit deploy step so a code push cannot silently change the database.
+The worker also builds from the GitHub `main` branch. Test before pushing. Database migrations remain an explicit deploy step so a code push cannot silently change the database.
 
 `cloud.py configure` reads the database URL from the environment (or the Mac's existing literal settings) and sends it through stdin to Railway. It copies the existing ChatGPT login through the same protected path. No credentials are placed in the image or git. The container drops root privileges before starting either runtime.
 
@@ -36,7 +36,7 @@ The default worker uses Codex with forced ChatGPT authentication. There is no AP
 
 The initial login is seeded into `/data/.codex/auth.json` with mode 0600. Later boots preserve the refreshed file rather than replacing it with the original credential. Re-running configure does not overwrite that file. Renew an expired login on the host with `CODEX_HOME="/data/Library/Application Support/Personal Assistant/prod/codex" codex login --device-auth` as the `assistant` user, or deliberately replace the host cache while the worker is stopped. Never print its contents in logs.
 
-Claude is packaged but requires a separately supplied `CLAUDE_CODE_OAUTH_TOKEN` from `claude setup-token` before switching `ASSISTANT_RUNTIME`. It has not been tested against a live Claude subscription on this host. Neither adapter enables paid overage.
+Claude uses `CLAUDE_CODE_OAUTH_TOKEN` from `claude setup-token`. Fable has been verified on the hosted subscription runtime with a live memory-database tool call. The phone can select it without changing the default runtime. Neither adapter enables paid overage.
 
 Devices use Supabase email magic links with PKCE and callback `personal-assistant://auth/callback`. The verifier stays in the device Keychain; the link must be opened on that device. `cloud.py auth` allowlists this callback while preserving existing redirects and disables public signup. The default email template is retained. Devices sign in with Supabase Auth, then register their UUID through the gateway. The operator-created owner still verifies their email during sign-in. Every other account is denied access to the existing map. See [client-contract.md](client-contract.md) for the implemented transport and remaining client work.
 

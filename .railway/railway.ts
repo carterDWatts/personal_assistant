@@ -3,7 +3,7 @@ import { defineRailway, github, preserve, project, service, volume } from "railw
 export default defineRailway(() => {
   const state = volume("worker-state", { region: "us-east4-eqdc4a", sizeMB: 1024 });
   const worker = service("worker", {
-    source: github("carterDWatts/personal_assistant", { branch: "design" }),
+    source: github("carterDWatts/personal_assistant", { branch: "main" }),
     build: { builder: "DOCKERFILE", dockerfilePath: "Dockerfile",
       watchPatterns: ["/Dockerfile", "/requirements-host.txt", "/engine/**", "/prompts/**", "/identity.json", "/scripts/host-entry.py", "/deploy/**"] },
     replicas: { "us-east4": 1 },
@@ -25,6 +25,9 @@ export default defineRailway(() => {
       ASSISTANT_SUPABASE_URL: "https://koauvyfxewczcajnlrfp.supabase.co",
       ASSISTANT_CODEX_AUTH_JSON: preserve(),
       CLAUDE_CODE_OAUTH_TOKEN: preserve(),
+      ASSISTANT_APNS_KEY: preserve(),
+      ASSISTANT_APNS_KEY_ID: preserve(),
+      ASSISTANT_APNS_TEAM_ID: preserve(),
     },
   });
 

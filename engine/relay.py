@@ -46,9 +46,10 @@ class Relay:
 
     def capabilities(self, value):
         with self.map.conn.transaction():
-            self.owner_lock()
+            owner = self.owner_lock()
             self.check()
             self.map.execute('update assistant.host set capabilities=%s where worker_id=%s', (jsonb(value), self.worker_id))
+            self.emit(owner, None, {'type': 'capabilities', **value})
 
     def publish_speech(self, turn, payload):
         return self.publish_batch(turn, [payload], speech=True)
