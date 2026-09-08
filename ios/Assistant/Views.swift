@@ -189,7 +189,7 @@ struct VoiceBar: View {
                 if draft.isEmpty {
                     Text(title).font(.subheadline).foregroundStyle(palette.muted)
                 } else {
-                    Text(draft).font(.body).italic().lineSpacing(3).foregroundStyle(palette.ink).lineLimit(3)
+                    LiveTranscript(text: draft, color: palette.ink)
                 }
             }
             .multilineTextAlignment(.center).frame(maxWidth: .infinity, minHeight: 24)
@@ -205,6 +205,39 @@ struct VoiceBar: View {
                 Button { chat.stop() } label: { Image(systemName: "xmark") }
                     .buttonStyle(SquareButton(palette: palette)).accessibilityLabel("End the voice conversation")
             }
+        }
+    }
+}
+
+private struct TranscriptHeight: PreferenceKey {
+    static var defaultValue: CGFloat = 24
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
+}
+
+private struct LiveTranscript: View {
+    let text: String
+    let color: Color
+    @State private var contentHeight: CGFloat = 24
+    @ScaledMetric(relativeTo: .body) private var maximumHeight: CGFloat = 150
+
+    var body: some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                VStack(spacing: 0) {
+                    Text(text).font(.body).italic().lineSpacing(3).foregroundStyle(color)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity)
+                    Color.clear.frame(height: 1).id("transcript-end")
+                }
+                .background(GeometryReader { geometry in
+                    Color.clear.preference(key: TranscriptHeight.self, value: geometry.size.height)
+                })
+            }
+            .frame(height: min(max(24, contentHeight), maximumHeight))
+            .onPreferenceChange(TranscriptHeight.self) { contentHeight = $0 }
+            .onChange(of: contentHeight) { proxy.scrollTo("transcript-end", anchor: .bottom) }
+            .onChange(of: text) { proxy.scrollTo("transcript-end", anchor: .bottom) }
+            .accessibilityLabel("Live transcript")
         }
     }
 }
