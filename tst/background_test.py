@@ -98,3 +98,20 @@ class background_test(MapTest):
         self.run_async(review(self.map,lambda _:FakeRuntime([[call('review_attention',alerts=[alert])]])))
         self.assertEqual(self.map.value("select count(*) from assistant.attention where source='context'"),0)
         self.assertIsNotNone(self.map.value("select last_error from assistant.source_items where source='context-review'"))
+
+    def test_failure_does_not_delay_unattempted_mail(self):
+        for index in range(7):
+            self.map.execute("insert into assistant.source_items(source,id) values('gmail',%s)",(str(index),))
+        with patch('engine.integrations.google._get',side_effect=TimeoutError):
+            self.run_async(Background(self.map).triage())
+        self.assertEqual(self.map.value("select count(*) from assistant.source_items where available_at>now()"),5)
+        self.assertEqual(self.map.value("select count(*) from assistant.source_items where available_at<=now()"),2)
+
+    def test_bad_fetch_does_not_block_classifying_other_mail(self):
+        self.map.execute("insert into assistant.source_items(source,id) values('gmail','bad'),('gmail','good')")
+        classified={'id':'good','relevant':False,'notify':False,'remember':False,'title':'Routine mail','reason':'No action needed.'}
+        raw={'id':'good','internalDate':'1788840000000','labelIds':['CATEGORY_UPDATES'],'payload':{}}
+        with patch('engine.integrations.google._get',side_effect=[TimeoutError(),raw]):
+            self.run_async(Background(self.map,lambda _:FakeRuntime([[call('classify',items=[classified])]])).triage())
+        self.assertIsNone(self.map.value("select processed_at from assistant.source_items where id='bad'"))
+        self.assertEqual(self.map.value("select payload->'classification' from assistant.source_items where id='good'"),classified)

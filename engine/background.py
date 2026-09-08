@@ -34,22 +34,28 @@ class Background:
     def __init__(self,map_,factory=None): self.map=map_;self.factory=factory or Worker.runtime
 
     async def triage(self):
-        try: await self._triage()
+        items=self.map.rows("select * from assistant.source_items where source='gmail' and processed_at is null and available_at<=now() order by created_at,id limit 5")
+        try: await self._triage(items)
         except asyncio.CancelledError: raise
         except Exception:
-            self.map.execute("update assistant.source_items set available_at=now()+interval '15 minutes',last_error='Context gathering will retry' where source='gmail' and processed_at is null and available_at<=now()")
+            self.map.execute("update assistant.source_items set available_at=now()+interval '2 minutes',last_error='Email classification will retry' where source='gmail' and processed_at is null and id=any(%s)",([item['id'] for item in items],))
 
-    async def _triage(self):
+    async def _triage(self, items=None):
         from engine.integrations.google import _get, _body, GoogleRequestError
-        items=self.map.rows("select * from assistant.source_items where source='gmail' and processed_at is null and available_at<=now() order by created_at,id limit 5")
+        if items is None: items=self.map.rows("select * from assistant.source_items where source='gmail' and processed_at is null and available_at<=now() order by created_at,id limit 5")
         if not items: return
         batch=[]
         for item in items:
             try:
                 raw=await asyncio.to_thread(_get,'gmail/v1/users/me/messages/'+item['id'],{'format':'full'})
             except GoogleRequestError as error:
-                if error.status != 404: raise
+                if error.status != 404:
+                    self.map.execute("update assistant.source_items set available_at=now()+interval '2 minutes',last_error='Email fetch will retry' where source='gmail' and id=%s",(item['id'],))
+                    continue
                 self.map.execute("update assistant.source_items set processed_at=now(),last_error='Message no longer available' where source='gmail' and id=%s",(item['id'],))
+                continue
+            except Exception:
+                self.map.execute("update assistant.source_items set available_at=now()+interval '2 minutes',last_error='Email fetch will retry' where source='gmail' and id=%s",(item['id'],))
                 continue
             body=_body(raw.get('payload',{}))
             value={'id':item['id'],'backfill':bool((item.get('payload') or {}).get('backfill')),'headers':raw.get('payload',{}).get('headers',[]),
@@ -79,7 +85,7 @@ class Background:
                             message=self.map.value("insert into memory.messages(conversation_id,seq,role,content,payload,created_at) values(%s,1,'system',%s,%s,%s) returning id",(segment,dumps(item),jsonb({'source':'gmail','source_id':item['id'],'external':True}),item['received_at']))
                             self.map.execute('insert into memory.memory_jobs(message_id) values(%s)',(message,))
                             self.map.execute("update assistant.source_items set message_id=%s where source='gmail' and id=%s",(message,item['id']))
-                    self.map.execute("update assistant.source_items set processed_at=now(),last_error=null,payload=payload-'body'-'headers' where source='gmail' and id=%s",(item['id'],))
+                    self.map.execute("update assistant.source_items set processed_at=now(),last_error=null,payload=(payload-'body'-'headers') || %s where source='gmail' and id=%s",(jsonb({'classification':result}),item['id']))
             saved=True
             return {'saved':True}
         schema={'type':'object','properties':{'items':{'type':'array','maxItems':5,'items':{'type':'object','properties':{
