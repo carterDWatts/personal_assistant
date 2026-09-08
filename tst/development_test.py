@@ -48,3 +48,31 @@ class development_test(TestCase):
         self.dev.github=Mock(side_effect=[{'object':{'sha':'a'*40}},{'encoding':'base64','content':base64.b64encode(b'COMMIT; SELECT 1;').decode()}])
         with self.assertRaises(ToolError):asyncio.run(self.dev.migrate({'path':'supabase/migrations/20260909000000_test.sql','sha':'a'*40}))
         self.map.conn.transaction.assert_not_called()
+
+from tst.helpers import MapTest
+
+class development_migration_test(MapTest):
+    def setUp(self):
+        super().setUp()
+        self.map.execute('create schema if not exists supabase_migrations')
+        self.map.execute('create table if not exists supabase_migrations.schema_migrations(version text primary key,name text,statements text[])')
+        self.map.execute("delete from supabase_migrations.schema_migrations where version='20990101000000'")
+        self.map.execute('drop table if exists memory.owner_migration_check')
+        self.map.url='postgresql://postgres.abcdefghijklmnopqrst@localhost/postgres'
+        self.dev=Development(SimpleNamespace(map=self.map))
+        self.dev.scope=Mock(return_value=('example/assistant','abcdefghijklmnopqrst'))
+
+    def apply(self,sql):
+        import base64
+        self.dev.github=Mock(side_effect=[{'object':{'sha':'a'*40}},{'encoding':'base64','content':base64.b64encode(sql.encode()).decode()}])
+        return self.run_async(self.dev.migrate({'path':'supabase/migrations/20990101000000_check.sql','sha':'a'*40}))
+
+    def test_success_is_recorded_once(self):
+        self.assertEqual(self.apply('create table memory.owner_migration_check(id int);')['status'],'applied')
+        self.assertEqual(self.apply('create table memory.owner_migration_check(id int);')['status'],'already_applied')
+        self.assertEqual(self.map.value("select count(*) from supabase_migrations.schema_migrations where version='20990101000000'"),1)
+
+    def test_failure_rolls_back_schema_and_ledger(self):
+        with self.assertRaises(Exception):self.apply('create table memory.owner_migration_check(id int); select missing_column;')
+        self.assertIsNone(self.map.value("select to_regclass('memory.owner_migration_check')"))
+        self.assertEqual(self.map.value("select count(*) from supabase_migrations.schema_migrations where version='20990101000000'"),0)

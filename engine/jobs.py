@@ -75,7 +75,7 @@ class Worker:
         try:
             # A previous worker died. Never claim its task succeeded or silently repeat it.
             for old in self.map.rows("select * from assistant.jobs where status='running'"):
-                self.finish(old,'failed',"I was interrupted while working on this: "+old['task'][:160]+". I haven’t marked it done. Ask me to try again.")
+                self.finish(old,'failed',"I was interrupted before I finished. I’ve kept the task so I can pick it up again.")
             job=self.map.row("update assistant.jobs set status='running',started_at=now(),artifacts=coalesce(artifacts,'{}'::jsonb) || jsonb_build_object('attempt',coalesce((artifacts->>'attempt')::int,0)+1) where id=(select id from assistant.jobs where status='queued' order by created_at limit 1) returning *")
             if not job:return False
             from engine.tools import Tools
@@ -152,7 +152,7 @@ Do not ask the user to do research you can finish with the supplied tools. Do no
             self.finish(job,'completed',text[:12000],artifacts)
             return True
         except asyncio.CancelledError:
-            if job:self.finish(job,'failed','I was interrupted while working on '+job['task'][:160]+'. I haven’t marked it done.')
+            if job:self.finish(job,'failed','I was interrupted before I finished. I’ve kept the task so I can pick it up again.')
             raise
         except Exception as error:
             if job:
@@ -169,7 +169,7 @@ Do not ask the user to do research you can finish with the supplied tools. Do no
                     artifacts['automatic_retry']=True
                     self.map.execute("update assistant.jobs set status='queued',artifacts=%s where id=%s and status='running'",(jsonb(artifacts),job['id']))
                     return True
-                self.finish(job,'failed','I couldn’t finish '+job['task'][:160]+'. Reason: '+reason.replace('_',' ')+'. I saved the available progress; this is not completed.',artifacts)
+                self.finish(job,'failed','I couldn’t finish that task yet. '+{'timeout':'It took longer than the available time.','subscription_limit':'The model subscription has reached its limit.','authentication':'The model needs to be signed in again.','empty_result':'The model stopped without returning an answer.','runtime_failure':'The worker stopped unexpectedly.'}[reason]+' I’ve saved the available progress.',artifacts)
 
             return True
         finally:
