@@ -91,6 +91,36 @@ import AVFoundation
         XCTAssertTrue(utterances.first?.lowercased().contains("does this take input") == true)
     }
 
+    func testMinuteOfDictationKeepsEarlierSentences() async throws {
+        let voice = LiveVoice()
+        defer { voice.stop() }
+        var utterances: [String] = []
+        voice.onUtterance = { utterances.append($0) }
+        voice.onError = { XCTFail($0) }
+        let source = try XCTUnwrap(Bundle(for: Self.self).url(forResource: "input", withExtension: "wav"))
+        let input = try AVAudioFile(forReading: source)
+        let pcm = try XCTUnwrap(AVAudioPCMBuffer(pcmFormat: input.processingFormat, frameCapacity: AVAudioFrameCount(input.length)))
+        try input.read(into: pcm)
+        let samples = try XCTUnwrap(pcm.floatChannelData?[0])
+        let audible = (0..<Int(pcm.frameLength)).filter { abs(samples[$0]) > 0.01 }
+        let first = max(0, try XCTUnwrap(audible.first) - Int(pcm.format.sampleRate * 0.1))
+        let last = min(Int(pcm.frameLength), try XCTUnwrap(audible.last) + Int(pcm.format.sampleRate * 0.1))
+        let clip = try XCTUnwrap(AVAudioPCMBuffer(pcmFormat: pcm.format, frameCapacity: AVAudioFrameCount(last - first)))
+        clip.frameLength = clip.frameCapacity
+        clip.floatChannelData![0].update(from: samples + first, count: last - first)
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".wav")
+        defer { try? FileManager.default.removeItem(at: url) }
+        let repeats = Int(65 * pcm.format.sampleRate / Double(clip.frameLength)) + 1
+        do {
+            let output = try AVAudioFile(forWriting: url, settings: clip.format.settings)
+            for _ in 0..<repeats { try output.write(from: clip) }
+        }
+        try await voice.replay(url)
+        XCTAssertEqual(utterances.count, 1, utterances.description)
+        let text = utterances.joined(separator: " ").lowercased()
+        XCTAssertGreaterThanOrEqual(text.components(separatedBy: "please reply").count - 1, repeats, text)
+    }
+
     func testQueuedReplyPlaysEveryChunk() async throws {
         let voice = LiveVoice()
         defer { voice.stop() }

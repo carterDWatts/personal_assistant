@@ -57,7 +57,7 @@ private final class Capture: @unchecked Sendable {
     private var heardAt = Date()
     private var signalAt = Date.distantPast
     private var endpoint: Task<Void, Never>?
-    private var utterancePrefix = ""
+    private var draft = DictationDraft()
     private var refresh: Task<Void, Never>?
     private var watchdog: Task<Void, Never>?
     private var lastBuffer = Date.distantPast
@@ -77,6 +77,7 @@ private final class Capture: @unchecked Sendable {
     private var playback = UUID()
     private var echo = PlaybackEcho()
     private var interruption = PlaybackInterruption()
+    private var interruptionCheck: Task<Void, Never>?
     private var heardEcho = false
     private var observers: [NSObjectProtocol] = []
     private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "assistant", category: "voice")
@@ -253,7 +254,8 @@ private final class Capture: @unchecked Sendable {
 
     private func listen(preservingUtterance: Bool = false) {
         guard active, !muted else { return }
-        utterancePrefix = preservingUtterance ? transcript.trimmingCharacters(in: .whitespacesAndNewlines) : ""
+        draft.restart(preserving: preservingUtterance)
+        interruptionCheck?.cancel(); interruptionCheck = nil
         listening = UUID()
         task?.cancel(); task = nil
         guard let recognizer, recognizer.isAvailable else { failed("Speech recognition isn’t available right now."); return }
@@ -266,7 +268,7 @@ private final class Capture: @unchecked Sendable {
         capture.attach(request)
         let token = UUID()
         listening = token
-        transcript = utterancePrefix
+        transcript = draft.text
         interruption = PlaybackInterruption()
         heardEcho = false
         if !preservingUtterance { heardAt = Date() }
@@ -278,10 +280,11 @@ private final class Capture: @unchecked Sendable {
 
     private func recognized(_ token: UUID, _ result: SFSpeechRecognitionResult?, _ error: Error?) {
         guard active, !muted, listening == token else { return }
+        interruptionCheck?.cancel(); interruptionCheck = nil
         if let result {
             let text = result.bestTranscription.formattedString
             if !text.isEmpty {
-                if echo.suppressDuringPlayback(text, final: result.isFinal) {
+                if transcript.isEmpty && echo.suppressDuringPlayback(text, final: result.isFinal) {
                     heardEcho = true
                     interruption = PlaybackInterruption()
                     log.notice("ignored playback echo")
@@ -289,15 +292,25 @@ private final class Capture: @unchecked Sendable {
                     return
                 }
                 heardEcho = false
-                if !interruption.accept(text, guarded: echo.isRecent(), final: result.isFinal) {
+                if transcript.isEmpty && !interruption.accept(text, guarded: echo.isRecent(), final: result.isFinal) {
                     if result.isFinal { listen() }
+                    else if text.split(separator: " ").count >= 3 {
+                        // Do not wait for another ASR callback to confirm a stable
+                        // non-echo phrase; it may arrive hundreds of ms later.
+                        interruptionCheck = Task { [weak self] in
+                            try? await Task.sleep(for: .milliseconds(160))
+                            guard !Task.isCancelled else { return }
+                            self?.recognized(token, result, nil)
+                        }
+                    }
                     return
                 }
                 recognitionFailures = 0
                 let first = transcript.isEmpty
-                let combined = utterancePrefix.isEmpty ? text : utterancePrefix + " " + text
+                draft.update(text)
+                let combined = draft.text
                 if combined != transcript { transcript = combined; heardAt = Date() }
-                if first { log.notice("heard speech"); onSpeech?() }
+                if first { signalAt = Date(); VoiceDiagnostics.record("speech_accepted"); log.notice("heard speech"); onSpeech?() }
                 // A recognizer segment ending is not the user yielding the floor.
                 if result.isFinal { listen(preservingUtterance: true) }
                 armEndpoint()
@@ -338,7 +351,7 @@ private final class Capture: @unchecked Sendable {
                 let sinceSound = Date().timeIntervalSince(self.signalAt)
                 // Punctuation is an ASR guess. A thinking pause must not surrender
                 // the turn, and stalled text must never override ongoing speech.
-                if sinceWords >= 0.25 && sinceSound >= voicePause(self.transcript) {
+                if min(sinceWords, sinceSound) >= voicePause(self.transcript) {
                     self.commitUtterance(); return
                 }
             }
@@ -543,7 +556,7 @@ private final class Capture: @unchecked Sendable {
         mode = nil
         replyAudioComplete = true
         silencePlayback()
-        endpoint?.cancel(); refresh?.cancel(); watchdog?.cancel()
+        endpoint?.cancel(); refresh?.cancel(); watchdog?.cancel(); interruptionCheck?.cancel()
         listening = UUID()
         task?.cancel(); task = nil
         request?.endAudio(); request = nil

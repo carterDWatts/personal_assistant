@@ -108,9 +108,9 @@ struct PlaybackInterruption {
         let words = text.lowercased().split(whereSeparator: { !$0.isLetter && !$0.isNumber })
         let command = words.joined(separator: " ")
         if ["stop", "wait", "quiet", "hold on"].contains(command) { return true }
-        guard words.count >= 4 else { return false }
+        guard words.count >= 3 else { return false }
         if firstCandidate == nil { firstCandidate = now }
-        return final || now.timeIntervalSince(firstCandidate!) >= 0.35
+        return final || now.timeIntervalSince(firstCandidate!) >= 0.15
     }
 }
 
@@ -123,4 +123,42 @@ func voicePause(_ text: String) -> TimeInterval {
     if unfinished.contains(words.last ?? "") || ["i think", "i mean", "i want", "let me", "how quickly", "how long"].contains(phrase) { return 1.8 }
     if words.count > 20 { return 1.65 }
     return words.count > 7 ? 1.4 : 1.0
+}
+
+// Apple's on-device recognizer can reset its partial text inside the same
+// request, with every segment timestamp still zero. Preserve the completed
+// prefix when that happens; ordinary revisions still replace the live suffix.
+struct DictationDraft {
+    private var prefix = ""
+    private var retained: [String] = []
+    private var current = ""
+    var text: String { [prefix, retained.joined(separator: " "), current].filter { !$0.isEmpty }.joined(separator: " ") }
+
+    private func normalized(_ words: [String]) -> [String] {
+        words.map { $0.lowercased().filter { $0.isLetter || $0.isNumber } }
+    }
+
+    mutating func restart(preserving: Bool) {
+        prefix = preserving ? text : ""
+        retained = []; current = ""
+    }
+
+    mutating func update(_ incoming: String) {
+        let old = current.split(whereSeparator: { $0.isWhitespace }).map(String.init)
+        let next = incoming.split(whereSeparator: { $0.isWhitespace }).map(String.init)
+        guard !next.isEmpty else { return }
+        let oldWords = normalized(old), nextWords = normalized(next)
+        // A later full hypothesis can restore the prefix itself.
+        if !retained.isEmpty, next.count >= retained.count + old.count - 2,
+           Array(nextWords.prefix(retained.count)) == normalized(retained) {
+            retained = []
+        } else if old.count >= 6 && next.count * 2 < old.count {
+            var overlap = 0
+            for count in 1...min(old.count, next.count) {
+                if Array(oldWords.suffix(count)) == Array(nextWords.prefix(count)) { overlap = count }
+            }
+            retained += old.dropLast(overlap)
+        }
+        current = incoming
+    }
 }

@@ -2,6 +2,20 @@ import Foundation
 
 @main struct VoiceTurnCheck {
     static func main() {
+        var draft = DictationDraft()
+        draft.update("This is the beginning of a long message")
+        draft.update("message")
+        precondition(draft.text == "This is the beginning of a long message")
+        draft.update("message with more details")
+        precondition(draft.text == "This is the beginning of a long message with more details")
+        draft.update("This is the beginning of a long message with corrected details")
+        precondition(draft.text == "This is the beginning of a long message with corrected details")
+        draft.restart(preserving: true)
+        draft.update("and another sentence")
+        precondition(draft.text.hasSuffix("corrected details and another sentence"))
+        draft.restart(preserving: false)
+        draft.update("A new turn")
+        precondition(draft.text == "A new turn")
         var turn = VoiceTurn()
         precondition(!turn.interrupt(busy: false))
         precondition(turn.interrupt(busy: true))
@@ -62,7 +76,10 @@ import Foundation
         var interruption = PlaybackInterruption()
         precondition(!interruption.accept("garbled words", guarded: true, final: true, now: now))
         precondition(!interruption.accept("Actually tomorrow is much better", guarded: true, final: false, now: now))
-        precondition(interruption.accept("Actually tomorrow is much better", guarded: true, final: false, now: now.addingTimeInterval(0.4)))
+        precondition(interruption.accept("Actually tomorrow is much better", guarded: true, final: false, now: now.addingTimeInterval(0.16)))
+        var shortInterruption = PlaybackInterruption()
+        precondition(!shortInterruption.accept("Actually change tomorrow", guarded: true, final: false, now: now))
+        precondition(shortInterruption.accept("Actually change tomorrow", guarded: true, final: false, now: now.addingTimeInterval(0.16)))
         precondition(interruption.accept("stop", guarded: true, final: false, now: now))
         precondition(interruption.accept("Yes", guarded: false, final: true, now: now))
         let audioURL = URL(string: "data:audio/mp4;base64,YXVkaW8=")!
