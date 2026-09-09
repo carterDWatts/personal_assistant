@@ -13,7 +13,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - run: pip install -r requirements.txt pytest
+      - run: pip install -r requirements.txt playwright==1.62.0 pytest
+      - run: python -m playwright install --with-deps chromium
       - run: scripts/test.sh
   apps:
     name: assistant-apps
@@ -21,4 +22,4 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: xcodebuild -project ios/Assistant.xcodeproj -scheme Assistant -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build
-      - run: swiftc -parse-as-library desktop/PersonalAssistant.swift shared/ContextImport.swift shared/DaySchedule.swift shared/BunnyGlyph.swift desktop/BunnyArtwork.swift desktop/OutputStream.swift desktop/LiveVoice.swift desktop/LocalSpeech.swift desktop/LocalVoice.swift desktop/VoiceTurn.swift -o /tmp/assistant-check -framework SwiftUI -framework AVFoundation
+      - run: swiftc -parse-as-library desktop/PersonalAssistant.swift shared/ContextImport.swift shared/BrowserAccess.swift shared/DaySchedule.swift shared/BunnyGlyph.swift desktop/BunnyArtwork.swift desktop/OutputStream.swift desktop/LiveVoice.swift desktop/LocalSpeech.swift desktop/LocalVoice.swift desktop/VoiceTurn.swift -o /tmp/assistant-check -framework SwiftUI -framework AVFoundation

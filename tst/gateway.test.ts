@@ -220,3 +220,27 @@ test('a provider cannot consume another provider’s authorization code',async()
   const response=await accountCallback(new Request(`https://example.invalid?state=${state}&code=code`),settings,'supabase',fetcher);
   assert.match(response.headers.get('location')!,/failed/);assert.equal(providerCalls,0);
 });
+
+test('browser keyboard input is encrypted before it reaches SQL', async () => {
+  const { generateKeyPairSync, privateDecrypt, constants } = await import('node:crypto');
+  const keys=generateKeyPairSync('rsa',{modulusLength:2048});
+  const pem=keys.publicKey.export({type:'spki',format:'pem'});
+  const run=handler(config,async (_url,options)=>{
+    if (!options?.body) return Response.json({id:owner});
+    const body=JSON.parse(String(options.body));
+    assert.equal(body.p_user,owner);
+    if(body.p_action==='browser_list')return Response.json({sessions:[{id:device,state:'human'}]});
+    if(body.p_action==='browser_begin')return Response.json({public_key:pem});
+    assert.equal(body.p_action,'browser_command');
+    assert.equal(body.p_args.command,undefined);
+    assert.ok(!String(options.body).includes('private-password'));
+    const envelope=JSON.parse(body.p_args.encrypted);
+    const raw=privateDecrypt({key:keys.privateKey,padding:constants.RSA_PKCS1_OAEP_PADDING,oaepHash:'sha256'},Buffer.from(envelope.key,'base64'));
+    const key=await crypto.subtle.importKey('raw',raw,'AES-GCM',false,['decrypt']);
+    const decoded=await crypto.subtle.decrypt({name:'AES-GCM',iv:Buffer.from(envelope.iv,'base64'),additionalData:new TextEncoder().encode(device)},key,Buffer.from(envelope.data,'base64'));
+    assert.equal(JSON.parse(new TextDecoder().decode(decoded)).text,'private-password');
+    return Response.json({id:device});
+  });
+  const result=await run(request({action:'browser_command',device_id:device,args:{session_id:device,id:device,command:{action:'type',text:'private-password'}}}));
+  assert.equal(result.status,200);
+});

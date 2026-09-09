@@ -22,6 +22,7 @@ struct Connection: Identifiable {
 /// A missing connection offered directly in the conversation.
 struct ConnectionPrompt {
     let action: String
+    let sessionID: String?
     let provider: String
     let grant: String?
     var phase = Phase.needed
@@ -30,6 +31,7 @@ struct ConnectionPrompt {
     init(event: [String: Any]) {
         let action = event["action"] as? String ?? ""
         self.action = action
+        sessionID = event["session_id"] as? String
         provider = event["provider"] as? String ?? Service.provider(for: action)
         grant = event["grant"] as? String ?? Service.grant(for: action)
     }

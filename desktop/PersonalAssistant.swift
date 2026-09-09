@@ -64,6 +64,9 @@ final class Chat: NSObject, ObservableObject {
     @Published var serviceConnections: [String: Bool] = [:]
     @Published var googleConnecting = false
     @Published var connectionError = ""
+    @Published var browserSession: String? = nil
+    @Published var browserVisible = false
+    private var browserWaiters: [String: CheckedContinuation<[String: Any], Error>] = [:]
     @Published var connectionPrompt: String? = nil
     @Published var connectionPromptSatisfied = false
     @Published var plans: [PlanItem] = []
@@ -200,7 +203,14 @@ final class Chat: NSObject, ObservableObject {
             guard let event = (try? JSONSerialization.jsonObject(with: line)) as? [String: Any], let type = event["type"] as? String else { continue }
             let text = event["text"] as? String ?? ""
             switch type {
+            case "browser_result":
+                if let id = event["request_id"] as? String, let waiter = browserWaiters.removeValue(forKey:id) {
+                    if event["error"] != nil { waiter.resume(throwing: URLError(.cannotConnectToHost)) }
+                    else { waiter.resume(returning: event["result"] as? [String:Any] ?? [:]) }
+                }
             case "connection_required":
+                if event["action"] as? String == "browser_connect" { browserSession = event["session_id"] as? String }
+
                 connectionPrompt = event["action"] as? String
                 connectionPromptSatisfied = false
                 refreshConnections()
@@ -262,6 +272,24 @@ final class Chat: NSObject, ObservableObject {
             case "error": busy = false; status = text; voice = false; liveVoice.stop(); voiceTurn = VoiceTurn()
             default: break
             }
+        }
+    }
+
+    func browserRequest(_ action: String, _ args: [String:Any]) async throws -> [String:Any] {
+        try await withCheckedThrowingContinuation { waiter in
+            let id = UUID().uuidString; browserWaiters[id] = waiter
+            write(["type":"browser_request", "action":action, "args":args, "request_id":id])
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds:20_000_000_000)
+                if let waiter = browserWaiters.removeValue(forKey:id) { waiter.resume(throwing:URLError(.timedOut)) }
+            }
+        }
+    }
+    func browserConnected() {
+        let id = browserSession ?? ""; browserVisible = false; connectionPrompt = nil
+        Task {
+            while busy { try? await Task.sleep(nanoseconds:250_000_000) }
+            submit("Website access is ready (session \(id)). Continue my original request, checking what has already completed first.")
         }
     }
 
@@ -563,6 +591,7 @@ struct ChatConnectionPrompt: View {
     private var title: String {
         if let provider, let setup = ServiceSetup.entries[provider] { return "Connect " + setup.name }
         switch chat.connectionPrompt {
+        case "browser_connect": return "Connect website"
         case "google_tasks": return "Connect Google Tasks"
         case "google_drive": return "Connect Drive, Docs and Sheets"
         case "google_contacts": return "Connect Google Contacts"
@@ -585,7 +614,10 @@ struct ChatConnectionPrompt: View {
             } else if let provider {
                 ServiceConnectionForm(chat: chat, provider: provider)
             } else {
-                Button(title) { chat.connectGoogle(chat.connectionPrompt ?? "google_connect") }
+                Button(title) {
+                    if chat.connectionPrompt == "browser_connect" { chat.browserVisible = true }
+                    else { chat.connectGoogle(chat.connectionPrompt ?? "google_connect") }
+                }
                     .buttonStyle(.borderedProminent)
             }
             if !chat.connectionError.isEmpty { Text(chat.connectionError).font(.caption).foregroundStyle(.secondary) }
@@ -827,6 +859,9 @@ struct SettingsPopover: View {
                     .popover(isPresented: $showConnections) { ConnectionsView(chat: chat) }
                 Button { showImport = true } label: { Image(systemName: "tray.and.arrow.down") }
                     .help("Import context")
+                    .sheet(isPresented: $chat.browserVisible) {
+                        if let id = chat.browserSession { BrowserAccessView(sessionID:id, request:chat.browserRequest, completed:chat.browserConnected).frame(minWidth:700,minHeight:700) }
+                    }
                     .sheet(isPresented: $showImport) { ContextImportView(upload: chat.importPart, refresh: chat.imports, runtime: chat.runtime) }
                 Button("Clear") {
                     chat.draft = ""

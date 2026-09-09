@@ -458,6 +458,9 @@ struct ConversationView: View {
         }
         .sheet(isPresented: $showSettings) { SettingsView(chat: chat, palette: palette) }
         .sheet(isPresented: $showImport) { ContextImportView(upload: chat.importPart, refresh: chat.imports, runtime: chat.selectedModel.hasPrefix("claude-agent-sdk/") ? "claude-agent-sdk" : "codex") }
+        .sheet(isPresented: Binding(get: { chat.browserSession != nil }, set: { if !$0 { chat.browserSession = nil } })) {
+            if let id = chat.browserSession { BrowserAccessView(sessionID: id, request: chat.browserRequest, completed: chat.browserConnected) }
+        }
         .sheet(isPresented: $showConnections) { ConnectionsView(chat: chat, palette: palette) }
         .sheet(isPresented: Binding(get: { chat.tokenForm != nil }, set: { if !$0 { chat.tokenForm = nil } })) {
             if let provider = chat.tokenForm { TokenForm(chat: chat, provider: provider, palette: palette) }
@@ -553,6 +556,7 @@ struct ConnectionCard: View {
     let palette: Palette
     private var service: String { Service.name(prompt.provider, grant: prompt.grant) }
     private var detail: String {
+        if prompt.action == "browser_connect" { return "Open the browser, sign in privately if needed, then hand it back so I can finish your request." }
         switch prompt.phase {
         case .failed(let text): return text
         case .connecting: return Service.usesToken(prompt.provider) ? "Checking the token." : "Finish in the sheet; the host keeps the permission and this phone never sees the token."

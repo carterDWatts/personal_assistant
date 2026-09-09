@@ -73,3 +73,15 @@ Separate service capabilities from user choices:
 - Learn morning content, reminder behavior, and other assistant preferences per user. Once resolved, code enforces routing and delivery settings; the model interprets intent within them. Credentials, access boundaries, and validation remain structural.
 
 The current owner’s Google Calendar and separate-reminder setup is one configuration to preserve during this work, not a default to impose on everyone.
+
+## Website access
+
+When a dedicated connector cannot do a task, the assistant can request a hosted browser with `browser_open`. The chat shows a connection card. The phone and Mac share a private browser panel: sign in, then press Done to hand the website back and continue the original request. `browser_action` reads the current page and interacts with visible elements. It checks the result before claiming completion.
+
+Chromium runs on the existing host, with a separate context per service. Encrypted cookies, local storage and IndexedDB survive host restarts. The user controls sign-in; the agent cannot operate that browser during takeover. Keyboard input bypasses conversation history and is encrypted before queueing. Completed command payloads are erased, and temporary screenshots expire after ten minutes. Disconnect clears saved access.
+
+Browser traffic goes through a proxy that checks and pins public HTTPS destinations. Private addresses, local files, arbitrary scripts and cookie inspection are not exposed as model tools. A fresh page snapshot identifies the elements used by the next action. Uncertain actions are inspected before retrying.
+
+This is a browser fallback, not automatic OAuth registration for every service. A site can block hosted browsers, require a passkey that is unavailable on the host, or restrict access to an approved API integration. The assistant should explain that specific obstacle and the supported connection path. No service-specific adapter is required for ordinary website interaction.
+
+The host image installs Playwright and Chromium. The existing credential key encrypts saved browser state; a private command key lives on the persistent host volume. Browser availability is advertised through a heartbeat, so clients do not offer a working browser when the host is down.

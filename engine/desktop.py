@@ -43,8 +43,8 @@ class DesktopIO:
             data = json.loads(payload.get("content", ""))
         except (ValueError, TypeError):
             return
-        if isinstance(data, dict) and data.get("connection_action") in CONNECTION_ACTIONS | SERVICE_ACTIONS:
-            emit("connection_required", action=data["connection_action"])
+        if isinstance(data, dict) and data.get("connection_action") in CONNECTION_ACTIONS | SERVICE_ACTIONS | {'browser_connect'}:
+            emit("connection_required", action=data["connection_action"], **{k:data[k] for k in ("session_id", "provider") if data.get(k)})
     def close(self): pass
 
 
@@ -170,6 +170,24 @@ async def main():
                         emit("imports", request_id=message.get("request_id"), **result)
                     except Exception:
                         emit("imports", request_id=message.get("request_id"), error="The import was not saved. Retry with the same text.")
+                elif action == "browser_request" and map_:
+                    from engine.browser.crypto import seal
+                    from engine.db import jsonb
+                    import uuid
+                    try:
+                        operation=message['action'];args=message.get('args',{})
+                        if operation=='browser_command':
+                            public=map_.value("select public_key from assistant.browser_host where seen_at>now()-interval '60 seconds'")
+                            if not public:raise ValueError('Browser unavailable')
+                            args={"session_id":args['session_id'],"id":args['id'],"encrypted":seal(public,args['command'],args['id'])}
+                        # Local owner bridge has the same private DB authority as the Mac session.
+                        owner=map_.value('select user_id from assistant.owner')
+                        device=map_.value("select id from assistant.devices where user_id=%s and name='Mac browser bridge' and revoked_at is null limit 1",(owner,))
+                        if not device:
+                            device=str(uuid.uuid4());map_.execute("insert into assistant.devices(id,user_id,name) values(%s,%s,'Mac browser bridge')",(device,owner))
+                        result=map_.value('select public.assistant_browser(%s,%s,%s,%s)',(owner,device,operation,jsonb(args)))
+                        emit('browser_result',request_id=message['request_id'],result=result)
+                    except Exception:emit('browser_result',request_id=message['request_id'],error='Browser access is unavailable.')
                 elif action == "connect":
                     if session:
                         raise ValueError("Already connected")

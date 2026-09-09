@@ -35,9 +35,10 @@ class ToolError(Exception):
 
 
 class ConnectionRequired(ToolError):
-    def __init__(self, message, action):
+    def __init__(self, message, action, details=None):
         super().__init__(message)
         self.action = action
+        self.details = details or {}
 
 
 def _s(desc, **extra):
@@ -381,10 +382,11 @@ class Tools:
     def read_specs(self):
         from engine.reminders import Reminders
         from engine.jobs import Jobs
+        from engine.browser.client import BrowserTools
         from engine.development import Development
         from engine.reconciliation import Reconciliation
         from engine.integrations import read_specs
-        return [spec for spec in self.specs() if spec.name in READ_TOOLS] + read_specs() + Reminders(self).specs() + Reconciliation(self).conversation_specs() + Jobs(self).specs() + Development(self).specs()
+        return [spec for spec in self.specs() if spec.name in READ_TOOLS] + read_specs() + Reminders(self).specs() + Reconciliation(self).conversation_specs() + Jobs(self).specs() + Development(self).specs() + BrowserTools(self).specs()
 
     def specs(self):
         entity_id = _s("entity id (uuid)")
@@ -485,7 +487,7 @@ async def run(spec, args):
     except ValidationError as e:
         return "Invalid tool arguments: " + e.message, True
     except ConnectionRequired as e:
-        return dumps({"error": str(e), "connection_action": e.action}), True
+        return dumps({"error": str(e), "connection_action": e.action, **e.details}), True
     except ToolError as e:
         return str(e), True
     except Exception as e:  # noqa: BLE001 - database errors are the model's problem to react to

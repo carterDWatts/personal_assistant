@@ -100,6 +100,7 @@ func plain(_ value: Any?) -> String {
     @Published var connected = false
     @Published var voice = false
     @Published var connectionPrompt: ConnectionPrompt? = nil
+    @Published var browserSession: String? = nil
     @Published var connections: [Connection] = []
     @Published var connectionError = ""
     @Published var tokenForm: String? = nil
@@ -328,6 +329,18 @@ func plain(_ value: Any?) -> String {
         transport.foreground(active || voice)
     }
 
+    func browserRequest(_ action: String, _ args: [String: Any]) async throws -> [String: Any] {
+        try await transport.reminderRequest(action, args)
+    }
+    func browserConnected() {
+        let id = browserSession ?? ""
+        browserSession = nil; connectionPrompt = nil
+        Task {
+            while busy { try? await Task.sleep(nanoseconds:250_000_000) }
+            submit("Website access is ready (session \(id)). Continue my original request, checking what has already completed first.", speak: false)
+        }
+    }
+
     func refreshConnections() {
         Task {
             do { connections = try await transport.connections().map(Connection.init); connectionError = "" }
@@ -338,6 +351,7 @@ func plain(_ value: Any?) -> String {
     /// Connect the service a reply asked for. Google opens the host's authorization sheet; the others take a token.
     func connectService() {
         guard var prompt = connectionPrompt, prompt.phase != .connecting else { return }
+        if prompt.action == "browser_connect", let id = prompt.sessionID { browserSession = id; return }
         if Service.usesToken(prompt.provider) { tokenForm = prompt.provider; return }
         prompt.phase = .connecting; connectionPrompt = prompt
         Task {
