@@ -458,9 +458,6 @@ struct ConversationView: View {
         }
         .sheet(isPresented: $showSettings) { SettingsView(chat: chat, palette: palette) }
         .sheet(isPresented: $showImport) { ContextImportView(upload: chat.importPart, refresh: chat.imports, runtime: chat.selectedModel.hasPrefix("claude-agent-sdk/") ? "claude-agent-sdk" : "codex") }
-        .sheet(isPresented: Binding(get: { chat.browserSession != nil }, set: { if !$0 { chat.browserSession = nil } })) {
-            if let id = chat.browserSession { BrowserAccessView(sessionID: id, request: chat.browserRequest, completed: chat.browserConnected) }
-        }
         .sheet(isPresented: $showConnections) { ConnectionsView(chat: chat, palette: palette) }
         .sheet(isPresented: Binding(get: { chat.tokenForm != nil }, set: { if !$0 { chat.tokenForm = nil } })) {
             if let provider = chat.tokenForm { TokenForm(chat: chat, provider: provider, palette: palette) }
@@ -558,7 +555,6 @@ struct ConnectionCard: View {
     let palette: Palette
     private var service: String { Service.name(prompt.provider, grant: prompt.grant) }
     private var detail: String {
-        if prompt.action == "browser_connect" { return "Open the browser, sign in privately if needed, then hand it back so I can finish your request." }
         switch prompt.phase {
         case .failed(let text): return text
         case .connecting: return Service.usesToken(prompt.provider) ? "Checking the token." : "Finish in the sheet; the host keeps the permission and this phone never sees the token."
@@ -650,19 +646,19 @@ struct ConnectionsView: View {
                 Section {
                     ForEach(Service.grants, id: \.self) { grant in
                         let linked = connection("google")?.grants.contains(grant) == true
-                        row(Service.name("google", grant: grant), linked: linked, key: "google/" + grant) {
+                        row(Service.name("google", grant: grant), linked: linked, configured: connection("google")?.configured ?? false, key: "google/" + grant) {
                             if linked { chat.disconnect("google", grant: grant) } else { authorize("google", grant) }
                         }
                     }
                 } header: { Text("Google") } footer: { Text(connection("google")?.account.map { "Signed in as \($0)." } ?? "Each permission is approved separately.") }
                 Section {
-                    ForEach(["github", "supabase", "todoist", "notion"], id: \.self) { provider in
+                    ForEach(IntegrationCatalog.accounts.map(\.id), id: \.self) { provider in
                         let linked = connection(provider)?.state == "connected"
-                        row(Service.name(provider), linked: linked, key: provider) {
+                        row(Service.name(provider), linked: linked, configured: connection(provider)?.configured ?? false, key: provider) {
                             if linked { chat.disconnect(provider) } else if Service.usesToken(provider) { tokenProvider = provider } else { authorize(provider, nil) }
                         }
                     }
-                } header: { Text("Apps") } footer: { Text("Sign in to GitHub or Supabase in the secure sheet. Notion and Todoist currently use a token. Disconnect removes the saved connection.") }
+                } header: { Text("Apps") } footer: { Text("Each service uses its supported sign-in or secure setup flow. Disconnect removes the saved connection.") }
                 if !chat.connectionError.isEmpty { Section { Text(chat.connectionError).font(.caption).foregroundStyle(Color.orange) } }
                 if !problem.isEmpty { Section { Text(problem).font(.caption).foregroundStyle(Color.orange) } }
             }
@@ -677,12 +673,13 @@ struct ConnectionsView: View {
         }.tint(palette.accent).preferredColorScheme(.light)
     }
 
-    private func row(_ name: String, linked: Bool, key: String, action: @escaping () -> Void) -> some View {
+    private func row(_ name: String, linked: Bool, configured: Bool, key: String, action: @escaping () -> Void) -> some View {
         HStack {
             Image(systemName: linked ? "checkmark.square.fill" : "square").foregroundStyle(linked ? palette.accent : palette.muted)
             Text(name).foregroundStyle(palette.ink)
             Spacer()
             if working == key { ProgressView().tint(palette.accent) }
+            else if !linked && !configured { Text("Setup unavailable").font(.caption).foregroundStyle(palette.muted) }
             else { Button(linked ? "Disconnect" : "Connect", action: action).disabled(working != nil).font(.callout).foregroundStyle(linked ? palette.muted : palette.accent) }
         }
     }

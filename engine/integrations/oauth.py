@@ -6,10 +6,24 @@ import requests
 from engine import credentials
 from engine.tools import ConnectionRequired, ToolError
 
-ENDPOINTS = {
-    'github': 'https://github.com/login/oauth/access_token',
-    'supabase': 'https://api.supabase.com/v1/oauth/token',
-}
+from engine.integrations.catalog import OAUTH_PROVIDERS
+
+ENDPOINTS = {key: item["oauth"]["token"] for key, item in OAUTH_PROVIDERS.items()}
+
+
+def configured(provider):
+    if provider not in OAUTH_PROVIDERS:
+        return True
+    import keyring
+    import os
+    if os.environ.get('ASSISTANT_CREDENTIAL_KEY'):
+        return None  # Hosted registrations are owned and reported by the gateway.
+    try:
+        stored = keyring.get_password('com.carterwatts.personal-assistant.oauth-apps', provider)
+        client = json.loads(stored) if stored else {}
+        return bool(client.get('client_id') and client.get('client_secret'))
+    except (keyring.errors.KeyringError, ValueError, TypeError):
+        return False
 
 
 def access_token(provider, service, account, stored):
@@ -26,7 +40,7 @@ def access_token(provider, service, account, stored):
         endpoint = ENDPOINTS[provider]
         data = {'grant_type': 'refresh_token', 'refresh_token': value['refresh_token']}
         auth = None
-        if provider == 'supabase':
+        if OAUTH_PROVIDERS[provider]["oauth"]["clientAuth"] == "basic":
             auth = (value['client_id'], value['client_secret'])
         else:
             data.update(client_id=value['client_id'], client_secret=value['client_secret'])
@@ -78,15 +92,15 @@ def connect_local(provider, service, account):
     with HTTPServer(('127.0.0.1',8766),Callback) as server:
         server.timeout=1
         params={'client_id':client['client_id'],'redirect_uri':callback,'response_type':'code','state':state,'code_challenge':challenge,'code_challenge_method':'S256'}
-        if provider=='github':params['scope']='read:user repo'
-        authorize='https://github.com/login/oauth/authorize' if provider=='github' else 'https://api.supabase.com/v1/oauth/authorize'
+        params.update(OAUTH_PROVIDERS[provider]["oauth"]["parameters"])
+        authorize=OAUTH_PROVIDERS[provider]["oauth"]["authorize"]
         webbrowser.open(authorize+'?'+urlencode(params))
         deadline=time.monotonic()+300
         while not received and time.monotonic()<deadline:server.handle_request()
     if not received.get('code') or received.get('error'):raise ToolError('Sign-in was not completed.')
     data={'grant_type':'authorization_code','code':received['code'],'redirect_uri':callback,'code_verifier':verifier}
     auth=None
-    if provider=='supabase':auth=(client['client_id'],client['client_secret'])
+    if OAUTH_PROVIDERS[provider]["oauth"]["clientAuth"] == "basic":auth=(client['client_id'],client['client_secret'])
     else:data.update(client_id=client['client_id'],client_secret=client['client_secret'])
     response=requests.post(ENDPOINTS[provider],data=data,auth=auth,headers={'Accept':'application/json'},timeout=15,allow_redirects=False)
     if response.status_code!=200:raise ToolError('Sign-in was not completed.')
@@ -94,6 +108,6 @@ def connect_local(provider, service, account):
     if not token.get('access_token') or token.get('error'):raise ToolError('Sign-in was not completed.')
     value={**client,'token':token['access_token'],'refresh_token':token.get('refresh_token'),'provider':provider,
            'expiry':(datetime.now(timezone.utc)+timedelta(seconds=token['expires_in'])).isoformat() if token.get('expires_in') else None}
-    from engine.integrations.services import _request, PROVIDERS
+    from engine.integrations.accounts import _request, PROVIDERS
     _request(provider,PROVIDERS[provider][2],token=value['token'])
     credentials.set_password(service,account,json.dumps(value))

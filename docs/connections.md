@@ -20,7 +20,24 @@ Calendar and event mutations use the Calendar changes grant. Creating, renaming 
 
 Google scopes are `tasks.readonly`, `drive.readonly` and `contacts.readonly`. Drive read access includes spreadsheet reads. The developer Google Cloud project must enable Tasks, Drive, Sheets and People APIs; users only approve the requested Google permission. OAuth consent remains subject to the project's testing/verification settings.
 
-Notion and Todoist still use guided token setup. GitHub and Supabase use OAuth with PKCE, expiring credentials and automatic refresh. Tokens can have wider privileges at the provider, but the assistant exposes only read operations. Notion uses POST for its search endpoint, which does not modify pages. No additional paid inference service is involved.
+Notion and Todoist still use guided token setup. GitHub and Supabase use OAuth with PKCE, expiring credentials and automatic refresh. Tokens can have wider privileges at the provider; these ordinary account tools expose read operations. Owner-development tools have separate gates. Notion uses POST for its search endpoint, which does not modify pages. No additional paid inference service is involved.
+
+## Connection architecture
+
+`shared/integrations.json` is the central definition of supported account connections: names, domains, setup methods and copy, API roots, verification endpoints, headers, OAuth endpoints, developer secret names, Google grants and declared capabilities. It contains no credentials. Python, the edge gateway, both apps and the registration script read it directly. Both app builds bundle the same file.
+
+| Component | Responsibility |
+| --- | --- |
+| `engine/integrations/catalog.py` | Loads the shared definitions |
+| `accounts.py` and `oauth.py` | Credential validation, storage, refresh and authenticated HTTP |
+| `github.py`, `supabase.py`, `notion.py`, `todoist.py` | Explicit service operations and input schemas |
+| `google.py`, `calendar.py`, `workspace.py` | Google authorization and service operations |
+| `supabase/functions/assistant/connections.ts` | Owned sign-in intents, callbacks and encrypted cloud credentials |
+| `shared/IntegrationCatalog.swift` | Shared app setup labels and authentication methods |
+
+Implemented capabilities, configured sign-in and connected account state are separate. The gateway reports configuration from installed developer registrations; the Mac checks its Keychain. An existing credential can remain usable even when a new sign-in registration is unavailable. Capability labels describe implemented operations, not permission grants. Tools still enforce account access and scope. The separately gated owner-development tools are not ordinary connection capabilities.
+
+To add an integration, add its public definition, implement its tool module, register it in `services.specs()`, and test input validation, missing access, denied permissions and failed reconnection. Add the credential slot to the database allowlist through a migration. Provision any developer OAuth registration outside git. A different authorization protocol needs explicit support and tests; a catalog entry alone does not implement it. The catalog supports the current Google/account OAuth and secure-token flows, not arbitrary authentication protocols.
 
 ## Limits
 
@@ -42,13 +59,13 @@ Start morning is available in the day panel and conversation menu. It starts a f
 
 ## Developer registration
 
-Register one OAuth app per provider. End users press Sign in; they do not register developer apps or paste tokens.
+Register an OAuth app for each OAuth-based provider. End users then press Sign in. Token-based providers retain their guided secure setup.
 Configure the hosted callback as `https://<project>.supabase.co/functions/v1/assistant/github/callback`
 or `/supabase/callback`. The local Mac deployment also uses `http://127.0.0.1:8766/github/callback`
 or `/supabase/callback`; add that explicit URI to the provider registration. Do not enable wildcard redirects.
 
 GitHub uses `read:user repo` because OAuth apps do not offer a read-only scope for private repository contents.
-The exposed tools only read. Supabase needs Organizations, Projects, Database and Edge Functions **read** scopes;
+The ordinary connection tools only read. Supabase needs Organizations, Projects, Database and Edge Functions **read** scopes;
 it does not need Secrets or SQL execution. This connection is separate from the assistant’s own database credentials.
 
 Run `python scripts/cloud.py account github /private/path/client.json` (or `supabase`) with a file containing
@@ -74,23 +91,10 @@ Separate service capabilities from user choices:
 
 The current owner’s Google Calendar and separate-reminder setup is one configuration to preserve during this work, not a default to impose on everyone.
 
-## Website access
+## Sign-in and discovery
 
-Account connections should use the provider’s authorization flow. On iPhone, verified universal links first try the installed app; if unavailable, sign-in uses the system authentication sheet. The host confirms the original connection intent before accepting success. Unfamiliar services still need a supported OAuth or MCP integration; opening a website or app alone does not grant access.
+On iPhone, authorization first tries the provider's verified universal link, then the system authentication sheet. The host verifies the original, single-use connection intent before accepting success. Opening an app is not proof of account access or completion of an action such as playback.
 
-Screenshot-based browser sign-in is disabled by default (`ASSISTANT_EXPERIMENTAL_BROWSER_SIGNIN=1` enables it for development). Existing authorized browser sessions remain usable. In that experimental mode, the assistant can request a hosted browser with `browser_open`. The chat shows a connection card. The phone and Mac share a private browser panel: sign in, then press Done to hand the website back and continue the original request. `browser_action` reads the current page and interacts with visible elements. It checks the result before claiming completion.
+`service_discover` researches public documentation for unfamiliar services. `service_connect` offers only an implemented connection from the catalog. Discovery never registers a new integration or grants capabilities by itself. A service without an adapter needs implementation before its sign-in can be offered.
 
-Chromium runs on the existing host, with a separate context per service. Encrypted cookies, local storage and IndexedDB survive host restarts. The user controls sign-in; the agent cannot operate that browser during takeover. Keyboard input bypasses conversation history and is encrypted before queueing. Completed command payloads are erased, and temporary screenshots expire after ten minutes. Disconnect clears saved access.
-
-Browser traffic goes through a proxy that checks and pins public HTTPS destinations. Private addresses, local files, arbitrary scripts and cookie inspection are not exposed as model tools. A fresh page snapshot identifies the elements used by the next action. Uncertain actions are inspected before retrying.
-
-This is a browser fallback, not automatic OAuth registration for every service. A site can block hosted browsers, require a passkey that is unavailable on the host, or restrict access to an approved API integration. The assistant should explain that specific obstacle and the supported connection path. No service-specific adapter is required for ordinary website interaction.
-
-The host image installs Playwright and Chromium. The existing credential key encrypts saved browser state; a private command key lives on the persistent host volume. Browser availability is advertised through a heartbeat, so clients do not offer a working browser when the host is down.
-
-
-### Discovering an unfamiliar service
-
-`service_discover` inspects the official site, bounded developer links, protected-resource metadata, and advertised authorization-server metadata. Every result includes source URLs. Missing metadata means more research is needed, not that a service is unsupported. Existing adapters can raise the normal connection card through `service_connect`; new browser access requests also run discovery instead of offering screenshot sign-in.
-
-Discovery does not manufacture access. Generic remote MCP authorization and tool execution remain unimplemented. If documentation identifies that route, the assistant must distinguish the missing client implementation from a service requiring developer registration. It must not offer a sign-in button until a working route exists.
+The screenshot browser experiment has been removed from the apps, gateway and worker, along with Playwright and Chromium. Applied migration history is preserved. Its old private database tables are unused and can be retired separately; no existing account credentials or memory records are migrated by this refactor.

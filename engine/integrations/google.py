@@ -17,16 +17,13 @@ from google_auth_oauthlib.flow import InstalledAppFlow
 from engine import config
 from engine.tools import ToolError, ConnectionRequired
 
-WRITE_SCOPE = "https://www.googleapis.com/auth/calendar.events"
-CALENDAR_SCOPE = "https://www.googleapis.com/auth/calendar.calendars"
-SCOPES = [WRITE_SCOPE, CALENDAR_SCOPE, "https://www.googleapis.com/auth/calendar.readonly", "https://www.googleapis.com/auth/gmail.readonly"]
-CONNECTIONS = {
-    "google_connect": ("Calendar and Gmail", SCOPES),
-    "google_tasks": ("Google Tasks", ["https://www.googleapis.com/auth/tasks.readonly"]),
-    "google_drive": ("Drive, Docs and Sheets", ["https://www.googleapis.com/auth/drive.readonly"]),
-    "google_contacts": ("Google Contacts", ["https://www.googleapis.com/auth/contacts.readonly"]),
-}
-CONNECTION_ACTIONS = {*CONNECTIONS, "google_calendar_write"}
+from engine.integrations.catalog import GOOGLE_GRANTS, PROVIDERS
+
+WRITE_SCOPE = next(s for s in GOOGLE_GRANTS["calendar_write"]["scopes"] if s.endswith("/calendar.events"))
+CALENDAR_SCOPE = next(s for s in GOOGLE_GRANTS["calendar_write"]["scopes"] if s.endswith("/calendar.calendars"))
+SCOPES = GOOGLE_GRANTS["calendar_write"]["scopes"]
+CONNECTIONS = {item["slot"]: (item["name"], item["scopes"]) for item in GOOGLE_GRANTS.values()}
+CONNECTION_ACTIONS = {item["action"] for item in GOOGLE_GRANTS.values()}
 SERVICE = "com.carterwatts.personal-assistant.google"
 _LOCK = threading.RLock()
 
@@ -39,7 +36,7 @@ def _client():
     if not data.get("client_id"):
         return None
     return {"installed": {"client_id": data["client_id"], "client_secret": data.get("client_secret", ""),
-        "auth_uri": "https://accounts.google.com/o/oauth2/auth", "token_uri": "https://oauth2.googleapis.com/token"}}
+        "auth_uri": PROVIDERS["google"]["oauth"]["authorize"], "token_uri": PROVIDERS["google"]["oauth"]["token"]}}
 
 
 def _account(action="google_connect"):

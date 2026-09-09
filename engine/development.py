@@ -5,7 +5,7 @@ import os
 import re
 import uuid
 from engine.tools import ToolSpec, ToolError, _obj, _s, _i
-from engine.integrations.services import _request
+from engine.integrations.accounts import _request
 
 
 def validate_files(files):

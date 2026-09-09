@@ -43,14 +43,3 @@ class DiscoveryTest(unittest.TestCase):
         self.assertEqual(result.exception.action,'github_connect')
         with self.assertRaises(ToolError):
             asyncio.run(connect({'url':'https://unlisted.example'}))
-
-
-    def test_browser_fallback_discovers_without_a_browser_host(self):
-        from engine.browser.client import BrowserTools
-        tools=Mock(); tools.map.row.return_value=None
-        expected={'state':'research_required','connection':None}
-        with patch.dict('os.environ',{'ASSISTANT_EXPERIMENTAL_BROWSER_SIGNIN':'0'}), patch('engine.integrations.discovery.discover',return_value=expected) as inspect:
-            result=asyncio.run(BrowserTools(tools).open({'url':'https://unlisted.example','purpose':'Read projects'}))
-        self.assertEqual(result,expected)
-        inspect.assert_called_once()
-        tools.map.value.assert_not_called()

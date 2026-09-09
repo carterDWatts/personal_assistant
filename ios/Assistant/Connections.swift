@@ -9,20 +9,23 @@ struct Connection: Identifiable {
     var state: String
     var grants: [String]
     var account: String?
+    var configured: Bool
+    var capabilities: [String]
 
     init(_ row: [String: Any]) {
         id = row["id"] as? String ?? ""
-        kind = row["kind"] as? String ?? (id == "google" ? "google" : "token")
+        kind = row["kind"] as? String ?? (IntegrationCatalog.find(id)?.auth ?? "unavailable")
         state = row["state"] as? String ?? "absent"
         grants = row["grants"] as? [String] ?? []
         account = row["account"] as? String
+        configured = row["configured"] as? Bool ?? true
+        capabilities = row["capabilities"] as? [String] ?? []
     }
 }
 
 /// A missing connection offered directly in the conversation.
 struct ConnectionPrompt {
     let action: String
-    let sessionID: String?
     let provider: String
     let grant: String?
     var phase = Phase.needed
@@ -31,57 +34,19 @@ struct ConnectionPrompt {
     init(event: [String: Any]) {
         let action = event["action"] as? String ?? ""
         self.action = action
-        sessionID = event["session_id"] as? String
         provider = event["provider"] as? String ?? Service.provider(for: action)
         grant = event["grant"] as? String ?? Service.grant(for: action)
     }
 }
 
-/// Names and setup copy for each service. The token services are guided setup, not sign-in.
+/// Presentation helpers backed by the same catalog as the gateway and host.
 enum Service {
-    static func provider(for action: String) -> String {
-        if action.hasPrefix("google") { return "google" }
-        return action.replacingOccurrences(of: "_connect", with: "")
-    }
-
-    static func grant(for action: String) -> String? {
-        switch action {
-        case "google_connect": return "calendar"
-        case "google_calendar_write": return "calendar_write"
-        case "google_tasks": return "tasks"
-        case "google_drive": return "drive"
-        case "google_contacts": return "contacts"
-        default: return nil
-        }
-    }
-
-    static func name(_ provider: String, grant: String? = nil) -> String {
-        switch (provider, grant) {
-        case ("google", "tasks"): return "Google Tasks"
-        case ("google", "drive"): return "Drive, Docs and Sheets"
-        case ("google", "contacts"): return "Google Contacts"
-        case ("google", "calendar_write"): return "Calendar changes"
-        case ("google", _): return "Google Calendar and Gmail"
-        case ("todoist", _): return "Todoist"
-        case ("notion", _): return "Notion"
-        case ("github", _): return "GitHub"
-        case ("supabase", _): return "Supabase"
-        default: return provider.capitalized
-        }
-    }
-
-    static func usesToken(_ provider: String) -> Bool { !["google", "github", "supabase"].contains(provider) }
-
-    static func instructions(_ provider: String) -> String {
-        switch provider {
-        case "todoist": return "In Todoist, open Settings › Integrations › Developer and copy the API token. The assistant only reads active tasks, due dates and deadlines."
-        case "notion": return "In Notion, create an internal connection with Read content, share the pages you want it to see, and paste its secret. The assistant only searches titles and reads shared pages."
-        case "github": return "On GitHub, create a fine-grained personal access token for the repositories you want, with read access to Issues and Pull requests, and paste it. The assistant only reads issues and pull requests."
-        default: return ""
-        }
-    }
-
-    static let grants = ["calendar", "calendar_write", "tasks", "drive", "contacts"]
+    static func provider(for action: String) -> String { IntegrationCatalog.provider(for: action) ?? "" }
+    static func grant(for action: String) -> String? { IntegrationCatalog.grant(for: action) }
+    static func name(_ provider: String, grant: String? = nil) -> String { IntegrationCatalog.name(provider, grant: grant) }
+    static func usesToken(_ provider: String) -> Bool { IntegrationCatalog.find(provider)?.auth == "token" }
+    static func instructions(_ provider: String) -> String { IntegrationCatalog.find(provider)?.instructions ?? "" }
+    static var grants: [String] { IntegrationCatalog.googleGrants.map(\.id) }
 }
 
 /// Prefer an installed app's verified universal link, then the system sign-in sheet.

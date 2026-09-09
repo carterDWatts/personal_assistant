@@ -2,7 +2,7 @@ import json
 import unittest
 from unittest.mock import Mock, patch
 
-from engine.integrations import google, workspace, services, read_specs
+from engine.integrations import google, workspace, services, accounts, notion, todoist, read_specs
 from engine.tools import ConnectionRequired, ToolError, run
 
 
@@ -12,8 +12,8 @@ class connections_test(unittest.IsolatedAsyncioTestCase):
                  'google_contacts_search': ({'query': 'Ada'}, 'google_contacts'),
                  'todoist_tasks': ({}, 'todoist_connect'), 'notion_search': ({}, 'notion_connect'),
                  'github_issues': ({'query': 'assignee:@me is:open'}, 'github_connect')}
-        with patch.object(google, '_credentials', return_value=None), patch.object(services.keyring, 'get_password', return_value=None), \
-             patch.object(google, 'AuthorizedSession') as google_http, patch.object(services.requests, 'request') as service_http:
+        with patch.object(google, '_credentials', return_value=None), patch.object(accounts.keyring, 'get_password', return_value=None), \
+             patch.object(google, 'AuthorizedSession') as google_http, patch.object(accounts.requests, 'request') as service_http:
             for name, (args, action) in cases.items():
                 output, error = await run(next(s for s in read_specs() if s.name == name), args)
                 self.assertTrue(error)
@@ -80,22 +80,22 @@ class connections_test(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result['next_page_token'], 'next')
 
     def test_service_credentials_are_validated_before_saving(self):
-        with patch.object(services, '_request', side_effect=ToolError('denied')), patch.object(services.keyring, 'set_password') as save:
+        with patch.object(accounts, '_request', side_effect=ToolError('denied')), patch.object(accounts.keyring, 'set_password') as save:
             with self.assertRaises(ToolError): services.connect('notion', 'test-only-token')
         save.assert_not_called()
-        with patch.object(services, '_request', return_value={}) as request, patch.object(services.keyring, 'set_password') as save, patch.object(services, 'status', return_value={'notion':{'connected':True}}):
+        with patch.object(accounts, '_request', return_value={}) as request, patch.object(accounts.keyring, 'set_password') as save, patch.object(accounts, 'status', return_value={'notion':{'connected':True}}):
             output = services.connect('notion', 'test-only-token')
         self.assertNotIn('test-only-token', json.dumps(output))
-        self.assertEqual(save.call_args.args[1], services.config.ENV + ':notion')
+        self.assertEqual(save.call_args.args[1], accounts.config.ENV + ':notion')
         self.assertEqual(request.call_args.args[1], 'users/me')
 
     def test_service_http_rejects_redirects_and_never_returns_error_body(self):
         for code in (302,401,403,429,500):
             response = Mock(status_code=code)
             response.__enter__ = Mock(return_value=response); response.__exit__ = Mock(return_value=False)
-            with patch.object(services.requests, 'request', return_value=response) as request:
+            with patch.object(accounts.requests, 'request', return_value=response) as request:
                 with self.assertRaises(ToolError) as error:
-                    services._request('github', 'user', token='test-only-token')
+                    accounts._request('github', 'user', token='test-only-token')
             self.assertNotIn('test-only-token', str(error.exception))
             self.assertFalse(request.call_args.kwargs['allow_redirects'])
             response.iter_content.assert_not_called()
@@ -103,15 +103,15 @@ class connections_test(unittest.IsolatedAsyncioTestCase):
     def test_notion_exposes_nested_blocks_and_pagination(self):
         data = {'results':[{'id':'a','type':'paragraph','has_children':True,'paragraph':{'rich_text':[{'plain_text':'hello'}]}}],
                 'next_cursor':'next', 'has_more':True}
-        with patch.object(services, '_request', return_value=data):
-            result = services._notion_read({'block_id':'a'})
+        with patch.object(notion, '_request', return_value=data):
+            result = notion._notion_read({'block_id':'a'})
         self.assertEqual(result['blocks'][0]['text'], 'hello')
         self.assertTrue(result['blocks'][0]['has_children'])
         self.assertTrue(result['has_more'])
 
     def test_todoist_preserves_deadlines_and_pagination(self):
-        with patch.object(services, '_request', return_value={'results':[{'id':'1','content':'Work','deadline':{'date':'2026-09-08'}}], 'next_cursor':'next'}):
-            result = services._todoist({})
+        with patch.object(todoist, '_request', return_value={'results':[{'id':'1','content':'Work','deadline':{'date':'2026-09-08'}}], 'next_cursor':'next'}):
+            result = todoist._todoist({})
         self.assertEqual(result['tasks'][0]['deadline']['date'], '2026-09-08')
         self.assertEqual(result['next_cursor'], 'next')
 
@@ -154,7 +154,7 @@ class connections_test(unittest.IsolatedAsyncioTestCase):
 
     async def test_missing_host_keychain_produces_connection_action(self):
         spec = next(s for s in read_specs() if s.name == 'todoist_tasks')
-        with patch.object(services.keyring, 'get_password', side_effect=services.keyring.errors.NoKeyringError):
+        with patch.object(accounts.keyring, 'get_password', side_effect=accounts.keyring.errors.NoKeyringError):
             result, error = await run(spec, {})
         self.assertTrue(error)
         self.assertEqual(json.loads(result)['connection_action'], 'todoist_connect')

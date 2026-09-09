@@ -1,0 +1,188 @@
+{
+  "version": 1,
+  "providers": [
+    {
+      "id": "google",
+      "name": "Google",
+      "domains": [
+        "google.com"
+      ],
+      "action": "google_connect",
+      "auth": "oauth",
+      "setupURL": "https://accounts.google.com/",
+      "instructions": "Sign in and approve the access you want to give me.",
+      "capabilities": [
+        "calendar.read",
+        "calendar.write",
+        "mail.read",
+        "tasks.read",
+        "documents.read",
+        "contacts.read"
+      ],
+      "grants": [
+        {
+          "id": "calendar",
+          "action": "google_connect",
+          "slot": "google_connect",
+          "name": "Google Calendar and Gmail",
+          "description": "Calendar events and recent email",
+          "scopes": [
+            "https://www.googleapis.com/auth/calendar.readonly",
+            "https://www.googleapis.com/auth/gmail.readonly"
+          ]
+        },
+        {
+          "id": "calendar_write",
+          "action": "google_calendar_write",
+          "slot": "google_connect",
+          "name": "Calendar changes",
+          "description": "Create and edit calendars, events and recurring series",
+          "scopes": [
+            "https://www.googleapis.com/auth/calendar.events",
+            "https://www.googleapis.com/auth/calendar.calendars",
+            "https://www.googleapis.com/auth/calendar.readonly",
+            "https://www.googleapis.com/auth/gmail.readonly"
+          ]
+        },
+        {
+          "id": "tasks",
+          "action": "google_tasks",
+          "slot": "google_tasks",
+          "name": "Google Tasks",
+          "description": "Outstanding work and due dates",
+          "scopes": [
+            "https://www.googleapis.com/auth/tasks.readonly"
+          ]
+        },
+        {
+          "id": "drive",
+          "action": "google_drive",
+          "slot": "google_drive",
+          "name": "Drive, Docs and Sheets",
+          "description": "Documents and spreadsheet data",
+          "scopes": [
+            "https://www.googleapis.com/auth/drive.readonly"
+          ]
+        },
+        {
+          "id": "contacts",
+          "action": "google_contacts",
+          "slot": "google_contacts",
+          "name": "Google Contacts",
+          "description": "Names, contact details and birthdays",
+          "scopes": [
+            "https://www.googleapis.com/auth/contacts.readonly"
+          ]
+        }
+      ],
+      "oauth": {
+        "authorize": "https://accounts.google.com/o/oauth2/v2/auth",
+        "token": "https://oauth2.googleapis.com/token",
+        "clientAuth": "body",
+        "parameters": {},
+        "clientIdEnv": "GOOGLE_CLIENT_ID",
+        "clientSecretEnv": "GOOGLE_CLIENT_SECRET"
+      }
+    },
+    {
+      "id": "github",
+      "name": "GitHub",
+      "domains": [
+        "github.com"
+      ],
+      "action": "github_connect",
+      "auth": "oauth",
+      "setupURL": "https://github.com",
+      "instructions": "Sign in and approve access to your repositories.",
+      "capabilities": [
+        "repositories.read",
+        "issues.read",
+        "pull_requests.read"
+      ],
+      "apiBase": "https://api.github.com/",
+      "profile": "user",
+      "headers": {
+        "X-GitHub-Api-Version": "2022-11-28"
+      },
+      "grants": [],
+      "oauth": {
+        "authorize": "https://github.com/login/oauth/authorize",
+        "token": "https://github.com/login/oauth/access_token",
+        "clientAuth": "body",
+        "parameters": {
+          "scope": "read:user repo"
+        },
+        "clientIdEnv": "GITHUB_CLIENT_ID",
+        "clientSecretEnv": "GITHUB_CLIENT_SECRET"
+      }
+    },
+    {
+      "id": "supabase",
+      "name": "Supabase",
+      "domains": [
+        "supabase.com"
+      ],
+      "action": "supabase_connect",
+      "auth": "oauth",
+      "setupURL": "https://supabase.com/dashboard",
+      "instructions": "Sign in and choose which organizations to connect.",
+      "capabilities": [
+        "projects.read",
+        "schema.read",
+        "functions.read"
+      ],
+      "apiBase": "https://api.supabase.com/v1/",
+      "profile": "organizations",
+      "headers": {},
+      "grants": [],
+      "oauth": {
+        "authorize": "https://api.supabase.com/v1/oauth/authorize",
+        "token": "https://api.supabase.com/v1/oauth/token",
+        "clientAuth": "basic",
+        "parameters": {},
+        "clientIdEnv": "SUPABASE_OAUTH_CLIENT_ID",
+        "clientSecretEnv": "SUPABASE_OAUTH_CLIENT_SECRET"
+      }
+    },
+    {
+      "id": "todoist",
+      "name": "Todoist",
+      "domains": [
+        "todoist.com"
+      ],
+      "action": "todoist_connect",
+      "auth": "token",
+      "setupURL": "https://app.todoist.com/app/settings/integrations/developer",
+      "instructions": "In Todoist, open Settings \u203a Integrations \u203a Developer and copy the API token. I can read active tasks, due dates and deadlines.",
+      "capabilities": [
+        "tasks.read"
+      ],
+      "apiBase": "https://api.todoist.com/api/v1/",
+      "profile": "projects?limit=1",
+      "headers": {},
+      "grants": []
+    },
+    {
+      "id": "notion",
+      "name": "Notion",
+      "domains": [
+        "notion.so",
+        "notion.com"
+      ],
+      "action": "notion_connect",
+      "auth": "token",
+      "setupURL": "https://www.notion.so/profile/integrations",
+      "instructions": "Create an internal Notion connection with Read content access, copy its secret, then share the pages you want through their Connections menu.",
+      "capabilities": [
+        "pages.search",
+        "pages.read"
+      ],
+      "apiBase": "https://api.notion.com/v1/",
+      "profile": "users/me",
+      "headers": {
+        "Notion-Version": "2026-03-11"
+      },
+      "grants": []
+    }
+  ]
+}

@@ -62,11 +62,9 @@ final class Chat: NSObject, ObservableObject {
     @Published var googleCalendarWrite = false
     @Published var googleCapabilities: [String: Bool] = [:]
     @Published var serviceConnections: [String: Bool] = [:]
+    @Published var serviceConfigured: [String: Bool] = [:]
     @Published var googleConnecting = false
     @Published var connectionError = ""
-    @Published var browserSession: String? = nil
-    @Published var browserVisible = false
-    private var browserWaiters: [String: CheckedContinuation<[String: Any], Error>] = [:]
     @Published var connectionPrompt: String? = nil
     @Published var connectionPromptSatisfied = false
     @Published var plans: [PlanItem] = []
@@ -203,13 +201,7 @@ final class Chat: NSObject, ObservableObject {
             guard let event = (try? JSONSerialization.jsonObject(with: line)) as? [String: Any], let type = event["type"] as? String else { continue }
             let text = event["text"] as? String ?? ""
             switch type {
-            case "browser_result":
-                if let id = event["request_id"] as? String, let waiter = browserWaiters.removeValue(forKey:id) {
-                    if event["error"] != nil { waiter.resume(throwing: URLError(.cannotConnectToHost)) }
-                    else { waiter.resume(returning: event["result"] as? [String:Any] ?? [:]) }
-                }
             case "connection_required":
-                if event["action"] as? String == "browser_connect" { browserSession = event["session_id"] as? String }
 
                 connectionPrompt = event["action"] as? String
                 connectionPromptSatisfied = false
@@ -223,6 +215,7 @@ final class Chat: NSObject, ObservableObject {
                 let capabilities = event["capabilities"] as? [String: [String: Any]] ?? [:]
                 let services = event["services"] as? [String: [String: Any]] ?? [:]
                 serviceConnections = services.mapValues { $0["connected"] as? Bool ?? false }
+                serviceConfigured = services.mapValues { $0["configured"] as? Bool ?? false }
                 googleCapabilities = capabilities.mapValues { $0["connected"] as? Bool ?? false }
                 googleConfigured = event["configured"] as? Bool ?? false
                 googleConnected = event["connected"] as? Bool ?? false
@@ -272,24 +265,6 @@ final class Chat: NSObject, ObservableObject {
             case "error": busy = false; status = text; voice = false; liveVoice.stop(); voiceTurn = VoiceTurn()
             default: break
             }
-        }
-    }
-
-    func browserRequest(_ action: String, _ args: [String:Any]) async throws -> [String:Any] {
-        try await withCheckedThrowingContinuation { waiter in
-            let id = UUID().uuidString; browserWaiters[id] = waiter
-            write(["type":"browser_request", "action":action, "args":args, "request_id":id])
-            Task { @MainActor in
-                try? await Task.sleep(nanoseconds:20_000_000_000)
-                if let waiter = browserWaiters.removeValue(forKey:id) { waiter.resume(throwing:URLError(.timedOut)) }
-            }
-        }
-    }
-    func browserConnected() {
-        let id = browserSession ?? ""; browserVisible = false; connectionPrompt = nil
-        Task {
-            while busy { try? await Task.sleep(nanoseconds:250_000_000) }
-            submit("Website access is ready (session \(id)). Continue my original request, checking what has already completed first.")
         }
     }
 
@@ -590,14 +565,11 @@ struct ChatConnectionPrompt: View {
     }
     private var title: String {
         if let provider, let setup = ServiceSetup.entries[provider] { return "Connect " + setup.name }
-        switch chat.connectionPrompt {
-        case "browser_connect": return "Connect website"
-        case "google_tasks": return "Connect Google Tasks"
-        case "google_drive": return "Connect Drive, Docs and Sheets"
-        case "google_contacts": return "Connect Google Contacts"
-        case "google_calendar_write": return "Enable calendar editing"
-        default: return "Connect Google"
+        let action = chat.connectionPrompt ?? ""
+        if let provider = IntegrationCatalog.provider(for: action) {
+            return "Connect " + IntegrationCatalog.name(provider, grant: IntegrationCatalog.grant(for: action))
         }
+        return "Connection unavailable"
     }
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -615,8 +587,7 @@ struct ChatConnectionPrompt: View {
                 ServiceConnectionForm(chat: chat, provider: provider)
             } else {
                 Button(title) {
-                    if chat.connectionPrompt == "browser_connect" { chat.browserVisible = true }
-                    else { chat.connectGoogle(chat.connectionPrompt ?? "google_connect") }
+                    chat.connectGoogle(chat.connectionPrompt ?? "google_connect")
                 }
                     .buttonStyle(.borderedProminent)
             }
@@ -630,12 +601,9 @@ struct ServiceSetup {
     let name: String
     let url: String
     let instructions: String
-    static let entries = [
-        "todoist": ServiceSetup(name: "Todoist", url: "https://app.todoist.com/app/settings/integrations/developer", instructions: "Copy your API token from Todoist’s Integrations → Developer settings. This assistant only reads tasks."),
-        "notion": ServiceSetup(name: "Notion", url: "https://www.notion.so/profile/integrations", instructions: "Create an internal connection with Read content access, copy its secret, then share the pages you want through their Connections menu."),
-        "github": ServiceSetup(name: "GitHub", url: "https://github.com", instructions: "Sign in and approve access in your browser."),
-        "supabase": ServiceSetup(name: "Supabase", url: "https://supabase.com/dashboard", instructions: "Sign in and choose which organizations to connect.")
-    ]
+    static let entries = Dictionary(uniqueKeysWithValues: IntegrationCatalog.accounts.map {
+        ($0.id, ServiceSetup(name: $0.name, url: $0.setupURL, instructions: $0.instructions))
+    })
 }
 
 struct ServiceConnectionForm: View {
@@ -643,7 +611,9 @@ struct ServiceConnectionForm: View {
     let provider: String
     @State private var token = ""
     var body: some View {
-        if ["github", "supabase"].contains(provider) {
+        if chat.serviceConfigured[provider] == false {
+            Text("Sign-in for this service has not been configured yet.").font(.callout).foregroundStyle(.secondary)
+        } else if IntegrationCatalog.find(provider)?.auth == "oauth" {
             Button("Sign in to \(ServiceSetup.entries[provider]?.name ?? provider)") { chat.connectService(provider) }.buttonStyle(.borderedProminent).disabled(chat.googleConnecting)
         } else if let setup = ServiceSetup.entries[provider] {
             VStack(alignment: .leading, spacing: 8) {
@@ -699,9 +669,10 @@ struct ConnectionsView: View {
                 }
             }
             Divider()
-            ForEach([("google_tasks", "Tasks", "Outstanding work and due dates"),
-                     ("google_drive", "Drive, Docs and Sheets", "Documents and spreadsheet data"),
-                     ("google_contacts", "Contacts", "Names, contact details and birthdays")], id: \.0) { action, title, detail in
+            ForEach(IntegrationCatalog.googleGrants.filter { $0.slot != "google_connect" }) { grant in
+                let action = grant.action
+                let title = grant.name
+                let detail = grant.description
                 VStack(alignment: .leading, spacing: 6) {
                     HStack {
                         Text(title).font(.headline)
@@ -716,7 +687,7 @@ struct ConnectionsView: View {
                 }.disabled(chat.googleConnecting || !chat.googleConfigured)
             }
             Divider()
-            ForEach(["github", "supabase", "todoist", "notion"], id: \.self) { provider in
+            ForEach(IntegrationCatalog.accounts.map(\.id), id: \.self) { provider in
                 HStack {
                     Text(ServiceSetup.entries[provider]!.name).font(.headline)
                     Spacer()
@@ -859,9 +830,6 @@ struct SettingsPopover: View {
                     .popover(isPresented: $showConnections) { ConnectionsView(chat: chat) }
                 Button { showImport = true } label: { Image(systemName: "tray.and.arrow.down") }
                     .help("Import context")
-                    .sheet(isPresented: $chat.browserVisible) {
-                        if let id = chat.browserSession { BrowserAccessView(sessionID:id, request:chat.browserRequest, completed:chat.browserConnected).frame(minWidth:700,minHeight:700) }
-                    }
                     .sheet(isPresented: $showImport) { ContextImportView(upload: chat.importPart, refresh: chat.imports, runtime: chat.runtime) }
                 Button("Clear") {
                     chat.draft = ""

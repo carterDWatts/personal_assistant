@@ -54,7 +54,7 @@ Workers use a 60-second lease and a unique worker ID to prevent stale workers fr
 
 ## Connections
 
-A missing permission produces an in-chat connection action. Host Google authorization is not implemented yet; connecting Google on the Mac does not automatically authorize the cloud worker. The phone must not claim otherwise. The client opens the supplied authorization URL in a system browser session. Google requires a registered host web OAuth flow; the existing desktop localhost callback is not a phone callback.
+A missing permission produces an in-chat connection action. Google, GitHub and Supabase use hosted authorization; connecting an account on the local Mac does not automatically authorize the cloud worker. Supported providers and setup methods come from `shared/integrations.json`. The client opens the supplied authorization URL in a system browser session. Google requires a registered host web OAuth flow; the existing desktop localhost callback is not a phone callback.
 
 Authorization intents are short-lived, single-use and bound to the owner and initiating device. Validate state and PKCE. Verify completion from the authenticated service rather than trusting a deep link. Token exchange and encrypted credential storage are server-owned. A callback returns no Google token to the phone. Device sign-out and disconnecting the shared Google account are separate operations.
 

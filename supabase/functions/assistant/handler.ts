@@ -1,7 +1,6 @@
-import { browser, browserActions } from './browser.ts';
 import { connection, connectionActions } from './connections.ts';
 // Authentication is checked with Auth before the privileged RPC receives a user ID.
-export type Config = { url: string; anonKey: string; serviceKey: string; identity?: { name: string }; credentialKey?: string; googleClientId?: string; googleClientSecret?: string; githubClientId?: string; githubClientSecret?: string; supabaseClientId?: string; supabaseClientSecret?: string };
+export type Config = { url: string; anonKey: string; serviceKey: string; identity?: { name: string }; credentialKey?: string; oauthApps?: Record<string, {id?: string; secret?: string}>; };
 const actions = new Set(["register", "bootstrap", "submit", "cancel", "events", "revoke", "clear", "import_part", "imports", "push_register", "reminder_action", "reminders", "notification_message"]);
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const headers = {
@@ -56,13 +55,9 @@ export function handler(config: Config, fetcher: typeof fetch = fetch) {
 }
 
 export async function execute(config: Config, userId: string, input: any, fetcher: typeof fetch = fetch): Promise<Response> {
-  if (!input || (!actions.has(input.action) && !connectionActions.has(input.action) && !browserActions.has(input.action)) || !uuid.test(input.device_id) ||
+  if (!input || (!actions.has(input.action) && !connectionActions.has(input.action)) || !uuid.test(input.device_id) ||
       (input.args !== undefined && (!input.args || typeof input.args !== "object" || Array.isArray(input.args)))) {
     return reply({ error: "invalid_request" }, 400);
-  }
-  if (browserActions.has(input.action)) {
-    try { return reply(await browser(config,userId,input,fetcher)); }
-    catch (error) { const code=error instanceof Error?error.message:'';return reply({error:['account_denied','device_denied','invalid_request'].includes(code)?code:'browser_unavailable'},['account_denied','device_denied'].includes(code)?403:400); }
   }
   if (connectionActions.has(input.action)) {
     try { return reply(await connection(config,userId,input,fetcher)); }

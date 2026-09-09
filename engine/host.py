@@ -54,7 +54,7 @@ class Stream:
             result = json.loads(payload.get('content', ''))
         except (ValueError, TypeError):
             return
-        if isinstance(result, dict) and result.get('connection_action') in CONNECTION_ACTIONS | SERVICE_ACTIONS | {'browser_connect'}:
+        if isinstance(result, dict) and result.get('connection_action') in CONNECTION_ACTIONS | SERVICE_ACTIONS:
             self.pending.append({'type': 'connection_required', 'action': result['connection_action'], 'session_id':result.get('session_id'), 'provider':result.get('provider'),
                                  'message': 'This service needs to be connected on this host.'})
 
@@ -323,8 +323,6 @@ async def main():
     mail = asyncio.create_task(classify_mail(relay_map.url,host))
     from engine.notifications import run as notify
     notifications = asyncio.create_task(notify(relay_map.url, host))
-    from engine.browser.worker import run as run_browser
-    browser = asyncio.create_task(run_browser(relay_map.url,host))
     from engine.jobs import run as run_jobs
     jobs = asyncio.create_task(run_jobs(relay_map.url, host))
     from engine.attention import run as run_attention
@@ -341,13 +339,12 @@ async def main():
         jobs.cancel()
         memory.cancel()
         notifications.cancel()
-        browser.cancel()
         sources.cancel()
         mail.cancel()
         listener.cancel()
         with contextlib.suppress(Exception, asyncio.CancelledError):
             await asyncio.wait_for(running, 10)
-        await asyncio.gather(memory, jobs, listener, notifications, sources, mail, attention, browser, return_exceptions=True)
+        await asyncio.gather(memory, jobs, listener, notifications, sources, mail, attention, return_exceptions=True)
         relay_map.close()
         session_map.close()
 

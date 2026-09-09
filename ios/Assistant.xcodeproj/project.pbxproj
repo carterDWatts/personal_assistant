@@ -7,7 +7,8 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-        BB0010000000000000000001 /* BrowserAccess.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB0010000000000000000002; };
+        CC0100000000000000000001 = {isa = PBXBuildFile; fileRef = CC0100000000000000000002; };
+        CC0100000000000000000003 = {isa = PBXBuildFile; fileRef = CC0100000000000000000004; };
 		0046B9359FD9A79E7BF42619 /* VoiceTurn.swift in Sources */ = {isa = PBXBuildFile; fileRef = C85DAEEEE55F2BFC90BE3CC9 /* VoiceTurn.swift */; };
 		0C3FD95CC5D35890D472ECD1 /* Connections.swift in Sources */ = {isa = PBXBuildFile; fileRef = 943C7F4182F35505F7A0B412 /* Connections.swift */; };
 		20CB022D16C16345828B8930 /* Transport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 19166F88EC58DDC6BF56BDD6 /* Transport.swift */; };
@@ -56,7 +57,8 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
-        BB0010000000000000000002 /* BrowserAccess.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ../shared/BrowserAccess.swift; sourceTree = SOURCE_ROOT; };
+        CC0100000000000000000002 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ../shared/IntegrationCatalog.swift; sourceTree = SOURCE_ROOT; };
+        CC0100000000000000000004 = {isa = PBXFileReference; lastKnownFileType = text.json; path = ../shared/integrations.json; sourceTree = SOURCE_ROOT; };
 		0497070F1E94B926A14D5A01 /* Voice.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Voice.swift; sourceTree = "<group>"; };
 		09916F194DDAA79391C8ABED /* Chat.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Chat.swift; sourceTree = "<group>"; };
 		0A20A9483B2B64425BF1A36D /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
@@ -318,6 +320,7 @@
 			files = (
 				74BE8C1B54D60ADD47A77699 /* Assets.xcassets in Resources */,
 				756C2378C7F460D9BEBB21EE /* identity.json in Resources */,
+                CC0100000000000000000003 /* integrations.json in Resources */,
 				47EC57B989427548F0A3BFDA /* voice-bill.m4a in Resources */,
 				AF2DE7A02ACDE9D30C775CC7 /* voice-british.m4a in Resources */,
 				51F8F3E0738873E5351D2E5D /* voice-michael.m4a in Resources */,
@@ -368,7 +371,7 @@
 				DE85CB8159AB83773B5C0DA4 /* Chat.swift in Sources */,
 				0C3FD95CC5D35890D472ECD1 /* Connections.swift in Sources */,
 				8C0AE429407B4881090F61C2 /* ContextImport.swift in Sources */,
-                BB0010000000000000000001 /* BrowserAccess.swift in Sources */,
+                CC0100000000000000000001 /* IntegrationCatalog.swift in Sources */,
 				A6D18B908AE5488A90171111 /* DaySchedule.swift in Sources */,
 				BC84ECD4FDE1408C3E8735EA /* Look.swift in Sources */,
 				27AE07C0E505531260112DCF /* Notifications.swift in Sources */,

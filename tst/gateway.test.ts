@@ -118,7 +118,7 @@ test('idle reads and closed sockets do not wait', async () => {
 });
 
 import { connection, googleCallback } from '../supabase/functions/assistant/connections.ts';
-const connectedConfig = {...config, credentialKey: btoa('k'.repeat(32)), googleClientId:'client', googleClientSecret:'secret'};
+const connectedConfig = {...config, credentialKey: btoa('k'.repeat(32)), oauthApps:{google:{id:'client',secret:'secret'}}};
 
 test('Google callback exchanges PKCE and stores encrypted credentials only once', async () => {
   let saved: any, intent: any, state: string, consumed = false;
@@ -166,7 +166,7 @@ test('revoked connections cannot contact providers and rejected tokens are not s
 import { accountCallback, unseal } from '../supabase/functions/assistant/connections.ts';
 for (const provider of ['github','supabase'] as const) {
   test(`${provider} account sign-in binds PKCE, provider, owner and device`, async () => {
-    const settings={...connectedConfig,githubClientId:'github-client',githubClientSecret:'github-secret',supabaseClientId:'supabase-client',supabaseClientSecret:'supabase-secret'};
+    const settings={...connectedConfig,oauthApps:{...connectedConfig.oauthApps,github:{id:'github-client',secret:'github-secret'},supabase:{id:'supabase-client',secret:'supabase-secret'}}};
     let intent:any, saved:any, consumed=false, state='';
     const fetcher:typeof fetch=async (url,options) => {
       if (String(url).includes('/rpc/')) {
@@ -206,7 +206,7 @@ for (const provider of ['github','supabase'] as const) {
 
 test('a provider cannot consume another provider’s authorization code',async()=>{
   let intent:any, providerCalls=0;
-  const settings={...connectedConfig,githubClientId:'id',githubClientSecret:'secret',supabaseClientId:'id',supabaseClientSecret:'secret'};
+  const settings={...connectedConfig,oauthApps:{...connectedConfig.oauthApps,github:{id:'id',secret:'secret'},supabase:{id:'id',secret:'secret'}}};
   const fetcher:typeof fetch=async(url,options)=>{
     if(!String(url).includes('/rpc/')) { providerCalls++;throw Error('Must not contact provider'); }
     const body=JSON.parse(String(options?.body));
@@ -221,26 +221,37 @@ test('a provider cannot consume another provider’s authorization code',async()
   assert.match(response.headers.get('location')!,/failed/);assert.equal(providerCalls,0);
 });
 
-test('browser keyboard input is encrypted before it reaches SQL', async () => {
-  const { generateKeyPairSync, privateDecrypt, constants } = await import('node:crypto');
-  const keys=generateKeyPairSync('rsa',{modulusLength:2048});
-  const pem=keys.publicKey.export({type:'spki',format:'pem'});
-  const run=handler(config,async (_url,options)=>{
-    if (!options?.body) return Response.json({id:owner});
-    const body=JSON.parse(String(options.body));
-    assert.equal(body.p_user,owner);
-    if(body.p_action==='browser_list')return Response.json({sessions:[{id:device,state:'human'}]});
-    if(body.p_action==='browser_begin')return Response.json({public_key:pem});
-    assert.equal(body.p_action,'browser_command');
-    assert.equal(body.p_args.command,undefined);
-    assert.ok(!String(options.body).includes('private-password'));
-    const envelope=JSON.parse(body.p_args.encrypted);
-    const raw=privateDecrypt({key:keys.privateKey,padding:constants.RSA_PKCS1_OAEP_PADDING,oaepHash:'sha256'},Buffer.from(envelope.key,'base64'));
-    const key=await crypto.subtle.importKey('raw',raw,'AES-GCM',false,['decrypt']);
-    const decoded=await crypto.subtle.decrypt({name:'AES-GCM',iv:Buffer.from(envelope.iv,'base64'),additionalData:new TextEncoder().encode(device)},key,Buffer.from(envelope.data,'base64'));
-    assert.equal(JSON.parse(new TextDecoder().decode(decoded)).text,'private-password');
-    return Response.json({id:device});
-  });
-  const result=await run(request({action:'browser_command',device_id:device,args:{session_id:device,id:device,command:{action:'type',text:'private-password'}}}));
-  assert.equal(result.status,200);
+
+test('connection listing distinguishes saved access from configured sign-in', async () => {
+  const result = await connection(connectedConfig, owner, {action:'connections',device_id:device}, async () =>
+    Response.json([{slot:'github',metadata:{account:'example'}}]));
+  const github = result.providers.find((item:any) => item.id === 'github');
+  assert.equal(github.state, 'connected');
+  assert.equal(github.configured, false);
+  assert.equal(github.kind, 'oauth');
+  const notion = result.providers.find((item:any) => item.id === 'notion');
+  assert.equal(notion.kind, 'token');
+  assert.equal(notion.configured, true);
+  assert.equal(notion.state, 'absent');
+  assert.ok(notion.capabilities.includes('pages.read'));
+});
+
+test('missing registrations and token-only services never create an OAuth intent', async () => {
+  for (const provider of ['github','supabase','todoist','notion','unregistered']) {
+    const actions: string[] = [];
+    await assert.rejects(connection(connectedConfig,owner,{action:'connection_start',device_id:device,args:{provider}},async (_url,options) => {
+      actions.push(JSON.parse(String(options?.body)).p_action);
+      return Response.json([]);
+    }));
+    assert.deepEqual(actions,['list']);
+  }
+});
+
+test('retired browser commands are rejected before privileged database access', async () => {
+  const fetcher:typeof fetch = async () => { throw new Error('No database request should be made'); };
+  const {execute} = await import('../supabase/functions/assistant/handler.ts');
+  for (const action of ['browser_list','browser_begin','browser_command']) {
+    const response = await execute(config,owner,{action,device_id:device,args:{}},fetcher);
+    assert.equal(response.status,400);
+  }
 });

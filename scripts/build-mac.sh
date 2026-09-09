@@ -21,10 +21,11 @@ mkdir -p "$APP/Contents/MacOS"
 mkdir -p "$APP/Contents/Resources" "$ROOT/build/icon.iconset"
 swiftc -parse-as-library "$ROOT/scripts/make_icon.swift" "$ROOT/shared/BunnyGlyph.swift" -o "$ROOT/build/make-icon" -framework SwiftUI
 "$ROOT/build/make-icon" "$ROOT/build/icon.iconset" "$ROOT/desktop/Assets/AppIcon.png"
+cp "$ROOT/shared/integrations.json" "$APP/Contents/Resources/integrations.json"
 cp "$ROOT/identity.json" "$APP/Contents/Resources/identity.json"
 cp "$ROOT/desktop/Assets/FlowerBed.png" "$APP/Contents/Resources/FlowerBed.png"
 iconutil -c icns "$ROOT/build/icon.iconset" -o "$APP/Contents/Resources/AppIcon.icns"
-swiftc -parse-as-library "$ROOT/desktop/PersonalAssistant.swift" "$ROOT/shared/ContextImport.swift" "$ROOT/shared/BrowserAccess.swift" "$ROOT/shared/DaySchedule.swift" "$ROOT/shared/BunnyGlyph.swift" "$ROOT/desktop/BunnyArtwork.swift" "$ROOT/desktop/OutputStream.swift" "$ROOT/desktop/LiveVoice.swift" "$ROOT/desktop/LocalSpeech.swift" "$ROOT/desktop/LocalVoice.swift" "$ROOT/desktop/VoiceTurn.swift" -o "$APP/Contents/MacOS/PersonalAssistant" -framework SwiftUI -framework AVFoundation
+swiftc -parse-as-library "$ROOT/desktop/PersonalAssistant.swift" "$ROOT/shared/IntegrationCatalog.swift" "$ROOT/shared/ContextImport.swift" "$ROOT/shared/DaySchedule.swift" "$ROOT/shared/BunnyGlyph.swift" "$ROOT/desktop/BunnyArtwork.swift" "$ROOT/desktop/OutputStream.swift" "$ROOT/desktop/LiveVoice.swift" "$ROOT/desktop/LocalSpeech.swift" "$ROOT/desktop/LocalVoice.swift" "$ROOT/desktop/VoiceTurn.swift" -o "$APP/Contents/MacOS/PersonalAssistant" -framework SwiftUI -framework AVFoundation
 "$PYTHON" - "$APP" "$ROOT" "$PYTHON" "$VOICE_PYTHON" <<'PY'
 import json,plistlib,sys,pathlib
 app,root,python,voice_python=sys.argv[1:]

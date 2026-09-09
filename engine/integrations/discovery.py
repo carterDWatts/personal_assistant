@@ -10,15 +10,11 @@ from urllib.parse import urljoin, urlsplit, urldefrag
 from engine.integrations.web import destination, Page
 from engine.tools import ConnectionRequired, ToolError, ToolSpec
 
-# These are existing adapters, not a list of services discovery is limited to.
-ADAPTERS = {
-    'github.com': ('github', 'github_connect', 'Account authorization'),
-    'supabase.com': ('supabase', 'supabase_connect', 'Account authorization'),
-    'google.com': ('google', 'google_connect', 'Account authorization'),
-    'todoist.com': ('todoist', 'todoist_connect', 'Personal token setup'),
-    'notion.so': ('notion', 'notion_connect', 'Personal token setup'),
-    'notion.com': ('notion', 'notion_connect', 'Personal token setup'),
-}
+from engine.integrations.catalog import PROVIDERS
+
+ADAPTERS = {domain: (item["id"], item["action"],
+                    "Account authorization" if item["auth"] == "oauth" else "Personal token setup")
+            for item in PROVIDERS.values() for domain in item["domains"]}
 KEYWORDS = re.compile(r'\b(api|oauth|developers?|integrations?|mcp|connectors?|authentication)\b', re.I)
 
 

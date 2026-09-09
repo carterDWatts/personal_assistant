@@ -43,7 +43,7 @@ class DesktopIO:
             data = json.loads(payload.get("content", ""))
         except (ValueError, TypeError):
             return
-        if isinstance(data, dict) and data.get("connection_action") in CONNECTION_ACTIONS | SERVICE_ACTIONS | {'browser_connect'}:
+        if isinstance(data, dict) and data.get("connection_action") in CONNECTION_ACTIONS | SERVICE_ACTIONS:
             emit("connection_required", action=data["connection_action"], **{k:data[k] for k in ("session_id", "provider") if data.get(k)})
     def close(self): pass
 
@@ -55,6 +55,7 @@ async def main():
     from engine.engine import Session
     from engine.runtime import load
     from engine.integrations import google, services
+    from engine.integrations.catalog import ACCOUNT_PROVIDERS, OAUTH_PROVIDERS
     map_, session, active, memory_poll = None, None, None, None
     connection_task = None
     outbound_cursor = 0
@@ -75,7 +76,7 @@ async def main():
                  completed=action == "service_connect", action=f"{provider}_connect")
         except Exception:
             emit("connections", **(await connection_status()), connecting=False,
-                 error="Sign-in wasn’t completed. Please try again." if provider in ('github','supabase') else "Could not connect. Check the token and its permissions.")
+                 error="Sign-in wasn’t completed. Please try again." if provider in OAUTH_PROVIDERS else "Could not connect. Check the token and its permissions.")
 
     async def google_action(action, connection):
         emit("connections", **(await connection_status()), connecting=True)
@@ -154,7 +155,7 @@ async def main():
                     if not connection_task or connection_task.done():
                         # Credentials travel through this private pipe, never through Session.send or emit.
                         provider, token = message.get("provider"), message.pop("token", None)
-                        if provider not in services.PROVIDERS:
+                        if provider not in ACCOUNT_PROVIDERS:
                             raise ValueError("Unknown connection")
                         connection_task = asyncio.create_task(service_action(action, provider, token))
                         token = None
@@ -170,24 +171,6 @@ async def main():
                         emit("imports", request_id=message.get("request_id"), **result)
                     except Exception:
                         emit("imports", request_id=message.get("request_id"), error="The import was not saved. Retry with the same text.")
-                elif action == "browser_request" and map_:
-                    from engine.browser.crypto import seal
-                    from engine.db import jsonb
-                    import uuid
-                    try:
-                        operation=message['action'];args=message.get('args',{})
-                        if operation=='browser_command':
-                            public=map_.value("select public_key from assistant.browser_host where seen_at>now()-interval '60 seconds'")
-                            if not public:raise ValueError('Browser unavailable')
-                            args={"session_id":args['session_id'],"id":args['id'],"encrypted":seal(public,args['command'],args['id'])}
-                        # Local owner bridge has the same private DB authority as the Mac session.
-                        owner=map_.value('select user_id from assistant.owner')
-                        device=map_.value("select id from assistant.devices where user_id=%s and name='Mac browser bridge' and revoked_at is null limit 1",(owner,))
-                        if not device:
-                            device=str(uuid.uuid4());map_.execute("insert into assistant.devices(id,user_id,name) values(%s,%s,'Mac browser bridge')",(device,owner))
-                        result=map_.value('select public.assistant_browser(%s,%s,%s,%s)',(owner,device,operation,jsonb(args)))
-                        emit('browser_result',request_id=message['request_id'],result=result)
-                    except Exception:emit('browser_result',request_id=message['request_id'],error='Browser access is unavailable.')
                 elif action == "connect":
                     if session:
                         raise ValueError("Already connected")

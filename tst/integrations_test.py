@@ -128,16 +128,16 @@ class integrations_test(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn('secret',str(error.exception));save.assert_not_called()
 
     async def test_missing_supabase_connection_offers_login_without_network(self):
-        from engine.integrations import services
+        from engine.integrations import accounts, github, supabase
         from engine.tools import ConnectionRequired
-        with patch.object(services.keyring,'get_password',return_value=None),patch.object(services.requests,'request') as request:
-            with self.assertRaises(ConnectionRequired) as error: services._supabase_projects({})
+        with patch.object(accounts.keyring,'get_password',return_value=None),patch.object(accounts.requests,'request') as request:
+            with self.assertRaises(ConnectionRequired) as error: supabase._supabase_projects({})
         self.assertEqual(error.exception.action,'supabase_connect');request.assert_not_called()
 
     def test_repository_file_read_preserves_ref_and_reports_truncation(self):
-        from engine.integrations import services
+        from engine.integrations import accounts, github, supabase
         data={'type':'file','encoding':'base64','path':'README.md','sha':'revision','content':base64.b64encode(b'x'*25000).decode()}
-        with patch.object(services,'_request',return_value=data) as request:
-            result=services._github_file({'owner':'carter','repo':'assistant','path':'README.md','ref':'branch'})
+        with patch.object(github,'_request',return_value=data) as request:
+            result=github._github_file({'owner':'carter','repo':'assistant','path':'README.md','ref':'branch'})
         self.assertTrue(result['truncated']);self.assertEqual(len(result['content']),24000)
         self.assertEqual(request.call_args.kwargs['params'],{'ref':'branch'})

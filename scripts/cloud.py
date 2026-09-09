@@ -149,8 +149,10 @@ def configure_connections(client_file):
     key = keyfile.read_text().strip()
     if len(base64.b64decode(key, validate=True)) != 32:
         raise RuntimeError('The saved credential key is invalid.')
-    values = {'ASSISTANT_CREDENTIAL_KEY': key, 'GOOGLE_CLIENT_ID': client['client_id'],
-              'GOOGLE_CLIENT_SECRET': client['client_secret']}
+    from engine.integrations.catalog import PROVIDERS
+    registration = PROVIDERS['google']['oauth']
+    values = {'ASSISTANT_CREDENTIAL_KEY': key, registration['clientIdEnv']: client['client_id'],
+              registration['clientSecretEnv']: client['client_secret']}
     with tempfile.NamedTemporaryFile(mode='w', suffix='.env') as env:
         for name, value in values.items():
             env.write(f'{name}={value}\n')
@@ -169,9 +171,10 @@ def configure_account(provider, client_file):
     client_id,secret=client['client_id'],client['client_secret']
     if not all(isinstance(v,str) and v and not any(c.isspace() for c in v) for v in (client_id,secret)):
         raise RuntimeError('Invalid OAuth client configuration.')
-    prefix={'github':'GITHUB','supabase':'SUPABASE_OAUTH','todoist':'TODOIST','notion':'NOTION'}[provider]
+    from engine.integrations.catalog import OAUTH_PROVIDERS
+    registration=OAUTH_PROVIDERS[provider]['oauth']
     with tempfile.NamedTemporaryFile(mode='w',suffix='.env') as env:
-        env.write(f'{prefix}_CLIENT_ID={client_id}\n{prefix}_CLIENT_SECRET={secret}\n');env.flush()
+        env.write(f"{registration['clientIdEnv']}={client_id}\n{registration['clientSecretEnv']}={secret}\n");env.flush()
         command(['supabase','secrets','set','--project-ref',PROJECT,'--env-file',env.name])
     keyring.set_password('com.carterwatts.personal-assistant.oauth-apps',provider,json.dumps(client))
     print('OAuth registration installed in the gateway and local Keychain.')
@@ -224,7 +227,8 @@ if __name__ == '__main__':
     connections = commands.add_parser('connections')
     connections.add_argument('client_file')
     account = commands.add_parser('account')
-    account.add_argument('provider',choices=['github','supabase','todoist','notion'])
+    from engine.integrations.catalog import OAUTH_PROVIDERS
+    account.add_argument('provider',choices=list(OAUTH_PROVIDERS))
     account.add_argument('client_file')
     args = parser.parse_args()
     try:
