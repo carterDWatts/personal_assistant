@@ -8,7 +8,7 @@ from unittest.mock import patch
 from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.hazmat.primitives import serialization
 from engine.browser.crypto import seal,unseal
-from engine.browser.client import origin
+from engine.browser.client import origin, BrowserTools
 from engine.tools import ToolError
 from engine.db import jsonb
 from tst.helpers import MapTest
@@ -38,6 +38,11 @@ class browser_test(MapTest):
             with self.assertRaises(Exception):
                 self.map.value('select public.assistant_browser(%s,%s,%s,%s)',(self.owner,self.device,action,jsonb({'session_id':str(self.session)})))
         self.assertEqual(self.map.value('select state from assistant.browser_sessions where id=%s',(self.session,)),'ready')
+
+    def test_remote_signin_is_not_a_default_connection_flow(self):
+        with patch.dict(os.environ,{'ASSISTANT_EXPERIMENTAL_BROWSER_SIGNIN':'0'}):
+            with self.assertRaisesRegex(ToolError,'Remote-browser sign-in is disabled'):
+                BrowserTools.require_takeover_enabled()
 
     def test_command_encryption_is_bound_to_request(self):
         private=rsa.generate_private_key(public_exponent=65537,key_size=2048)

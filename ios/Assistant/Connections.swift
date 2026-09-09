@@ -84,22 +84,51 @@ enum Service {
     static let grants = ["calendar", "calendar_write", "tasks", "drive", "contacts"]
 }
 
-/// Runs the host's Google authorization in the system sheet and returns when the callback lands.
+/// Prefer an installed app's verified universal link, then the system sign-in sheet.
 @MainActor final class WebAuth: NSObject, ASWebAuthenticationPresentationContextProviding {
     static let shared = WebAuth()
     private var session: ASWebAuthenticationSession?
+    private var completion: CheckedContinuation<URL, Error>?
+    private var attempt: UUID?
+    private var native = false
 
     func run(_ url: URL) async throws -> URL {
-        try await withCheckedThrowingContinuation { continuation in
-            let session = ASWebAuthenticationSession(url: url, callbackURLScheme: "personal-assistant") { callback, error in
-                if let callback { continuation.resume(returning: callback) }
-                else { continuation.resume(throwing: error ?? URLError(.cancelled)) }
+        guard completion == nil, url.scheme == "https" else { throw URLError(.badURL) }
+        return try await withCheckedThrowingContinuation { continuation in
+            let id = UUID(); attempt = id; completion = continuation; native = true
+            Task { @MainActor in
+                let opened = await UIApplication.shared.open(url, options: [.universalLinksOnly: true])
+                guard attempt == id else { return }
+                if !opened {
+                    native = false
+                    let sheet = ASWebAuthenticationSession(url: url, callbackURLScheme: "personal-assistant") { callback, error in
+                        Task { @MainActor in
+                            guard self.attempt == id else { return }
+                            self.finish(callback.map(Result.success) ?? .failure(error ?? URLError(.cancelled)))
+                        }
+                    }
+                    sheet.presentationContextProvider = self
+                    sheet.prefersEphemeralWebBrowserSession = false
+                    session = sheet
+                    if !sheet.start() { finish(.failure(URLError(.cannotConnectToHost))); return }
+                }
+                try? await Task.sleep(for: .seconds(180))
+                if attempt == id { finish(.failure(URLError(.timedOut))) }
             }
-            session.presentationContextProvider = self
-            session.prefersEphemeralWebBrowserSession = false
-            self.session = session
-            session.start()
         }
+    }
+
+    /// This only wakes the flow. Chat verifies the original intent with the host.
+    func receive(_ url: URL) -> Bool {
+        guard native, completion != nil, url.scheme == "personal-assistant", url.host == "connection" else { return false }
+        finish(.success(url)); return true
+    }
+
+    private func finish(_ result: Result<URL, Error>) {
+        let pending = completion
+        completion = nil; attempt = nil; native = false
+        let sheet = session; session = nil; sheet?.cancel()
+        pending?.resume(with: result)
     }
 
     func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {

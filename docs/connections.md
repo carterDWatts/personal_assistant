@@ -76,7 +76,9 @@ The current owner’s Google Calendar and separate-reminder setup is one configu
 
 ## Website access
 
-When a dedicated connector cannot do a task, the assistant can request a hosted browser with `browser_open`. The chat shows a connection card. The phone and Mac share a private browser panel: sign in, then press Done to hand the website back and continue the original request. `browser_action` reads the current page and interacts with visible elements. It checks the result before claiming completion.
+Account connections should use the provider’s authorization flow. On iPhone, verified universal links first try the installed app; if unavailable, sign-in uses the system authentication sheet. The host confirms the original connection intent before accepting success. Unfamiliar services still need a supported OAuth or MCP integration; opening a website or app alone does not grant access.
+
+Screenshot-based browser sign-in is disabled by default (`ASSISTANT_EXPERIMENTAL_BROWSER_SIGNIN=1` enables it for development). Existing authorized browser sessions remain usable. In that experimental mode, the assistant can request a hosted browser with `browser_open`. The chat shows a connection card. The phone and Mac share a private browser panel: sign in, then press Done to hand the website back and continue the original request. `browser_action` reads the current page and interacts with visible elements. It checks the result before claiming completion.
 
 Chromium runs on the existing host, with a separate context per service. Encrypted cookies, local storage and IndexedDB survive host restarts. The user controls sign-in; the agent cannot operate that browser during takeover. Keyboard input bypasses conversation history and is encrypted before queueing. Completed command payloads are erased, and temporary screenshots expire after ten minutes. Disconnect clears saved access.
 
