@@ -20,3 +20,5 @@
 !tst/*.py
 !docs/
 !docs/*.md
+!shared/
+!shared/integrations.json
