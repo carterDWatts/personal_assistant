@@ -5,7 +5,7 @@ export default defineRailway(() => {
   const worker = service("worker", {
     source: github("carterDWatts/personal_assistant", { branch: "main" }),
     build: { builder: "DOCKERFILE", dockerfilePath: "Dockerfile",
-      watchPatterns: ["/Dockerfile", "/requirements-host.txt", "/engine/**", "/prompts/**", "/identity.json", "/scripts/host-entry.py", "/deploy/**"] },
+      watchPatterns: ["/.dockerignore", "/shared/integrations.json", "/Dockerfile", "/requirements-host.txt", "/engine/**", "/prompts/**", "/identity.json", "/scripts/host-entry.py", "/deploy/**"] },
     replicas: { "us-east4": 1 },
     deploy: {
       sleepApplication: false,
@@ -16,6 +16,9 @@ export default defineRailway(() => {
     volumeMounts: { "/data": state },
     env: {
       ASSISTANT_RUNTIME: "codex",
+      ASSISTANT_DEVELOPER_OWNER: preserve(),
+      ASSISTANT_DEVELOPER_PROJECT: preserve(),
+      ASSISTANT_DEVELOPER_REPO: preserve(),
       ASSISTANT_OPENAI_MODEL: "gpt-5.5",
       ASSISTANT_EFFORT: "low",
       ASSISTANT_TIMEZONE: "America/Los_Angeles",
