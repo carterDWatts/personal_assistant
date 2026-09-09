@@ -1,4 +1,4 @@
-"""Bunny Man's unsolicited messages share the conversation, not a second inbox."""
+"""Store unsolicited messages in the inbox until the user opens a discussion."""
 import json
 from engine.db import jsonb, dumps
 
@@ -19,5 +19,5 @@ def post(map_, key, text, reference=None):
         map_.execute('insert into assistant.outbound(key,message_id,reference) values(%s,%s,%s)',
                      (key, row['id'], jsonb(reference)))
         if owner:
-            map_.value('select assistant.emit(%s,null,%s)', (owner, jsonb(json.loads(dumps({'type':'proactive', 'message':row})))))
+            map_.value('select assistant.emit(%s,null,%s)', (owner, jsonb(json.loads(dumps({'type':'inbox_received', 'message':row})))))
         return row['id']

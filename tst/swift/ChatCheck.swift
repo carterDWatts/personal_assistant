@@ -45,6 +45,10 @@ import Darwin
                 emit({'type':'delta','text':request['text']})
                 emit({'type':'end'})
                 emit({'type':'ready'})
+            if kind == 'inbox':
+                emit({'type':'client_response','request_id':request['request_id'],'result':{'messages':[{'id':25,'role':'assistant','content':'A reminder','payload':{'reference':{'kind':'notice','id':'fixture'}}}]}})
+            if kind == 'inbox_open':
+                emit({'type':'client_response','request_id':request['request_id'],'result':{'message':{'id':26,'role':'assistant','content':'A reminder','payload':{'reference':{'kind':'notice','id':'fixture'},'inbox_source_id':'25'}}}})
             if kind == 'imports':
                 if os.environ['ASSISTANT_ENV'] == 'test': emit({'type':'status','text':'import_waiting'})
                 else: emit({'type':'imports','request_id':request['request_id'],'imports':[{'state':'processed'}]})
@@ -109,6 +113,7 @@ import Darwin
         try await wait("test chat ready") { chat.connected }
         precondition(chat.messages.first?.text == "test")
         chat.reply(to: ChatMessage(role: "assistant", text: "A reminder", databaseID: "25", reference: ["kind": "notice", "id": "fixture"]))
+        try await wait("inbox selected") { chat.messages.last?.databaseID == "26" }
         chat.draft = "Hello 🐇\nAnother paragraph."
         chat.send()
         try await wait("chat reply") { !chat.busy }
@@ -138,7 +143,9 @@ import Darwin
         precondition(chat.connectionPrompt == nil)
         let notice: [String: Any] = ["type": "proactive", "message": ["id": 99, "content": "A new update"]]
         chat.receive(notice); chat.receive(notice)
-        precondition(chat.messages.filter { $0.databaseID == "99" }.count == 1)
+        precondition(chat.messages.filter { $0.databaseID == "99" }.isEmpty)
+        chat.receive(["type": "connections", "error": "Sign-in failed", "connecting": false])
+        precondition(chat.connectionPrompt == nil)
         chat.receive(["type": "start"])
         chat.receive(["type": "start"])
         precondition(chat.messages.filter { $0.text.isEmpty }.count == 1)

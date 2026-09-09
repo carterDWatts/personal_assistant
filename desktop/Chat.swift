@@ -9,6 +9,7 @@ struct ChatMessage: Identifiable {
     var at: Date = Date()
     var databaseID: String? = nil
     var reference: [String: String]? = nil
+    var inboxSourceID: String? = nil
 }
 
 struct PlanItem: Identifiable {
@@ -62,7 +63,36 @@ final class Chat: ObservableObject {
     }
     @Published var messages: [ChatMessage] = []
     @Published var replyingTo: ChatMessage?
-    func reply(to message: ChatMessage) { replyingTo = message }
+    @Published var showInbox = false
+    @Published var focusedMessage: UUID?
+    private var notificationReference: [String: String]?
+    func inboxRequest(_ args: [String: Any]) async throws -> [String: Any] { try await clientRequest("inbox", args) }
+    func openInbox(_ row: [String: Any], requestID: String) async throws {
+        guard connected, !busy, let source = row["id"] else { throw NSError(domain: "Inbox", code: 1) }
+        let result = try await clientRequest("inbox_open", ["message_id": String(describing: source), "request_id": requestID])
+        guard let selected = result["message"] as? [String: Any] else { throw NSError(domain: "Inbox", code: 1) }
+        appendDiscussion(selected)
+        notificationReference = (row["payload"] as? [String: Any])?["reference"] as? [String: String]
+        notificationReference?["message_id"] = String(describing: source)
+        focusedMessage = messages.last?.id
+    }
+    func reply(to message: ChatMessage) {
+        Task {
+            do {
+                let list = try await inboxRequest([:])
+                if let row = (list["messages"] as? [[String: Any]])?.first(where: { String(describing: $0["id"] ?? "") == (message.inboxSourceID ?? message.databaseID) }) {
+                    try await openInbox(row, requestID: UUID().uuidString)
+                }
+            } catch { status = "I couldn’t open that message. Try the inbox." }
+        }
+    }
+    private func appendDiscussion(_ row: [String: Any]) {
+        guard let content = row["content"] as? String else { return }
+        let id = row["id"].map { String(describing: $0) }
+        if !messages.contains(where: { $0.databaseID == id }) {
+            messages.append(ChatMessage(role: "assistant", text: content, at: parseDate(row["created_at"]) ?? Date(), databaseID: id, reference: (row["payload"] as? [String: Any])?["reference"] as? [String: String], inboxSourceID: (row["payload"] as? [String: Any])?["inbox_source_id"] as? String))
+        }
+    }
     @Published var draft = UserDefaults.standard.string(forKey: "draft") ?? "" {
         didSet { UserDefaults.standard.set(draft, forKey: "draft") }
     }
@@ -120,6 +150,7 @@ final class Chat: ObservableObject {
         disconnect()
         messages = []
         connectionPrompt = nil
+        notificationReference = nil; focusedMessage = nil
         do {
             try connection.start(test: test)
             busy = true; status = "Connecting…"
@@ -234,18 +265,15 @@ final class Chat: ObservableObject {
             googleCalendarWrite = event["calendar_write"] as? Bool ?? false
             googleConnecting = event["connecting"] as? Bool ?? false
             connectionError = event["error"] as? String ?? event["message"] as? String ?? ""
+            if !connectionError.isEmpty && !googleConnecting { connectionPrompt = nil; status = connectionError }
         case "history":
             messages = (event["messages"] as? [[String: Any]] ?? []).compactMap { row in
-                guard let role = row["role"] as? String, let content = row["content"] as? String else { return nil }
-                return ChatMessage(role: role, text: content, images: (row["payload"] as? [String: Any])?["images"] as? [String] ?? [], at: parseDate(row["created_at"]) ?? Date(), databaseID: row["id"].map { String(describing: $0) }, reference: (row["payload"] as? [String: Any])?["reference"] as? [String: String])
+                guard (row["payload"] as? [String: Any])?["proactive"] as? Bool != true, let role = row["role"] as? String, let content = row["content"] as? String else { return nil }
+                return ChatMessage(role: role, text: content, images: (row["payload"] as? [String: Any])?["images"] as? [String] ?? [], at: parseDate(row["created_at"]) ?? Date(), databaseID: row["id"].map { String(describing: $0) }, reference: (row["payload"] as? [String: Any])?["reference"] as? [String: String], inboxSourceID: (row["payload"] as? [String: Any])?["inbox_source_id"] as? String)
             }
-        case "proactive":
-            if let row = event["message"] as? [String: Any], let content = row["content"] as? String {
-                let id = row["id"].map { String(describing: $0) }
-                if !messages.contains(where: { $0.databaseID == id }) {
-                    messages.append(ChatMessage(role: "assistant", text: content, at: parseDate(row["created_at"]) ?? Date(), databaseID: id, reference: (row["payload"] as? [String: Any])?["reference"] as? [String: String]))
-                }
-            }
+        case "proactive": break
+        case "inbox_opened":
+            if let row = event["message"] as? [String: Any] { appendDiscussion(row) }
         case "ready":
             connected = true; busy = false; status = "Connected"
             if let pending = voiceTurn.ready(), voice { submit(pending) }
@@ -313,10 +341,8 @@ final class Chat: ObservableObject {
         speechBuffer = ""
         messages.append(ChatMessage(role: "user", text: text)); busy = true
         var command: [String: Any] = ["type": "send", "text": text]
-        if var reference = replyingTo?.reference {
-            if let mid = replyingTo?.databaseID { reference["message_id"] = mid }
-            command["notification"] = reference
-        }
+        if let reference = notificationReference { command["notification"] = reference }
+        notificationReference = nil
         write(command)
         replyingTo = nil
     }

@@ -70,8 +70,10 @@ class jobs_test(MapTest):
         row=self.map.row('select * from assistant.outbound')
         self.assertEqual(self.map.value('select count(*) from assistant.outbound'),1)
         history=self.map.value("select public.assistant_client(%s,%s,'bootstrap','{}')",(self.owner,self.device))['history']
-        self.assertEqual(history[-1]['content'],'I found the answer.')
-        self.assertEqual(history[-1]['payload']['reference'],row['reference'])
+        self.assertNotIn('I found the answer.',[m['content'] for m in history])
+        inbox=self.map.value("select public.assistant_client(%s,%s,'inbox','{}')",(self.owner,self.device))['messages']
+        self.assertEqual(inbox[0]['content'],'I found the answer.')
+        self.assertEqual(inbox[0]['payload']['reference'],row['reference'])
         retrieved=self.map.value("select public.assistant_client(%s,%s,'notification_message',%s)",(self.owner,self.device,jsonb(row['reference'])))
         self.assertEqual(retrieved['message']['id'],row['message_id'])
     def test_duplicate_outbound_and_failed_job_do_not_fake_success(self):

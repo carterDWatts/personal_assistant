@@ -38,6 +38,14 @@ func isoDate(_ date: Date) -> String {
     private var history: [[String: Any]] = []
     private var sampleEmailState = "draft"
     func clientRequest(_ action: String, _ args: [String: Any]) async throws -> [String: Any] {
+        let notice: [String: Any] = ["id": 900, "role": "assistant", "content": "Your report is ready.", "created_at": isoDate(Date()), "payload": ["reference": ["kind": "notice", "id": "sample"]]]
+        if action == "inbox" { return ["messages": [notice]] }
+        if action == "inbox_open" {
+            var selected = notice; selected["id"] = 901
+            selected["payload"] = ["reference": ["kind": "notice", "id": "sample"], "inbox_source_id": "900"]
+            history.append(selected)
+            return ["message": selected]
+        }
         guard action == "email" else { throw ConnectionFailure("Unavailable in preview.") }
         if args["operation"] as? String == "approve" { sampleEmailState = "sent" }
         if args["operation"] as? String == "discard" { sampleEmailState = "discarded" }
@@ -137,6 +145,7 @@ func isoDate(_ date: Date) -> String {
     }
 
     func startConnection(provider: String, grant: String?) async throws -> (intent: String, url: URL?) {
+        if ProcessInfo.processInfo.arguments.contains("--connection-failure") { throw MockError("Google sign-in failed.") }
         try await Task.sleep(for: .seconds(1))
         linked[provider, default: []].append(grant ?? provider)
         emit(["type": "connections", "providers": try await connections()])

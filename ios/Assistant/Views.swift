@@ -437,13 +437,6 @@ struct ConversationView: View {
                     if chat.voice { VoiceGlow(voice: chat.liveVoice, palette: palette) }
                 }
             PendingImageStrip(images: $chat.pendingImages, error: chat.imageError)
-            if let selection = chat.notificationDiscussion {
-                HStack {
-                    Label("Replying to \(AssistantIdentity.name): " + (selection["title"] ?? ""), systemImage: "arrowshape.turn.up.left").font(.caption).lineLimit(2)
-                    Spacer()
-                    Button { chat.clearNotificationDiscussion() } label: { Image(systemName: "xmark") }.accessibilityLabel("Cancel reply")
-                }.padding(12).background(palette.surface).padding(.horizontal,16)
-            }
             if chat.voice {
                 if typing { Composer(chat: chat, palette: palette).padding(.horizontal, 16).padding(.bottom, 10) }
                 VoiceBar(chat: chat, voice: chat.liveVoice, palette: palette, typing: $typing).padding(.horizontal, 16).padding(.bottom, 10)
@@ -461,6 +454,7 @@ struct ConversationView: View {
         .sheet(isPresented: $showDay) {
             DayPanel(chat: chat, palette: palette).presentationDetents([.medium, .large]).presentationDragIndicator(.visible)
         }
+        .sheet(isPresented: $chat.showInbox) { MessageInbox(request: chat.inboxRequest, open: chat.openInbox) }
         .sheet(isPresented: $chat.showEmailDrafts) { EmailDraftsView(initialID: chat.emailDraftID, request: chat.emailRequest) }
         .sheet(isPresented: $showSettings) { SettingsView(chat: chat, palette: palette) }
         .sheet(isPresented: $showImport) { ContextImportView(upload: chat.importPart, refresh: chat.imports, runtime: chat.selectedModel.hasPrefix("claude-agent-sdk/") ? "claude-agent-sdk" : "codex") }
@@ -495,6 +489,7 @@ struct ConversationView: View {
             }.disabled(chat.busy || chat.models.isEmpty).accessibilityLabel("Choose model")
             Spacer()
             Circle().fill(chat.connected ? palette.accent : palette.muted).frame(width: 7, height: 7).accessibilityLabel(chat.status).padding(.trailing, 4)
+            Button { chat.showInbox = true } label: { Image(systemName: "tray") }.accessibilityLabel("Open inbox")
             Button { showDay = true } label: { Label("Calendar", systemImage: "calendar").font(.subheadline) }
                 .buttonStyle(.bordered).tint(palette.accent).accessibilityLabel("Open calendar")
             Menu {
@@ -528,7 +523,7 @@ struct ConversationView: View {
                         if index == 0 || !Calendar.current.isDate(chat.messages[index - 1].at, inSameDayAs: message.at) {
                             DayMarker(date: message.at, palette: palette)
                         }
-                        MessageRow(onReply: { chat.reply(to: message) }, message: message, palette: palette).equatable().id(message.id)
+                        MessageRow(onReply: { chat.reply(to: message) }, message: message, palette: palette).equatable().padding(8).overlay(RoundedRectangle(cornerRadius: 8).stroke(message.id == chat.focusedMessage ? palette.accent : .clear, lineWidth: 1)).id(message.id)
                         MessageImages(ids: message.images, load: chat.imageURL)
                     }
                     if let prompt = chat.connectionPrompt {
@@ -540,7 +535,7 @@ struct ConversationView: View {
                 }.padding(.horizontal, 18).padding(.top, 12).padding(.bottom, 12)
             }
             .scrollDismissesKeyboard(.interactively)
-            .onChange(of: chat.focusedMessage) { if let id = chat.focusedMessage { proxy.scrollTo(id, anchor: .center) } }
+            .onChange(of: chat.focusedMessage) { if let id = chat.focusedMessage { proxy.scrollTo(id, anchor: .bottom) } }
             .onChange(of: chat.messages.last?.text) { if follow { proxy.scrollTo("bottom", anchor: .bottom) } }
             .onChange(of: chat.messages.count) {
                 if follow || chat.messages.last?.role == "user" { proxy.scrollTo("bottom", anchor: .bottom) }
@@ -564,17 +559,19 @@ struct ConnectionCard: View {
     private var detail: String {
         switch prompt.phase {
         case .failed(let text): return text
-        case .connecting: return Service.usesToken(prompt.provider) ? "Checking the token." : "Finish in the sheet; the host keeps the permission and this phone never sees the token."
+        case .connecting: return Service.usesToken(prompt.provider) ? "Checking the token." : "Finish signing in to continue."
         case .needed: return Service.usesToken(prompt.provider)
-            ? "Guided setup with a token you paste. The assistant only reads."
-            : "Approve it in a secure sheet. The host keeps the permission and this phone never sees the token."
+            ? "Add your access token securely."
+            : "Sign in to grant the access this request needs."
         }
     }
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
                 Image(systemName: "link").foregroundStyle(palette.accent)
-                Text("\(service) isn’t connected for the host")
+                Spacer()
+                Button { chat.connectionPrompt = nil } label: { Image(systemName: "xmark") }.accessibilityLabel("Dismiss connection")
+                Text("\(service) needs your permission")
                     .font(.subheadline.weight(.semibold)).foregroundStyle(palette.ink)
             }
             Text(detail).font(.callout).foregroundStyle({ if case .failed = prompt.phase { return Color.orange } else { return palette.muted } }())

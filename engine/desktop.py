@@ -96,9 +96,9 @@ async def main():
         nonlocal outbound_cursor
         while True:
             try:
-                rows = map_.rows("select m.id,m.role,m.content,m.created_at,m.payload from assistant.outbound o join memory.messages m on m.id=o.message_id where m.id>%s order by m.id", (outbound_cursor,))
+                rows = map_.rows("select m.id,m.role,m.content,m.created_at,m.payload from memory.messages m where m.id>%s and (m.payload ? 'inbox_source_id' or coalesce((m.payload->>'proactive')::boolean,false)) order by m.id", (outbound_cursor,))
                 for row in rows:
-                    emit("proactive", message=row)
+                    emit("inbox_opened" if (row.get("payload") or {}).get("inbox_source_id") else "proactive", message=row)
                     outbound_cursor=row['id']
                 counts = map_.row("select count(*) filter(where status <> 'done') as pending, count(*) filter(where status='error') as errors from memory.memory_jobs")
                 text = "Memory update paused; chat still works." if counts['errors'] else "Updating memory in the background…" if counts['pending'] else ""
@@ -174,6 +174,13 @@ async def main():
                         emit('client_response',request_id=message.get('request_id'),result=result)
                     except Exception:
                         emit('client_response',request_id=message.get('request_id'),error='The image could not be loaded. Try a smaller image.')
+                elif action in ('inbox','inbox_open') and map_:
+                    from engine.client import inbox_request
+                    try:
+                        result=inbox_request(map_,action,message.get('args',{}))
+                        emit('client_response',request_id=message.get('request_id'),result=result)
+                    except Exception:
+                        emit('client_response',request_id=message.get('request_id'),error='The message could not be opened. Try again.')
                 elif action == 'email' and map_:
                     from engine.client import email_request
                     try:

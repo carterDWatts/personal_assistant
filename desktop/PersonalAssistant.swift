@@ -267,7 +267,11 @@ struct ChatConnectionPrompt: View {
     }
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Label(ready ? "Connected" : title, systemImage: "link").font(.headline)
+            HStack {
+                Label(ready ? "Connected" : title, systemImage: "link").font(.headline)
+                Spacer()
+                Button { chat.connectionPrompt = nil } label: { Image(systemName: "xmark") }.help("Dismiss connection")
+            }
             Text(ready ? "You can pick up where you left off." : "Approve access in your browser, then continue here.").font(.callout).foregroundStyle(.secondary)
             if chat.googleConnecting {
                 HStack { ProgressView().controlSize(.small); Text(provider == nil ? "Finish in your browser…" : "Checking connection…") }
@@ -460,6 +464,7 @@ struct SettingsPopover: View {
                     }.padding(.horizontal, 18).padding(.bottom, 12)
                 }
                 .onChange(of: chat.messages.last?.text) { _ in proxy.scrollTo("voice-bottom", anchor: .bottom) }
+                .onChange(of: chat.focusedMessage) { if let id = chat.focusedMessage { proxy.scrollTo(id, anchor: .bottom) } }
                 .onChange(of: chat.messages.count) { _ in proxy.scrollTo("voice-bottom", anchor: .bottom) }
             }
             VStack(spacing: 10) {
@@ -519,6 +524,8 @@ struct SettingsPopover: View {
                     Text(chat.status).font(.caption).foregroundStyle(.secondary).lineLimit(1).frame(maxWidth: 160).help(chat.status)
                     if !chat.connected && !chat.busy { Button("Reconnect") { chat.connect() }.controlSize(.small) }
                 }
+                Button { chat.showInbox = true } label: { Image(systemName: "tray") }.help("Inbox")
+                    .sheet(isPresented: $chat.showInbox) { MessageInbox(request: chat.inboxRequest, open: chat.openInbox).frame(minWidth: 480, minHeight: 500) }
                 Button { showConnections.toggle() } label: { Image(systemName: "link") }
                     .help("Connections")
                     .popover(isPresented: $showConnections) { ConnectionsView(chat: chat) }
@@ -579,7 +586,8 @@ struct SettingsPopover: View {
                             if index == 0 || !Calendar.current.isDate(chat.messages[index - 1].at, inSameDayAs: message.at) {
                                 DayMarker(date: message.at, palette: palette)
                             }
-                            MessageRow(onReply: { chat.reply(to: message) }, message: message, palette: palette).id(message.id)
+                            MessageRow(onReply: { chat.reply(to: message) }, message: message, palette: palette)
+                                .padding(8).overlay(RoundedRectangle(cornerRadius: 8).stroke(message.id == chat.focusedMessage ? palette.accent : .clear, lineWidth: 1)).id(message.id)
                         MessageImages(ids: message.images, load: chat.imageURL)
                         }
                         if chat.connectionPrompt != nil { ChatConnectionPrompt(chat: chat) }
@@ -592,6 +600,7 @@ struct SettingsPopover: View {
                 .onChange(of: chat.messages.last?.text) { _ in
                     if followConversation { proxy.scrollTo("bottom", anchor: .bottom) }
                 }
+                .onChange(of: chat.focusedMessage) { if let id = chat.focusedMessage { proxy.scrollTo(id, anchor: .bottom) } }
                 .onChange(of: chat.messages.count) { _ in
                     if followConversation || chat.messages.last?.role == "user" { proxy.scrollTo("bottom", anchor: .bottom) }
                 }
@@ -601,12 +610,6 @@ struct SettingsPopover: View {
                             .buttonStyle(.bordered).padding(.bottom, 8).accessibilityLabel("Scroll to latest")
                     }
                 }
-            }
-            if let message = chat.replyingTo {
-                HStack {
-                    Label("Replying to \(AssistantIdentity.name): " + message.text, systemImage: "arrowshape.turn.up.left").font(.caption).lineLimit(2)
-                    Button { chat.replyingTo = nil } label: { Image(systemName: "xmark") }.buttonStyle(.borderless)
-                }.padding(.horizontal, 32).padding(.vertical, 8)
             }
             PendingImageStrip(images: $chat.pendingImages, error: chat.imageError)
             Composer(chat: chat, palette: palette)

@@ -30,6 +30,7 @@
 		A151CE5C07C3F6BF2A91069C /* SpotifyCommand.swift in Sources */ = {isa = PBXBuildFile; fileRef = F4634B80CE2EA2FAE8D3546E /* SpotifyCommand.swift */; };
 		A24298610C07D7A5B014BED5 /* IntegrationCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4D4A74A289C9F0CC4315DDF /* IntegrationCatalog.swift */; };
 		AD4ABC8E4D917F041D63CC44 /* Voice.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0497070F1E94B926A14D5A01 /* Voice.swift */; };
+		AD7B8FE53C14B4347F62EA2F /* MessageInbox.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3CAB04523BA9C8692E160214 /* MessageInbox.swift */; };
 		AF2DE7A02ACDE9D30C775CC7 /* voice-british.m4a in Resources */ = {isa = PBXBuildFile; fileRef = 54BD312561001569101CE03D /* voice-british.m4a */; };
 		B403B2A6D2BC76CE0A4CFB08 /* VoiceReplay.swift in Sources */ = {isa = PBXBuildFile; fileRef = B41DB425B0C177CC55CDA9A0 /* VoiceReplay.swift */; };
 		BC84ECD4FDE1408C3E8735EA /* Look.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE1E7DC00C8E768658B15BA8 /* Look.swift */; };
@@ -73,6 +74,7 @@
 		1F1E5B86C6AB6771AE700088 /* Assistant.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Assistant.entitlements; sourceTree = "<group>"; };
 		261CD53008F6E08EC77ABB32 /* RelaySocket.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RelaySocket.swift; sourceTree = "<group>"; };
 		2CF368B5C1B83543A7E505E0 /* Views.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views.swift; sourceTree = "<group>"; };
+		3CAB04523BA9C8692E160214 /* MessageInbox.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageInbox.swift; sourceTree = "<group>"; };
 		5063AD0BF055B36F3C136CA7 /* MessageTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageTests.swift; sourceTree = "<group>"; };
 		54BD312561001569101CE03D /* voice-british.m4a */ = {isa = PBXFileReference; path = "voice-british.m4a"; sourceTree = "<group>"; };
 		580BE68E2EA7EFBE168FF444 /* identity.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = identity.json; sourceTree = "<group>"; };
@@ -145,6 +147,7 @@
 				D729529CD2A52BA170865A77 /* EmailDrafts.swift */,
 				A4D4A74A289C9F0CC4315DDF /* IntegrationCatalog.swift */,
 				5FD5CE666C5C89B6E8C10657 /* integrations.json */,
+				3CAB04523BA9C8692E160214 /* MessageInbox.swift */,
 				F4634B80CE2EA2FAE8D3546E /* SpotifyCommand.swift */,
 			);
 			name = shared;
@@ -410,6 +413,7 @@
 				F6B6F22907298741BD9E419E /* EmailDrafts.swift in Sources */,
 				A24298610C07D7A5B014BED5 /* IntegrationCatalog.swift in Sources */,
 				BC84ECD4FDE1408C3E8735EA /* Look.swift in Sources */,
+				AD7B8FE53C14B4347F62EA2F /* MessageInbox.swift in Sources */,
 				27AE07C0E505531260112DCF /* Notifications.swift in Sources */,
 				CF3A4B4A55726D7311E86C5D /* RelaySocket.swift in Sources */,
 				7E7862DFBFD553244702D495 /* RelayTransport.swift in Sources */,

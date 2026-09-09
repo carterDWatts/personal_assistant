@@ -57,33 +57,40 @@ func plain(_ value: Any?) -> String {
         UserDefaults.standard.removeObject(forKey: "notificationDiscussion")
     }
     func loadNotificationDiscussion() {
-        notificationDiscussion = UserDefaults.standard.dictionary(forKey: "notificationDiscussion") as? [String: String]
-        showNotificationMessage()
+        if let pending = UserDefaults.standard.dictionary(forKey: "notificationDiscussion") as? [String: String] {
+            notificationDiscussion = pending
+            showNotificationMessage()
+        }
     }
     func reply(to message: ChatMessage) {
         guard let reference = message.reference, let kind = reference["kind"], let id = reference["id"] else { return }
-        discussNotification(kind: kind, id: id, title: message.text, messageID: message.databaseID)
+        discussNotification(kind: kind, id: id, title: message.text, messageID: message.inboxSourceID ?? message.databaseID)
+    }
+    @Published var showInbox = false
+    func inboxRequest(_ args: [String: Any]) async throws -> [String: Any] { try await transport.clientRequest("inbox", args) }
+    func openInbox(_ row: [String: Any], requestID: String) async throws {
+        guard connected, !busy, let source = row["id"] else { throw ConnectionFailure("Finish the current reply first.") }
+        let result = try await transport.clientRequest("inbox_open", ["message_id": String(describing: source), "request_id": requestID])
+        guard let selected = result["message"] as? [String: Any] else { throw ConnectionFailure("Message unavailable.") }
+        appendDiscussion(selected)
+        if let reference = (row["payload"] as? [String: Any])?["reference"] as? [String: String] {
+            notificationDiscussion = reference.merging(["message_id": String(describing: source)]) { _, new in new }
+            UserDefaults.standard.set(notificationDiscussion, forKey: "notificationDiscussion")
+        }
+        focusedMessage = messages.last?.id
+        UserDefaults.standard.removeObject(forKey: "notificationDiscussion")
     }
     private func showNotificationMessage() {
-        guard let selection = notificationDiscussion else { return }
-        let reference = ["kind":selection["kind"] ?? "", "id":selection["id"] ?? ""]
-        var request = reference
-        if let mid = selection["message_id"] { request["message_id"] = mid }
-        if let existing = messages.last(where: { $0.reference == reference && (selection["message_id"] == nil || $0.databaseID == selection["message_id"]) }) { focusedMessage = existing.id; return }
-        guard connected else { return }
+        guard let selection = notificationDiscussion, connected, !busy else { return }
         Task {
-            let result = try? await transport.reminderRequest("notification_message", request)
-            guard notificationDiscussion?["id"] == selection["id"] else { return }
-            if let row = result?["message"] as? [String: Any] {
-                appendProactive(row)
-            } else if let title = selection["title"], !title.isEmpty {
-                // Older notifications predate persisted outbound messages.
-                messages.append(ChatMessage(role: "assistant", text: title, reference: reference))
-            }
-            focusedMessage = messages.last(where: { $0.reference == reference && (selection["message_id"] == nil || $0.databaseID == selection["message_id"]) })?.id
+            do {
+                let result = try await transport.reminderRequest("notification_message", selection)
+                guard notificationDiscussion == selection, let row = result["message"] as? [String: Any] else { return }
+                try await openInbox(row, requestID: UUID().uuidString)
+            } catch { status = "I couldn’t open that message. Try it from the inbox." }
         }
     }
-    private func appendProactive(_ row: [String: Any]) {
+    private func appendDiscussion(_ row: [String: Any]) {
         guard var message = ChatMessage.stored(row) else { return }
         if let id = message.databaseID, messages.contains(where: { $0.databaseID == id }) { return }
         message.at = parseDate(row["created_at"]) ?? Date()
@@ -228,12 +235,13 @@ func plain(_ value: Any?) -> String {
             replyState.reset(messages: &messages)
             liveVoice.silencePlayback(); spokenTurns.removeAll(); playedChunks.removeAll()
             messages = (event["messages"] as? [[String: Any]] ?? []).compactMap { row in
-                guard var message = ChatMessage.stored(row) else { return nil }
+                guard (row["payload"] as? [String: Any])?["proactive"] as? Bool != true, var message = ChatMessage.stored(row) else { return nil }
                 message.at = parseDate(row["created_at"]) ?? Date()
                 return message
             }
-        case "proactive":
-            if let row = event["message"] as? [String: Any] { appendProactive(row) }
+        case "proactive": break
+        case "inbox_opened":
+            if let row = event["message"] as? [String: Any] { appendDiscussion(row) }
         case "ready":
             Task { @MainActor in
                 await Task.yield()
@@ -395,7 +403,7 @@ func plain(_ value: Any?) -> String {
             do {
                 try await authorize(provider: prompt.provider, grant: prompt.grant)
             } catch let error as ASWebAuthenticationSessionError where error.code == .canceledLogin {
-                finish(.needed)
+                connectionPrompt = nil
             } catch {
                 finish(.failed(error.localizedDescription))
             }
@@ -438,7 +446,11 @@ func plain(_ value: Any?) -> String {
 
     private func finish(_ phase: ConnectionPrompt.Phase) {
         guard var prompt = connectionPrompt else { return }
-        prompt.phase = phase; connectionPrompt = prompt
+        if case .failed(let message) = phase {
+            connectionPrompt = nil
+            connectionError = message
+            status = "I couldn’t connect. You can retry from Connections."
+        } else { prompt.phase = phase; connectionPrompt = prompt }
         refreshConnections()
     }
 
