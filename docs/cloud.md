@@ -182,3 +182,20 @@ Research jobs have explicit read-only memory and web/mail/calendar tools. Code j
 A job can send two brief progress messages, at least a minute apart. Its final message is persisted in the same conversation as ordinary replies, with the result and patch kept separately from the model's working context. It does not automatically turn its scratch work into memory facts.
 
 Alerts and reminder follow-ups also become assistant messages. The push is a delivery mechanism for that message. Tapping one selects its original message, including a stable message ID, so a short reply carries the right context even after reconnecting or a newer reminder follow-up. Repeated delivery never duplicates the same conversation message. Existing deduplication, evidence checks and push pacing remain in place. New messages do not start audio playback or interrupt an active reply.
+
+
+## Reminder delivery windows
+
+Reminders distinguish unfinished `task` commitments from `check_in` occurrences.
+Tasks remain open after their deadline and retain their follow-up schedule. A check-in
+requires an end time and queues once per version, only inside its delivery window.
+The dispatcher rechecks expiry before model preparation and immediately before delivery;
+APNs expiry is bounded by the same window. A missed check-in is not marked completed.
+Later occurrences need explicit new windows; hourly follow-up is not daily recurrence.
+
+The reminder writer receives current local time, explicit elapsed-window flags, active
+rules, and the latest 16 conversation messages from the past day. It can withhold an
+occurrence when newer context makes the nudge inappropriate. Withholding does not mark
+a task done. If memory or conversation changes during preparation, the dispatcher
+retries with fresh context rather than sending the old draft. Semantic relevance still
+requires model judgment; window enforcement and occurrence deduplication do not.

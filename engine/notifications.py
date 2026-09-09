@@ -40,12 +40,15 @@ class Push:
         if row.get('notice'):
             payload = {'aps':{'alert':{'title':config.ASSISTANT_NAME,'body':row['title']},'sound':'default','thread-id':'attention'}, 'notice_id':str(row['reminder_id'])}
         if row.get('message_id'): payload['message_id']=str(row['message_id'])
+        expiration=int(time.time()+3600)
+        if row.get('kind')=='check_in':
+            expiration=min(expiration,int(row['window_end'].timestamp()))
         async with httpx.AsyncClient(http2=True, timeout=10) as client:
             result = await client.post(f"https://{host}/3/device/{row['token']}", json=payload, headers={
                 'authorization':'bearer '+self.token(),'apns-topic':'com.carterwatts.assistant',
                 'apns-push-type':'alert','apns-priority':'10','apns-id':str(row['id']),
                 'apns-collapse-id':str(row['reminder_id']),
-                'apns-expiration':str(int(time.time()+3600))})
+                'apns-expiration':str(expiration)})
         return result.status_code, result.json().get('reason','') if result.content else ''
 
 
@@ -56,24 +59,35 @@ class Dispatcher:
         with self.map.conn.transaction():
             self.map.execute('select user_id from assistant.owner for update')
             devices = self.map.rows("select p.device_id from assistant.push_devices p join assistant.devices d on d.id=p.device_id where p.enabled and d.revoked_at is null")
-            due = self.map.rows("select * from memory.reminders where status='open' and next_notify_at<=now() order by next_notify_at for update skip locked limit 20")
+            due = self.map.rows("select * from memory.reminders r where status='open' and next_notify_at<=now() and window_start<=now() and (kind='task' or (window_end>now() and not exists(select 1 from assistant.reminder_deliveries d where d.reminder_id=r.id and d.version=r.version))) order by next_notify_at for update skip locked limit 20")
             for reminder in due:
                 self.map.execute('update assistant.reminder_deliveries set cancelled_at=now() where reminder_id=%s and sent_at is null and cancelled_at is null', (reminder['id'],))
                 for device in devices:
                     self.map.execute("insert into assistant.reminder_deliveries(reminder_id,device_id,scheduled_at,version) values(%s,%s,%s,%s) on conflict do nothing",
                         (reminder['id'],device['device_id'],reminder['next_notify_at'],reminder['version']))
+                if reminder['kind']=='check_in': continue
                 hours=float(reminder['followup_hours'])
                 now=datetime.now(timezone.utc)
                 if reminder['window_end'] and reminder['window_end']<=now+timedelta(days=1): hours=min(hours,24)
                 following=next_time(reminder['timing'],reminder['window_start'],hours,reminder['timezone'],now)
                 self.map.execute('update memory.reminders set next_notify_at=%s where id=%s',(following,reminder['id']))
 
+    def context_stamp(self):
+        return self.map.row('select version,(select coalesce(max(id),0) from memory.messages) as message_id from memory.context_version')
+
     async def deliver(self):
         candidate=self.map.row("select n.id as delivery_id,n.scheduled_at,n.version as delivery_version,r.* from assistant.reminder_deliveries n join memory.reminders r on r.id=n.reminder_id where n.sent_at is null and n.cancelled_at is null and n.retry_at<=now() order by n.retry_at limit 1")
         message=None;key=None
+        revision=self.context_stamp()
+        if candidate and candidate['kind']=='check_in' and candidate['window_end']<=datetime.now(timezone.utc):
+            self.map.execute("update assistant.reminder_deliveries set cancelled_at=now(),last_error='Check-in window expired' where id=%s",(candidate['delivery_id'],))
+            return True
         if candidate and candidate['status']=='open' and candidate['version']==candidate['delivery_version']:
             key='reminder:'+str(candidate['id'])+':'+str(candidate['version'])+':'+candidate['scheduled_at'].isoformat()
             message=self.map.value('select m.content from assistant.outbound o join memory.messages m on m.id=o.message_id where o.key=%s',(key,))
+            if message and self.map.value("select exists(select 1 from memory.messages newer join assistant.outbound o on o.key=%s where newer.id>o.message_id and newer.role in ('user','assistant') and not coalesce((newer.payload->>'proactive')::boolean,false) and not coalesce((newer.payload->>'external')::boolean,false))",(key,)):
+                self.map.execute("update assistant.reminder_deliveries set cancelled_at=now(),last_error='Conversation changed after original delivery' where reminder_id=%s and version=%s and scheduled_at=%s and sent_at is null",(candidate['id'],candidate['version'],candidate['scheduled_at']))
+                return True
             if not message:
                 try:message=await self.compose(self.map,candidate) if self.compose else 'I have a reminder ready for you.'
                 except Exception:
@@ -83,10 +97,17 @@ class Dispatcher:
         # race ahead of an unsent notification. Network timeout bounds the lock duration.
         with self.map.conn.transaction():
             self.map.execute('select user_id from assistant.owner for update')
-            row=self.map.row("select n.*,p.token,p.environment,p.enabled,d.revoked_at,r.title,r.status,r.version as current_version from assistant.reminder_deliveries n join assistant.push_devices p on p.device_id=n.device_id join assistant.devices d on d.id=n.device_id join memory.reminders r on r.id=n.reminder_id where n.sent_at is null and n.cancelled_at is null and n.retry_at<=now() order by n.retry_at for update of n,r skip locked limit 1")
+            row=self.map.row("select n.*,p.token,p.environment,p.enabled,d.revoked_at,r.title,r.status,r.kind,r.window_start,r.window_end,r.version as current_version from assistant.reminder_deliveries n join assistant.push_devices p on p.device_id=n.device_id join assistant.devices d on d.id=n.device_id join memory.reminders r on r.id=n.reminder_id where n.sent_at is null and n.cancelled_at is null and n.retry_at<=now() order by n.retry_at for update of n,r skip locked limit 1")
             if not row: return False
-            if row['status']!='open' or row['current_version']!=row['version'] or not row['enabled'] or row['revoked_at']:
+            if row['status']!='open' or row['current_version']!=row['version'] or not row['enabled'] or row['revoked_at'] or (row['kind']=='check_in' and row['window_end']<=datetime.now(timezone.utc)):
                 self.map.execute('update assistant.reminder_deliveries set cancelled_at=now() where id=%s',(row['id'],));return True
+            if candidate and row['id']==candidate['delivery_id']:
+                if revision != self.context_stamp():
+                    self.map.execute("update assistant.reminder_deliveries set retry_at=now()+interval '1 minute',last_error='Context changed during preparation' where id=%s",(row['id'],))
+                    return True
+                if message is None:
+                    self.map.execute("update assistant.reminder_deliveries set cancelled_at=now(),last_error='Withheld after context review' where reminder_id=%s and version=%s and scheduled_at=%s and sent_at is null",(row['reminder_id'],row['version'],row['scheduled_at']))
+                    return True
             row['message_id']=self.map.value('select message_id from assistant.outbound where key=%s',('reminder:'+str(row['reminder_id'])+':'+str(row['version'])+':'+row['scheduled_at'].isoformat(),))
             if row['message_id']:
                 row['title']=self.map.value('select content from memory.messages where id=%s',(row['message_id'],))[:500]

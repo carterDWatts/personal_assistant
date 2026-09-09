@@ -101,3 +101,97 @@ class reminders_test(MapTest):
         dispatcher=Dispatcher(self.map,Push(),compose=compose);dispatcher.queue()
         self.run_async(dispatcher.deliver())
         self.assertEqual(self.map.value('select count(*) from assistant.outbound'),0)
+
+    def check_in(self, expired=False):
+        now=datetime.now(timezone.utc)
+        return self.run_async(self.api.save({'kind':'check_in','title':'End of work check-in','context':'Tell me what comes next','timing':'exact','window_start':(now-timedelta(hours=1)).isoformat(),'window_end':(now+timedelta(minutes=-1 if expired else 15)).isoformat()}))
+
+    def test_expired_check_in_never_queues_but_task_still_does(self):
+        self.check_in(expired=True)
+        task=self.make()
+        self.map.execute("update memory.reminders set window_end=now()-interval '10 minutes' where id=%s",(task['id'],))
+        Dispatcher(self.map).queue()
+        self.assertEqual(self.map.rows('select reminder_id from assistant.reminder_deliveries'),[{'reminder_id':task['id']}])
+        self.assertEqual(self.map.value("select count(*) from memory.reminders where status='open'"),2)
+
+    def test_check_in_does_not_repeat_even_when_clock_is_still_due(self):
+        self.check_in()
+        class Push:
+            async def send(self,row):return 200,''
+        dispatcher=Dispatcher(self.map,Push());dispatcher.queue()
+        self.run_async(dispatcher.deliver())
+        dispatcher.queue()
+        self.assertEqual(self.map.value('select count(*) from assistant.reminder_deliveries'),1)
+        self.assertFalse(self.run_async(dispatcher.deliver()))
+
+    def test_expired_queued_check_in_skips_model_and_push(self):
+        item=self.check_in()
+        async def compose(*args):raise AssertionError('No model call for expired check-in')
+        dispatcher=Dispatcher(self.map,compose=compose);dispatcher.queue()
+        self.map.execute("update memory.reminders set window_end=now()-interval '1 minute' where id=%s",(item['id'],))
+        self.run_async(dispatcher.deliver())
+        self.assertEqual(self.map.value('select count(*) from assistant.reminder_deliveries where cancelled_at is not null'),1)
+        self.assertEqual(self.map.value('select count(*) from assistant.outbound'),0)
+
+    def test_window_expiring_during_composition_prevents_delivery(self):
+        item=self.check_in()
+        async def compose(*args):
+            self.map.execute("update memory.reminders set window_end=now()-interval '1 minute' where id=%s",(item['id'],))
+            return 'Too late'
+        dispatcher=Dispatcher(self.map,compose=compose);dispatcher.queue()
+        self.run_async(dispatcher.deliver())
+        self.assertEqual(self.map.value('select count(*) from assistant.reminder_deliveries where cancelled_at is not null'),1)
+        self.assertEqual(self.map.value('select count(*) from assistant.outbound'),0)
+
+    def test_context_change_during_composition_requires_fresh_review(self):
+        self.make()
+        async def compose(*args):
+            from engine.outbound import post
+            post(self.map,'changed-plan','The plan changed while this was being prepared.')
+            return 'Based on the old plan'
+        dispatcher=Dispatcher(self.map,compose=compose);dispatcher.queue()
+        self.run_async(dispatcher.deliver())
+        self.assertEqual(self.map.value("select count(*) from assistant.outbound where key like 'reminder:%%'"),0)
+        self.assertTrue(self.map.value('select retry_at>now() from assistant.reminder_deliveries'))
+
+    def test_withholding_does_not_complete_or_drop_the_task(self):
+        self.make()
+        async def compose(*args):return None
+        dispatcher=Dispatcher(self.map,compose=compose);dispatcher.queue()
+        self.run_async(dispatcher.deliver())
+        self.assertEqual(self.map.value('select count(*) from assistant.outbound'),0)
+        self.assertTrue(self.map.value("select status='open' and next_notify_at>now() from memory.reminders"))
+        self.assertTrue(self.map.value('select cancelled_at is not null from assistant.reminder_deliveries'))
+
+    def test_composer_gets_current_time_and_conversation_and_can_withhold(self):
+        from engine.reminder_message import compose
+        from engine.runtime import Event
+        from tst.helpers import FakeRuntime
+        from engine.outbound import post
+        item=self.make()
+        post(self.map,'recent-change','Tonight I suggested resting instead.')
+        async def withhold(runtime):
+            await runtime.tools['withhold_reminder'].fn({'reason':'Recent plan changed'})
+            return Event('text',text='This text must not be delivered.')
+        runtime=FakeRuntime([[withhold]])
+        self.assertIsNone(self.run_async(compose(self.map,item,factory=lambda _:runtime)))
+        self.assertIn('current_local_time',runtime.sent[0])
+        self.assertIn('Tonight I suggested resting instead.',runtime.sent[0])
+        self.assertIn('past_start',runtime.sent[0])
+
+    def test_push_retry_does_not_replay_message_after_conversation_changes(self):
+        self.make()
+        class Push:
+            calls=0
+            async def send(self,row):
+                self.calls+=1
+                return 503,'unavailable'
+        push=Push();dispatcher=Dispatcher(self.map,push);dispatcher.queue()
+        self.run_async(dispatcher.deliver())
+        conversation=self.map.value("insert into memory.conversations(agent,device) values('test','test') returning id")
+        self.map.execute("insert into memory.messages(conversation_id,seq,role,content) values(%s,1,'user','Plans changed, I am staying home.')",(conversation,))
+        self.map.execute('update assistant.reminder_deliveries set retry_at=now()')
+        self.run_async(dispatcher.deliver())
+        self.assertEqual(push.calls,1)
+        self.assertTrue(self.map.value('select cancelled_at is not null from assistant.reminder_deliveries'))
+        self.assertEqual(self.map.value('select status from memory.reminders'),'open')
