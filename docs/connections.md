@@ -87,3 +87,10 @@ Browser traffic goes through a proxy that checks and pins public HTTPS destinati
 This is a browser fallback, not automatic OAuth registration for every service. A site can block hosted browsers, require a passkey that is unavailable on the host, or restrict access to an approved API integration. The assistant should explain that specific obstacle and the supported connection path. No service-specific adapter is required for ordinary website interaction.
 
 The host image installs Playwright and Chromium. The existing credential key encrypts saved browser state; a private command key lives on the persistent host volume. Browser availability is advertised through a heartbeat, so clients do not offer a working browser when the host is down.
+
+
+### Discovering an unfamiliar service
+
+`service_discover` inspects the official site, bounded developer links, protected-resource metadata, and advertised authorization-server metadata. Every result includes source URLs. Missing metadata means more research is needed, not that a service is unsupported. Existing adapters can raise the normal connection card through `service_connect`; new browser access requests also run discovery instead of offering screenshot sign-in.
+
+Discovery does not manufacture access. Generic remote MCP authorization and tool execution remain unimplemented. If documentation identifies that route, the assistant must distinguish the missing client implementation from a service requiring developer registration. It must not offer a sign-in button until a working route exists.

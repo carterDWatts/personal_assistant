@@ -32,11 +32,17 @@ class BrowserTools:
     def __init__(self,tools):self.map=tools.map
     async def open(self,args):
         site=origin(args['url'])
+        row=self.map.row("select id,state from assistant.browser_sessions where user_id=(select user_id from assistant.owner) and origin=%s",(site,))
+        if (not row or row['state']!='ready') and os.environ.get('ASSISTANT_EXPERIMENTAL_BROWSER_SIGNIN')!='1':
+            from engine.integrations.discovery import discover, connect
+            result=await asyncio.to_thread(discover, {'url':args['url'],'task':args['purpose']})
+            if result['connection']:
+                return await connect({'url':args['url']})
+            return result
         if not self.map.value("select exists(select 1 from assistant.browser_host where seen_at>now()-interval '60 seconds')"):
             raise ToolError('The hosted browser is unavailable.')
         row=self.map.row("insert into assistant.browser_sessions(user_id,origin,url,requested_for) values((select user_id from assistant.owner),%s,%s,%s) on conflict(user_id,origin) do update set requested_for=excluded.requested_for returning id,state",(site,args['url'],args['purpose']))
         if row['state']!='ready':
-            self.require_takeover_enabled()
             raise ConnectionRequired('Open the access panel to authorize this website and sign in if necessary. Then continue the original request.', 'browser_connect', {'session_id':str(row['id']),'provider':site})
         return await command(self.map,row['id'],{'action':'navigate','url':args['url']})
     async def action(self,args):
