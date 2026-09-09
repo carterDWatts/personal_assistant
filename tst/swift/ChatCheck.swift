@@ -155,6 +155,11 @@ import Darwin
         try connection.send(["type": "exit"])
         try await wait("chat disconnected") { !chat.connected }
         precondition(!chat.busy && !chat.messages.contains { $0.text.isEmpty })
+        chat.receive(["type": "start"])
+        chat.receive(["type": "email_draft", "draft_id": "example"])
+        chat.receive(["type": "error", "text": "Interrupted"])
+        precondition(chat.messages.last?.emailDrafts == ["example"])
+        precondition(!chat.showEmailDrafts, "Drafts belong in chat, not an automatic modal")
         precondition(!chat.liveVoice.isPrepared && !chat.liveVoice.active, "State tests must not start speech")
         print("Engine framing, final output, reconnect isolation, chat replies, imports and disconnect cleanup passed.")
     }

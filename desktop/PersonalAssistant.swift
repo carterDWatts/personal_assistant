@@ -144,7 +144,7 @@ struct MessageRow: View {
             HStack(alignment: .top, spacing: 12) {
                 Mark(palette: palette).frame(width: 24, height: 24).padding(.top, 4).help(AssistantIdentity.name)
                 VStack(alignment: .leading, spacing: 4) {
-                if message.text.isEmpty {
+                if message.text.isEmpty && message.images.isEmpty && message.emailDrafts.isEmpty {
                     ThinkingDots(color: palette.accent)
                 } else {
                     Text(inlineMarkdown(message.text))
@@ -447,7 +447,7 @@ struct SettingsPopover: View {
                             HStack {
                                 if message.role == "user" { Spacer(minLength: 46) }
                                 Group {
-                                    if message.text.isEmpty { ThinkingDots(color: palette.accent) }
+                                    if message.text.isEmpty && message.images.isEmpty && message.emailDrafts.isEmpty { ThinkingDots(color: palette.accent) }
                                     else { Text(inlineMarkdown(message.text)) }
                                 }
                                 .font(.body).lineSpacing(4).foregroundStyle(palette.ink).textSelection(.enabled)

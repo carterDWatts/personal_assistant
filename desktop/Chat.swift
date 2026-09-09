@@ -328,7 +328,7 @@ final class Chat: ObservableObject {
     }
 
     private func finishStreaming() {
-        messages.removeAll { $0.id == streamingID && $0.text.isEmpty && $0.images.isEmpty }
+        messages.removeAll { $0.id == streamingID && $0.text.isEmpty && $0.images.isEmpty && $0.emailDrafts.isEmpty }
         streamingID = nil
     }
 
