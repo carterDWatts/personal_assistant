@@ -24,7 +24,7 @@ cp "$ROOT/shared/integrations.json" "$APP/Contents/Resources/integrations.json"
 cp "$ROOT/identity.json" "$APP/Contents/Resources/identity.json"
 cp "$ROOT/desktop/Assets/FlowerBed.png" "$APP/Contents/Resources/FlowerBed.png"
 iconutil -c icns "$ROOT/build/icon.iconset" -o "$APP/Contents/Resources/AppIcon.icns"
-swiftc -parse-as-library "$ROOT/desktop/PersonalAssistant.swift" "$ROOT/shared/IntegrationCatalog.swift" "$ROOT/shared/ContextImport.swift" "$ROOT/shared/DaySchedule.swift" "$ROOT/shared/BunnyGlyph.swift" "$ROOT/desktop/BunnyArtwork.swift" "$ROOT/desktop/OutputStream.swift" "$ROOT/desktop/LiveVoice.swift" "$ROOT/desktop/LocalSpeech.swift" "$ROOT/desktop/LocalVoice.swift" "$ROOT/desktop/VoiceTurn.swift" -o "$APP/Contents/MacOS/PersonalAssistant" -framework SwiftUI -framework AVFoundation
+swiftc -parse-as-library "$ROOT"/desktop/*.swift "$ROOT"/shared/*.swift -o "$APP/Contents/MacOS/PersonalAssistant" -framework SwiftUI -framework AVFoundation
 "$PYTHON" - "$APP" "$ROOT" "$PYTHON" <<'PY'
 import json,plistlib,sys,pathlib
 app,root,python=sys.argv[1:]
