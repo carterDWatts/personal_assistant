@@ -1,4 +1,5 @@
 import asyncio
+import threading
 from datetime import timedelta
 from engine.conversation import Conversation
 from engine.memory_worker import Worker
@@ -8,6 +9,23 @@ from tst.helpers import MapTest, FakeRuntime, say
 
 
 class memory_worker_test(MapTest):
+    def test_slow_write_batch_does_not_block_the_conversation_loop(self):
+        async def check():
+            started,release=threading.Event(),threading.Event()
+            worker=Worker(self.map)
+            async def blocked(*args):
+                started.set()
+                self.assertTrue(release.wait(3))
+                return {'saved':True}
+            worker._save=blocked
+            task=asyncio.create_task(worker.save({}, {}, {}))
+            try:
+                await asyncio.wait_for(asyncio.to_thread(started.wait),1)
+                self.assertFalse(task.done())
+            finally:release.set()
+            self.assertTrue((await task)['saved'])
+        self.run_async(check())
+
     def job(self, text='I have a blue bicycle'):
         c=Conversation(self.map,'test','fake');s=c.open_segment('talk');c.record(s,'user',text)
         return Worker(self.map).oldest()

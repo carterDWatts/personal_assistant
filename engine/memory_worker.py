@@ -59,6 +59,16 @@ class Worker:
             " where j.status <> 'done' order by (m.payload ? 'import_id') is true, j.message_id limit 1")
 
     async def save(self, job, specs, args):
+        # A batch can contain dozens of SQL writes. Keep it off the speech/event loop,
+        # and finish its transaction before cancellation can close the connection.
+        task=asyncio.create_task(asyncio.to_thread(lambda: asyncio.run(self._save(job,specs,args))))
+        try:
+            return await asyncio.shield(task)
+        except asyncio.CancelledError:
+            await task
+            raise
+
+    async def _save(self, job, specs, args):
         # No network calls inside this transaction. Retrying a completed job is a no-op.
         with self.map.conn.transaction():
             status = self.map.value('select status from memory.memory_jobs where message_id=%s for update', (job['message_id'],))
