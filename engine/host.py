@@ -144,13 +144,9 @@ class Host:
         await self.session.send(turn['text'], extra_context=extra)
 
     async def interrupt(self, task):
-        runtime = self.session.runtime if self.session else None
-        interrupt = getattr(runtime, 'interrupt', None)
-        if not interrupt and getattr(runtime, 'client', None):
-            interrupt = runtime.client.interrupt
-        if interrupt:
+        if self.session:
             with contextlib.suppress(Exception):
-                await asyncio.wait_for(interrupt(), 3)
+                await asyncio.wait_for(self.session.runtime.interrupt(), 3)
         if not task.done():
             task.cancel()
         with contextlib.suppress(asyncio.CancelledError, Exception):

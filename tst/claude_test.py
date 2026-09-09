@@ -1,10 +1,19 @@
 import unittest
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 from claude_agent_sdk import ResultMessage
 from engine.runtime.claude_agent_sdk import ClaudeAgentSDKRuntime
 
 
 class claude_test(unittest.IsolatedAsyncioTestCase):
+    async def test_interrupt_uses_the_adapter_and_is_safe_after_close(self):
+        runtime = ClaudeAgentSDKRuntime()
+        client = runtime.client = AsyncMock()
+        await runtime.interrupt()
+        await runtime.close()
+        await runtime.interrupt()
+        client.interrupt.assert_awaited_once()
+        client.disconnect.assert_awaited_once()
+
     async def test_subscription_limit_is_an_error_even_with_success_subtype(self):
         result = ResultMessage(subtype='success', duration_ms=1, duration_api_ms=1, is_error=True,
             num_turns=1, session_id='test', total_cost_usd=0, usage={}, result="You've hit your session limit")

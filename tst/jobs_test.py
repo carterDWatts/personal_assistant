@@ -1,6 +1,11 @@
 import uuid
 import tempfile
+import asyncio
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, Mock, patch
+from engine.db import Map
+from engine.relay import Relay
 from engine.jobs import Jobs, Worker
 from engine.tools import Tools, ToolError
 from engine.workspace import Workspace
@@ -25,6 +30,30 @@ class jobs_test(MapTest):
             self.map.execute('truncate assistant.owner,assistant.host cascade')
         super().tearDown()
     def start(self,**extra):return self.run_async(self.jobs.start({'key':'test','task':'Find a useful answer','kind':'research',**extra}))
+
+    def test_local_and_hosted_runners_respect_the_current_lease(self):
+        from engine.jobs import run
+        relay = Relay(self.map)
+        relay.acquire()
+        host = SimpleNamespace(ready=asyncio.Event(), stopping=asyncio.Event(), relay=relay)
+        host.ready.set()
+
+        async def cycle(runner, expected):
+            connection = Map(self.map.url)
+            worker = Mock(once=AsyncMock())
+            with patch('engine.jobs.Map', return_value=connection), patch('engine.jobs.Worker', return_value=worker), \
+                 patch('engine.jobs.asyncio.sleep', side_effect=asyncio.CancelledError):
+                with self.assertRaises(asyncio.CancelledError):
+                    await run(self.map.url, runner)
+            self.assertEqual(worker.once.await_count, expected)
+            self.assertTrue(connection.conn.closed)
+
+        self.run_async(cycle(None, 0))
+        self.run_async(cycle(host, 1))
+        relay.release()
+        self.run_async(cycle(None, 1))
+        self.run_async(cycle(host, 0))
+
     def test_retry_does_not_spawn_again_and_cancel_is_terminal(self):
         first=self.start();self.assertEqual(first,self.start())
         self.run_async(self.jobs.cancel({'id':str(first['id'])}))

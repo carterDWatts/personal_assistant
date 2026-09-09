@@ -1,6 +1,5 @@
 """Conversation lifecycle shared by terminal and desktop clients."""
 
-import inspect
 import time
 from engine import context
 from engine.config import prompt
@@ -113,12 +112,7 @@ async def run(mode, map_, runtime, io, device):
     session = Session(map_, runtime, io, device)
     try:
         await session.open(mode)
-        while True:
-            text = io.read()
-            if inspect.isawaitable(text):
-                text = await text
-            if text is None:
-                break
+        while (text := io.read()) is not None:
             if text.strip():
                 await session.send(text)
     except BaseException:

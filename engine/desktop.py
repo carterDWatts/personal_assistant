@@ -54,6 +54,7 @@ async def main():
     from engine.db import Map
     from engine.engine import Session
     from engine.runtime import load
+    from engine.jobs import run as run_jobs
     from engine.integrations import google, services
     from engine.integrations.catalog import ACCOUNT_PROVIDERS, OAUTH_PROVIDERS
     map_, session, active, memory_poll = None, None, None, None
@@ -87,19 +88,6 @@ async def main():
             emit("connections", **(await connection_status()), connecting=False,
                  error="Google wasn’t connected. Try again and approve the requested access.")
 
-    async def local_jobs():
-        from engine.jobs import Worker
-        jobs_map = Map()
-        try:
-            worker = Worker(jobs_map)
-            while True:
-                # The hosted worker owns production jobs while it is online.
-                if not jobs_map.value('select exists(select 1 from assistant.host where lease_until>now())'):
-                    await worker.once()
-                await asyncio.sleep(3)
-        finally:
-            jobs_map.close()
-
     async def monitor_memory():
         nonlocal outbound_cursor
         while True:
@@ -111,11 +99,8 @@ async def main():
                 counts = map_.row("select count(*) filter(where status <> 'done') as pending, count(*) filter(where status='error') as errors from memory.memory_jobs")
                 text = "Memory update paused; chat still works." if counts['errors'] else "Updating memory in the background…" if counts['pending'] else ""
                 emit("memory", text=text)
-                # What the memory panel shows: the latest things learned, today's plan, and what is still open.
                 emit("map",
                      calendar=map_.value("select payload || jsonb_build_object('error',last_error) from assistant.source_items where source='calendar-view' and id='current'") or {},
-                     learned=map_.rows("select entity_name, attribute, value, recorded_at from memory.current_assertions"
-                                       " order by recorded_at desc limit 8"),
                      plans=map_.rows("select item, status from memory.plans where day = current_date order by id"),
                      questions=map_.value("select count(*) from memory.questions where closed_at is null"),
                      pending=counts['pending'], errors=counts['errors'])
@@ -184,7 +169,7 @@ async def main():
                     await session.open("clear" if clear else "talk")
                     emit("ready")
                     memory_poll = asyncio.create_task(monitor_memory())
-                    jobs_task = asyncio.create_task(local_jobs())
+                    jobs_task = asyncio.create_task(run_jobs(map_.url))
                 elif action == "send" and session:
                     if active and not active.done():
                         raise ValueError("Wait for the current reply")
@@ -195,11 +180,7 @@ async def main():
                     interrupted = bool(active and not active.done())
                     if not interrupted:
                         continue
-                    interrupt = getattr(session.runtime, "interrupt", None)
-                    if interrupt:
-                        await interrupt()
-                    elif getattr(session.runtime, "client", None):
-                        await session.runtime.client.interrupt()
+                    await session.runtime.interrupt()
                 elif action == "quit":
                     break
             except RuntimeError as error:
@@ -207,19 +188,14 @@ async def main():
             except Exception:
                 emit("error", text="Could not connect. Check your database setting and subscription login, then reconnect.")
     finally:
-        if jobs_task:
-            jobs_task.cancel()
-            await asyncio.gather(jobs_task, return_exceptions=True)
-        if memory_poll:
-            memory_poll.cancel()
-            await asyncio.gather(memory_poll, return_exceptions=True)
-        if active and not active.done():
-            active.cancel()
-            await asyncio.gather(active, return_exceptions=True)
-        if session:
-            await session.close()
-        if map_:
-            map_.close()
+        tasks = [task for task in (jobs_task, memory_poll, active, connection_task) if task]
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+        try:
+            if session: await session.close()
+        finally:
+            if map_: map_.close()
 
 
 if __name__ == "__main__":

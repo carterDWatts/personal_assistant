@@ -2,7 +2,7 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import AsyncMock, Mock, patch
 from engine.desktop import load_settings
 
 
@@ -27,6 +27,23 @@ class desktop_test(unittest.TestCase):
 
 
 class desktop_voice_test(unittest.IsolatedAsyncioTestCase):
+    async def test_database_closes_even_if_session_cleanup_fails(self):
+        from io import StringIO
+        from engine import desktop
+        map_ = Mock(url='fixture')
+        map_.rows.return_value = []
+        map_.row.return_value = {'pending': 0, 'errors': 0}
+        session = Mock(open=AsyncMock(), close=AsyncMock(side_effect=RuntimeError('close failed')))
+        incoming = StringIO('{"type":"connect","runtime":"codex"}\n{"type":"quit"}\n')
+        with patch.object(desktop, 'load_settings'), patch.object(desktop.sys, 'stdin', incoming), \
+             patch.object(desktop, 'emit'), patch('engine.db.Map', return_value=map_), \
+             patch('engine.engine.Session', return_value=session), patch('engine.runtime.load'), \
+             patch('engine.jobs.run', new_callable=AsyncMock) as jobs:
+            with self.assertRaisesRegex(RuntimeError, 'close failed'):
+                await desktop.main()
+        jobs.assert_called_once_with('fixture')
+        map_.close.assert_called_once()
+
     async def test_interrupted_reply_returns_ready_without_ending_voice(self):
         import asyncio
         import json
@@ -43,6 +60,7 @@ class desktop_voice_test(unittest.IsolatedAsyncioTestCase):
         class Runtime:
             async def interrupt(self): released.set()
         class Map:
+            url = 'fixture'
             def value(self,*args): return 0
             def rows(self,*args): return []
             def row(self, *args): return {'pending':0,'errors':0}

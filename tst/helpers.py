@@ -67,6 +67,9 @@ class FakeRuntime:
         self.closed = True
         return Metrics(cost_usd=0.01 * len(self.sent), turns=len(self.sent))
 
+    async def interrupt(self):
+        self.interrupted = True
+
 
 class FakeTerminal:
     def __init__(self, inputs):

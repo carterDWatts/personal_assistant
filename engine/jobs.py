@@ -182,13 +182,14 @@ Do not ask the user to do research you can finish with the supplied tools. Do no
                 except Exception:pass
             self.map.execute("select pg_advisory_unlock(hashtextextended('assistant-jobs',0))")
 
-async def run(url,host):
-    await host.ready.wait()
+async def run(url,host=None):
+    if host: await host.ready.wait()
+    owner = host.relay.worker_id if host else None
     map_=Map(url);worker=Worker(map_)
     try:
-        while not host.stopping.is_set():
-            if map_.value('select exists(select 1 from assistant.host where worker_id=%s and lease_until>now())',(host.relay.worker_id,)):
+        while host is None or not host.stopping.is_set():
+            # A local runner yields to any live host; a host must still own its lease.
+            if map_.value('select worker_id from assistant.host where lease_until>now()') == owner:
                 await worker.once()
-            try:await asyncio.wait_for(host.stopping.wait(),3)
-            except asyncio.TimeoutError:pass
+            await asyncio.sleep(3)
     finally:map_.close()

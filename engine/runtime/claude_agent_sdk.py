@@ -74,6 +74,10 @@ class ClaudeAgentSDKRuntime:
                 self.metrics.add(turn)
                 yield Event("done", payload=turn.as_dict())
 
+    async def interrupt(self):
+        if self.client is not None:
+            await self.client.interrupt()
+
     async def close(self):
         if self.client is not None:
             await self.client.disconnect()
