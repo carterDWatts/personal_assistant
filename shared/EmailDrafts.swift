@@ -11,6 +11,31 @@ struct EmailDraft: Identifiable {
     func field(_ key: String) -> String { (payload[key] as? [String])?.joined(separator: ", ") ?? payload[key] as? String ?? "" }
 }
 
+/// A draft belongs to the reply that created it. Sending still requires the reviewed version.
+struct EmailDraftPreview: View {
+    let id: String
+    let request: ([String: Any]) async throws -> [String: Any]
+    let review: () -> Void
+    @State private var draft: EmailDraft?
+    var body: some View {
+        Button(action: review) {
+            VStack(alignment: .leading, spacing: 8) {
+                Label(draft?.subject ?? "Email draft", systemImage: "envelope")
+                    .font(.headline).foregroundStyle(.primary)
+                if let draft {
+                    Text("To: " + draft.field("to")).font(.caption).foregroundStyle(.secondary)
+                    Text(draft.body).font(.callout).lineLimit(4).foregroundStyle(.primary)
+                }
+                Text("Review email").font(.callout.weight(.medium))
+            }.frame(maxWidth: .infinity, alignment: .leading).padding(16)
+                .background(.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 14))
+                .overlay(RoundedRectangle(cornerRadius: 14).stroke(.primary.opacity(0.1)))
+                .contentShape(RoundedRectangle(cornerRadius: 14))
+        }.buttonStyle(.plain).accessibilityIdentifier("email-draft-" + id)
+            .task(id: id) { if let row = try? await request(["operation": "get", "id": id]) { draft = EmailDraft(row: row) } }
+    }
+}
+
 struct EmailDraftsView: View {
     var initialID: String? = nil
     let request: ([String: Any]) async throws -> [String: Any]
@@ -77,13 +102,11 @@ struct EmailDraftsView: View {
                     }.overlay { if drafts.isEmpty { Text(error.isEmpty ? "No email drafts yet. Ask me to write one." : error).foregroundStyle(.secondary).padding() } }
                 }
             }
-            .navigationTitle("Email drafts")
+            .navigationTitle("Review email")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    if selected != nil { Button("All drafts") { selected = nil } }
-                    else { Button("Close") { dismiss() } }
+                    Button("Close") { dismiss() }
                 }
-                ToolbarItem(placement: .confirmationAction) { if selected != nil { Button("Done") { dismiss() } } }
             }
             .task {
                 selected = initialID
@@ -107,7 +130,8 @@ struct EmailDraftsView: View {
     }
     private func refresh() async {
         do {
-            drafts = (try await request(["operation": "list"])["drafts"] as? [[String: Any]] ?? []).map { EmailDraft(row: $0) }
+            if let selected { drafts = [EmailDraft(row: try await request(["operation": "get", "id": selected]))] }
+            else { drafts = (try await request(["operation": "list"])["drafts"] as? [[String: Any]] ?? []).map { EmailDraft(row: $0) } }
             if let latest = drafts.first(where: { $0.id == selected }) {
                 if let reviewed, reviewed.id == selected, reviewed.row["content_hash"] as? String != latest.row["content_hash"] as? String {
                     changed = true; error = "This draft changed. Review the update before sending."

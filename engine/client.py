@@ -6,7 +6,7 @@ from engine.tools import ToolError
 
 
 def inbox_request(map_,action,args):
-    if action not in ("inbox","inbox_open"): raise ToolError("Invalid inbox operation.")
+    if action not in ("inbox","inbox_open","inbox_cancel"): raise ToolError("Invalid inbox operation.")
     owner=map_.value("select user_id from assistant.owner")
     device=uuid.uuid5(uuid.NAMESPACE_URL,"personal-assistant:desktop:"+config.DEVICE)
     map_.value("select public.assistant_client(%s,%s,%s,%s)",(owner,device,"register",jsonb({"name":config.DEVICE})))

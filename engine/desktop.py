@@ -94,12 +94,17 @@ async def main():
 
     async def monitor_memory():
         nonlocal outbound_cursor
+        cancelled = set()
         while True:
             try:
                 rows = map_.rows("select m.id,m.role,m.content,m.created_at,m.payload from memory.messages m where m.id>%s and (m.payload ? 'inbox_source_id' or coalesce((m.payload->>'proactive')::boolean,false)) order by m.id", (outbound_cursor,))
                 for row in rows:
                     emit("inbox_opened" if (row.get("payload") or {}).get("inbox_source_id") else "proactive", message=row)
                     outbound_cursor=row['id']
+                for row in map_.rows("select message_id from assistant.inbox_cancellations where message_id>(select coalesce(max(id),0) from memory.messages where payload->>'event'='chat_cleared')"):
+                    if row['message_id'] not in cancelled:
+                        emit('inbox_cancelled',message_id=str(row['message_id']))
+                        cancelled.add(row['message_id'])
                 counts = map_.row("select count(*) filter(where status <> 'done') as pending, count(*) filter(where status='error') as errors from memory.memory_jobs")
                 text = "Memory update paused; chat still works." if counts['errors'] else "Updating memory in the background…" if counts['pending'] else ""
                 emit("memory", text=text)
@@ -174,7 +179,7 @@ async def main():
                         emit('client_response',request_id=message.get('request_id'),result=result)
                     except Exception:
                         emit('client_response',request_id=message.get('request_id'),error='The image could not be loaded. Try a smaller image.')
-                elif action in ('inbox','inbox_open') and map_:
+                elif action in ('inbox','inbox_open','inbox_cancel') and map_:
                     from engine.client import inbox_request
                     try:
                         result=inbox_request(map_,action,message.get('args',{}))

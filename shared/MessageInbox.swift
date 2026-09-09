@@ -17,6 +17,7 @@ struct InboxMessage: Identifiable {
 
 /// Opening is explicit; merely receiving or browsing messages never adds them to chat.
 struct MessageInbox: View {
+    let palette: Palette
     let request: ([String: Any]) async throws -> [String: Any]
     let open: ([String: Any], String) async throws -> Void
     @Environment(\.dismiss) private var dismiss
@@ -29,12 +30,13 @@ struct MessageInbox: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack {
-                Text("Inbox").font(.title2.bold())
+                Mark(palette: palette).frame(width: 26, height: 26)
+                Text("Inbox").font(.title2.weight(.semibold)).foregroundStyle(palette.ink)
                 Spacer()
-                Button("Close") { dismiss() }
+                Button { dismiss() } label: { Image(systemName: "xmark").font(.body).padding(10).background(palette.surface, in: Circle()) }.buttonStyle(.plain).accessibilityLabel("Close inbox")
             }
-            Text("Messages waiting for you. Open one to talk about it.").font(.subheadline).foregroundStyle(.secondary)
-            if !error.isEmpty { Text(error).font(.callout).foregroundStyle(.secondary) }
+            Text("A few things I wanted to share.").font(.subheadline).foregroundStyle(palette.muted)
+            if !error.isEmpty { Text(error).font(.callout).foregroundStyle(palette.muted) }
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 12) {
                     ForEach(messages) { message in
@@ -49,23 +51,24 @@ struct MessageInbox: View {
                         } label: {
                             VStack(alignment: .leading, spacing: 8) {
                                 HStack {
-                                    if !message.opened { Circle().fill(Color.accentColor).frame(width: 6, height: 6) }
-                                    Text(message.date.formatted(date: .abbreviated, time: .shortened)).font(.caption).foregroundStyle(.secondary)
+                                    if !message.opened { Circle().fill(palette.accent).frame(width: 6, height: 6) }
+                                    Text(message.date.formatted(date: .abbreviated, time: .shortened)).font(.caption).foregroundStyle(palette.muted)
                                     Spacer()
                                     if opening == message.id { ProgressView().controlSize(.small) }
                                 }
-                                Text(message.text).foregroundStyle(.primary).multilineTextAlignment(.leading)
-                            }.padding(14).frame(maxWidth: .infinity, alignment: .leading)
-                                .background(Color.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: 8))
+                                Text(message.text).font(.body).lineSpacing(4).foregroundStyle(palette.ink).multilineTextAlignment(.leading).lineLimit(5)
+                            }.padding(18).frame(maxWidth: .infinity, alignment: .leading)
+                                .background(palette.surface.opacity(message.opened ? 0.55 : 1), in: RoundedRectangle(cornerRadius: 14))
+                                .overlay(RoundedRectangle(cornerRadius: 14).stroke(palette.line, lineWidth: 0.7))
                         }.buttonStyle(.plain).disabled(opening != nil)
                     }
                     if more { Button("Older messages") { Task { await load(older: true) } }.disabled(loading) }
                     if loading { ProgressView() }
-                    if messages.isEmpty && !loading && error.isEmpty { Text("Nothing waiting here.").foregroundStyle(.secondary) }
+                    if messages.isEmpty && !loading && error.isEmpty { Text("Nothing waiting here.").foregroundStyle(palette.muted) }
                 }
             }
             Button("Refresh") { Task { await load() } }.disabled(loading || opening != nil)
-        }.padding(20).task { await load() }
+        }.padding(22).background(palette.background.ignoresSafeArea()).tint(palette.accent).task { await load() }
     }
     private func load(older: Bool = false) async {
         loading = true; defer { loading = false }

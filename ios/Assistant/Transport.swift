@@ -46,6 +46,7 @@ func isoDate(_ date: Date) -> String {
             history.append(selected)
             return ["message": selected]
         }
+        if action == "inbox_cancel" { history.removeAll { ($0["id"] as? Int) == 901 }; return ["cancelled": true] }
         guard action == "email" else { throw ConnectionFailure("Unavailable in preview.") }
         if args["operation"] as? String == "approve" { sampleEmailState = "sent" }
         if args["operation"] as? String == "discard" { sampleEmailState = "discarded" }
@@ -93,7 +94,8 @@ func isoDate(_ date: Date) -> String {
     func send(_ text: String, id: UUID, speech: Bool, model: String?, mode: String, notification: [String: String]?) {
         history.append(["role": "user", "content": text, "created_at": isoDate(Date())])
         reply?.cancel()
-        let answer = Self.answers[turn % Self.answers.count]
+        let isEmail = text.lowercased().contains("email")
+        let answer = isEmail ? "I’ve prepared the email for your review." : Self.answers[turn % Self.answers.count]
         turn += 1
         let turnID = UUID().uuidString.lowercased()
         emit(["type": "submitted", "turn_id": turnID, "speech": speech])
@@ -104,6 +106,7 @@ func isoDate(_ date: Date) -> String {
             if text.lowercased().contains("calendar") && (linked["google"] ?? []).isEmpty {
                 emit(["type": "connection_required", "action": "google_connect", "message": "This service needs to be connected on this host."])
             }
+            if isEmail { emit(["type": "email_draft", "draft_id": "sample-draft"]) }
             var spoken = ""
             for word in answer.split(separator: " ") {
                 if Task.isCancelled { break }
@@ -123,7 +126,7 @@ func isoDate(_ date: Date) -> String {
                 }
                 emit(["type": "speech_end", "turn_id": turnID, "status": "success"])
             }
-            history.append(["role": "assistant", "content": spoken, "created_at": isoDate(Date())])
+            history.append(["role": "assistant", "content": spoken, "created_at": isoDate(Date()), "payload": ["email_drafts": isEmail ? ["sample-draft"] : []]])
             emit(["type": "end"])
             emit(["type": "ready"])
             emit(map())

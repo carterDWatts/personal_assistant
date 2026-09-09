@@ -3,10 +3,10 @@ import SwiftUI
 struct Palette {
     let background, surface, bubble, line, ink, muted, accent, moss, sage, deep: Color
     static func forScheme(_ scheme: ColorScheme) -> Palette {
-        Palette(background: Color(red: 0.8, green: 0.79, blue: 0.76),
-                surface: Color(red: 0.86, green: 0.855, blue: 0.83),
-                bubble: Color(red: 0.73, green: 0.72, blue: 0.69),
-                line: Color.black.opacity(0.22),
+        Palette(background: Color(red: 0.89, green: 0.88, blue: 0.85),
+                surface: Color(red: 0.94, green: 0.935, blue: 0.91),
+                bubble: Color(red: 0.84, green: 0.85, blue: 0.80),
+                line: Color.black.opacity(0.10),
                 ink: Color(nsColor: .labelColor),
                 muted: Color(nsColor: .secondaryLabelColor),
                 accent: Color(red: 0.36, green: 0.49, blue: 0.27),

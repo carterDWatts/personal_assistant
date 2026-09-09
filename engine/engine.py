@@ -144,7 +144,7 @@ async def run(mode, map_, runtime, io, device):
 async def turn(runtime, conv, tools, io, segment_id, message_id, text, images=None):
     tools.message_id = message_id
     completed, pending = [], ""
-    shown_images = []
+    shown_images, email_drafts = [], []
     failed = True
     io.start_turn()
     started = time.monotonic()
@@ -173,6 +173,8 @@ async def turn(runtime, conv, tools, io, segment_id, message_id, text, images=No
                     receipt=json.loads((ev.payload or {}).get('content',''))
                     if isinstance(receipt,dict) and receipt.get('image',{}).get('id'):
                         shown_images.append(receipt['image']['id'])
+                    if isinstance(receipt,dict) and receipt.get('needs_review') and receipt.get('draft',{}).get('id'):
+                        email_drafts.append(receipt['draft']['id'])
                 except (ValueError,TypeError): pass
                 conv.record(segment_id, "tool", None, {"result_for": ev.name, **(ev.payload or {})})
                 if notify := getattr(io, "tool_result", None):
@@ -181,9 +183,9 @@ async def turn(runtime, conv, tools, io, segment_id, message_id, text, images=No
     finally:
         if pending:
             completed.append(pending)
-        if completed or shown_images:
-            final_text = "\n\n".join(completed) or "Image"
-            conv.record(segment_id, "assistant", final_text, {"interrupted": failed, "images":list(dict.fromkeys(shown_images))})
+        if completed or shown_images or email_drafts:
+            final_text = "\n\n".join(completed) or ("I’ve prepared the email for your review." if email_drafts else "Image")
+            conv.record(segment_id, "assistant", final_text, {"interrupted": failed, "images":list(dict.fromkeys(shown_images)), "email_drafts":list(dict.fromkeys(email_drafts))})
             if replace := getattr(io, "replace_text", None):
                 replace(final_text)
         if runtime.session_id:

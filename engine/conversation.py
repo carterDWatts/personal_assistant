@@ -85,7 +85,7 @@ class Conversation:
         rows = self.map.rows(
             "select m.id, m.role, m.content, m.created_at, m.payload, c.device from memory.messages m"
             " join memory.conversations c on c.id = m.conversation_id"
-            " where m.role in ('user', 'assistant') and m.content is not null and not coalesce((m.payload->>'proactive')::boolean,false) and m.id > %s order by m.id desc limit %s", (self.cutoff(), n))
+            " where m.role in ('user', 'assistant') and m.content is not null and not coalesce((m.payload->>'proactive')::boolean,false) and not exists(select 1 from assistant.inbox_cancellations ic where ic.message_id=m.id) and m.id > %s order by m.id desc limit %s", (self.cutoff(), n))
         return list(reversed(rows))
 
     def seed_text(self, messages):

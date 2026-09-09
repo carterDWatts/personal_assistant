@@ -10,11 +10,12 @@ struct ChatMessage: Identifiable {
     var databaseID: String? = nil
     var reference: [String: String]? = nil
     var inboxSourceID: String? = nil
+    var emailDrafts: [String] = []
 
     static func stored(_ row: [String: Any]) -> ChatMessage? {
         guard let role = row["role"] as? String, let content = row["content"] as? String, !content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
         let payload = row["payload"] as? [String: Any]
-        return ChatMessage(role: role, text: content, images: payload?["images"] as? [String] ?? [], databaseID: row["id"].map { String(describing: $0) }, reference: payload?["reference"] as? [String: String], inboxSourceID: payload?["inbox_source_id"] as? String)
+        return ChatMessage(role: role, text: content, images: payload?["images"] as? [String] ?? [], databaseID: row["id"].map { String(describing: $0) }, reference: payload?["reference"] as? [String: String], inboxSourceID: payload?["inbox_source_id"] as? String, emailDrafts: payload?["email_drafts"] as? [String] ?? [])
     }
 }
 
@@ -54,7 +55,7 @@ struct ReplyState {
     }
 
     private func finishRows(_ messages: inout [ChatMessage]) {
-        messages.removeAll { $0.role == "assistant" && $0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && $0.images.isEmpty }
+        messages.removeAll { $0.role == "assistant" && $0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && $0.images.isEmpty && $0.emailDrafts.isEmpty }
         for index in messages.indices { messages[index].pending = false }
     }
 }

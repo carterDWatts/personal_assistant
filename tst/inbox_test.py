@@ -42,3 +42,22 @@ class inbox_test(MapTest):
             self.map.value('select public.assistant_client(%s,%s,%s,%s)',(self.owner,uuid.uuid4(),'inbox',jsonb({})))
         self.request('inbox_open',{'request_id':str(uuid.uuid4()),'message_id':str(original)})
         self.assertEqual(len(self.request('bootstrap')['history']),1)
+
+    def test_cancel_hides_only_unused_copy_and_keeps_original(self):
+        original=post(self.map,'example','Your report is ready.')
+        def open_message():
+            return self.request('inbox_open',{'request_id':str(uuid.uuid4()),'message_id':str(original)})['message']
+        opened=open_message()
+        self.assertTrue(self.request('inbox_cancel',{'message_id':str(opened['id'])})['cancelled'])
+        self.assertTrue(self.request('inbox_cancel',{'message_id':str(opened['id'])})['cancelled'])
+        self.assertEqual(self.request('bootstrap')['history'],[])
+        self.assertEqual(Conversation(self.map,'test','codex').tail(100),[])
+        self.assertEqual(len(self.request('inbox')['messages']),1)
+        new=open_message()
+        self.assertNotEqual(new['id'],opened['id'])
+        conv=Conversation(self.map,'test','codex')
+        conv.record(new['conversation_id'],'user','Tell me more.')
+        self.assertFalse(self.request('inbox_cancel',{'message_id':str(new['id'])})['cancelled'])
+        self.assertEqual(len(self.request('bootstrap')['history']),2)
+        with self.assertRaisesRegex(psycopg.Error,'invalid_request'):
+            self.request('inbox_cancel',{'message_id':str(original)})

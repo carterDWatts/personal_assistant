@@ -37,6 +37,16 @@ class engine_test(MapTest):
         self.assertEqual(seg["metrics"]["turns"], 2)
         self.assertTrue(rt.closed)
 
+    def test_email_drafts_remain_attached_to_the_reply_after_reopening(self):
+        import json
+        from engine.runtime import Event
+        receipt = Event("tool_result", name="google_mail_draft", payload={"content": json.dumps({"needs_review":True,"draft":{"id":"example-draft"}})})
+        rt = FakeRuntime([[receipt, receipt]])
+        self.run_async(engine.run("talk", self.map, rt, FakeTerminal(["Write an email"]), "mac"))
+        row = self.map.row("select content,payload from memory.messages where role='assistant'")
+        self.assertEqual(row['payload']['email_drafts'],['example-draft'])
+        self.assertIn('review',row['content'])
+
     def test_clear_starts_fresh_and_stays_clear_on_reopen(self):
         first = FakeRuntime([[say("old answer")]])
         self.run_async(engine.run("talk", self.map, first, FakeTerminal(["old user message"]), "mac"))

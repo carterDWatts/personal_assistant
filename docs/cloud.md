@@ -179,9 +179,9 @@ The conversational runtime can call `job_start`, `jobs_list`, and `job_cancel`. 
 
 Research jobs have explicit read-only memory and web/mail/calendar tools. Code jobs additionally edit an in-memory copy of the deployed assistant source, inspect database schema metadata, and retain a reviewable patch. They have no shell, credentials, external send tools, production writes, test execution, or deployment path. A completed code job means the draft is prepared; it does not mean a live fix was deployed. `jobs_list` retrieves the patch in bounded pages. Cancellation discards unfinished output; interrupted work is marked failed rather than silently replayed.
 
-A job can send two brief progress messages, at least a minute apart. Its final message is persisted in the same conversation as ordinary replies, with the result and patch kept separately from the model's working context. It does not automatically turn its scratch work into memory facts.
+A job can send two brief progress messages, at least a minute apart. Its final message enters the inbox, with the result and patch kept separately from the model's working context. It does not automatically turn its scratch work into memory facts.
 
-Alerts and reminder follow-ups also become assistant messages. The push is a delivery mechanism for that message. Tapping one selects its original message, including a stable message ID, so a short reply carries the right context even after reconnecting or a newer reminder follow-up. Repeated delivery never duplicates the same conversation message. Existing deduplication, evidence checks and push pacing remain in place. New messages do not start audio playback or interrupt an active reply.
+Alerts and reminder follow-ups also become assistant messages. The push is a delivery mechanism for that message. Tapping one brings an attributed copy into chat, linked to its original message ID, so a short reply carries the right context even after reconnecting or a newer reminder follow-up. Repeated delivery never duplicates the same conversation message. Existing deduplication, evidence checks and push pacing remain in place. New messages do not start audio playback or interrupt an active reply.
 
 
 ## Reminder delivery windows
@@ -199,3 +199,29 @@ occurrence when newer context makes the nudge inappropriate. Withholding does no
 a task done. If memory or conversation changes during preparation, the dispatcher
 retries with fresh context rather than sending the old draft. Semantic relevance still
 requires model judgment; window enforcement and occurrence deduplication do not.
+
+
+Owner development reviews use `python scripts/cloud.py development-reviews` (or
+`--disable`), followed by a deployment. They run on the host’s ChatGPT subscription
+with `gpt-6-astra`. New conversation excerpts trigger one bounded review after the
+chat has been idle for two minutes, at least thirty minutes apart, up to four times
+in a rolling day. No new messages means no model call. The durable cursor and job
+keys prevent duplicate reviews after restarts. Reviews use the existing job worker,
+with no child agents or shell access.
+
+This is a private developer feature, disabled by default. The agent can inspect
+chat and memory records, read scoped source, prepare a patch and publish a
+`development/` branch for CI. It cannot edit prompt, identity, memory, database,
+permission or development-control files. It has no merge, deployment, production
+write or external-message tools. The normal merge tool rejects these branches;
+the owner reviews and merges them on GitHub. CI runs without production credentials.
+No-findings reviews stay quiet; actionable results enter the inbox and push pipeline.
+
+Unsolicited messages now live in the inbox. Opening one creates an attributed
+conversation entry, with an idempotent request ID. Reading the inbox does not mark
+a reminder complete. Clearing chat leaves inbox items and saved knowledge intact.
+
+Cancelling a notification reply hides only the unused chat copy. The original
+message and conversation log remain intact. Once answered, the copy stays in history.
+Email drafts appear beneath the reply that created them; opening the card reviews
+the exact recipients and content before a separate Send confirmation.

@@ -66,6 +66,18 @@ func plain(_ value: Any?) -> String {
         guard let reference = message.reference, let kind = reference["kind"], let id = reference["id"] else { return }
         discussNotification(kind: kind, id: id, title: message.text, messageID: message.inboxSourceID ?? message.databaseID)
     }
+    @Published var selectedInboxMessageID: String?
+    func cancelInboxReply() {
+        guard let id = selectedInboxMessageID, !busy else { return }
+        Task {
+            do {
+                let result = try await transport.clientRequest("inbox_cancel", ["message_id": id])
+                if result["cancelled"] as? Bool == true { messages.removeAll { $0.databaseID == id } }
+                selectedInboxMessageID = nil; focusedMessage = nil
+                clearNotificationDiscussion()
+            } catch { status = "I couldn’t cancel that reply. Please try again." }
+        }
+    }
     @Published var showInbox = false
     func inboxRequest(_ args: [String: Any]) async throws -> [String: Any] { try await transport.clientRequest("inbox", args) }
     func openInbox(_ row: [String: Any], requestID: String) async throws {
@@ -73,6 +85,7 @@ func plain(_ value: Any?) -> String {
         let result = try await transport.clientRequest("inbox_open", ["message_id": String(describing: source), "request_id": requestID])
         guard let selected = result["message"] as? [String: Any] else { throw ConnectionFailure("Message unavailable.") }
         appendDiscussion(selected)
+        selectedInboxMessageID = selected["id"].map { String(describing: $0) }
         if let reference = (row["payload"] as? [String: Any])?["reference"] as? [String: String] {
             notificationDiscussion = reference.merging(["message_id": String(describing: source)]) { _, new in new }
             UserDefaults.standard.set(notificationDiscussion, forKey: "notificationDiscussion")
@@ -91,7 +104,7 @@ func plain(_ value: Any?) -> String {
         }
     }
     private func appendDiscussion(_ row: [String: Any]) {
-        guard var message = ChatMessage.stored(row) else { return }
+        guard (row["payload"] as? [String: Any])?["inbox_cancelled"] as? Bool != true, var message = ChatMessage.stored(row) else { return }
         if let id = message.databaseID, messages.contains(where: { $0.databaseID == id }) { return }
         message.at = parseDate(row["created_at"]) ?? Date()
         messages.append(message)
@@ -230,16 +243,22 @@ func plain(_ value: Any?) -> String {
                 } else { messages.append(ChatMessage(role: "assistant", text: event["caption"] as? String ?? "", images: [id])) }
             }
         case "email_draft":
-            emailDraftID = event["draft_id"] as? String; showEmailDrafts = true
+            if let id = event["draft_id"] as? String {
+                if let index = messages.indices.last, messages[index].role == "assistant" {
+                    if !messages[index].emailDrafts.contains(id) { messages[index].emailDrafts.append(id) }
+                } else { messages.append(ChatMessage(role: "assistant", text: "", emailDrafts: [id])) }
+            }
         case "history":
             replyState.reset(messages: &messages)
             liveVoice.silencePlayback(); spokenTurns.removeAll(); playedChunks.removeAll()
             messages = (event["messages"] as? [[String: Any]] ?? []).compactMap { row in
-                guard (row["payload"] as? [String: Any])?["proactive"] as? Bool != true, var message = ChatMessage.stored(row) else { return nil }
+                guard (row["payload"] as? [String: Any])?["proactive"] as? Bool != true, (row["payload"] as? [String: Any])?["inbox_cancelled"] as? Bool != true, var message = ChatMessage.stored(row) else { return nil }
                 message.at = parseDate(row["created_at"]) ?? Date()
                 return message
             }
         case "proactive": break
+        case "inbox_cancelled":
+            if let id = event["message_id"] as? String { messages.removeAll { $0.databaseID == id } }
         case "inbox_opened":
             if let row = event["message"] as? [String: Any] { appendDiscussion(row) }
         case "ready":
@@ -340,6 +359,7 @@ func plain(_ value: Any?) -> String {
         spokenTurns.removeAll(); playedChunks.removeAll()
         speechBuffer = ""
         if speak && voice { liveVoice.prepareReply() }
+        selectedInboxMessageID = nil
         messages.append(ChatMessage(role: "user", text: text)); busy = true
         transport.send(text, id: UUID(), speech: speak && voice && hostSpeaks, model: selectedModel.isEmpty ? nil : selectedModel, mode: mode, notification: notificationDiscussion.map { $0.filter { ["kind", "id", "message_id"].contains($0.key) } })
         clearNotificationDiscussion()

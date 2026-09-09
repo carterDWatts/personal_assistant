@@ -57,10 +57,10 @@ struct Concrete: View {
                     let x = CGFloat.random(in: -40...size.width, using: &rng), y = CGFloat.random(in: -40...size.height, using: &rng)
                     let dark = Bool.random(using: &rng)
                     stains.fill(Path(ellipseIn: CGRect(x: x, y: y, width: w, height: h)),
-                                with: .color((dark ? Color.black : Color.white).opacity(dark ? 0.07 : 0.06)))
+                                with: .color((dark ? Color.black : Color.white).opacity(dark ? 0.025 : 0.025)))
                 }
             }
-            Image(nsImage: grainImage).resizable(resizingMode: .tile).opacity(0.11).blendMode(.overlay)
+            Image(nsImage: grainImage).resizable(resizingMode: .tile).opacity(0.045).blendMode(.overlay)
         }.allowsHitTesting(false).accessibilityHidden(true)
     }
 }
@@ -137,8 +137,8 @@ struct MessageRow: View {
                     .font(.body).lineSpacing(3).foregroundStyle(palette.ink)
                     .textSelection(.enabled)
                     .padding(.horizontal, 12).padding(.vertical, 8)
-                    .background(palette.bubble)
-                    .overlay(Rectangle().stroke(palette.line, lineWidth: 1))
+                    .background(palette.bubble, in: RoundedRectangle(cornerRadius: 14))
+                    .overlay(RoundedRectangle(cornerRadius: 14).stroke(palette.line, lineWidth: 0.7))
             }
         } else {
             HStack(alignment: .top, spacing: 12) {
@@ -176,8 +176,6 @@ struct Composer: View {
     var body: some View {
         HStack(alignment: .bottom, spacing: 8) {
             ImageAttachmentPicker(images: $chat.pendingImages, error: $chat.imageError).disabled(chat.busy)
-            Button { chat.emailDraftID = nil; chat.showEmailDrafts = true } label: { Image(systemName: "envelope") }
-                .buttonStyle(.bordered).controlSize(.large).accessibilityLabel("Email drafts")
 
             Button { chat.toggleVoice() } label: {
                 Image(systemName: chat.voice ? "waveform" : "mic").frame(width: 16)
@@ -187,8 +185,8 @@ struct Composer: View {
                 .lineLimit(1...8).textFieldStyle(.plain).font(.system(size: 15)).foregroundStyle(palette.ink)
                 .focused($focused).onSubmit { chat.send() }
                 .padding(.horizontal, 10).padding(.vertical, 8)
-                .background(palette.surface)
-                .overlay(Rectangle().stroke(focused ? palette.accent : palette.line, lineWidth: 1))
+                .background(palette.surface, in: RoundedRectangle(cornerRadius: 14))
+                .overlay(RoundedRectangle(cornerRadius: 14).stroke(focused ? palette.accent.opacity(0.6) : palette.line, lineWidth: 1))
             if chat.busy {
                 Button { chat.stop() } label: { Image(systemName: "stop.fill").frame(width: 16) }
                     .buttonStyle(.bordered).controlSize(.large).help("Stop").accessibilityLabel("Stop reply")
@@ -525,7 +523,7 @@ struct SettingsPopover: View {
                     if !chat.connected && !chat.busy { Button("Reconnect") { chat.connect() }.controlSize(.small) }
                 }
                 Button { chat.showInbox = true } label: { Image(systemName: "tray") }.help("Inbox")
-                    .sheet(isPresented: $chat.showInbox) { MessageInbox(request: chat.inboxRequest, open: chat.openInbox).frame(minWidth: 480, minHeight: 500) }
+                    .sheet(isPresented: $chat.showInbox) { MessageInbox(palette: palette, request: chat.inboxRequest, open: chat.openInbox).frame(minWidth: 480, minHeight: 500) }
                 Button { showConnections.toggle() } label: { Image(systemName: "link") }
                     .help("Connections")
                     .popover(isPresented: $showConnections) { ConnectionsView(chat: chat) }
@@ -556,7 +554,7 @@ struct SettingsPopover: View {
         .overlay(alignment: .bottomTrailing) {
             if chat.voice {
                 VoiceConversation(chat: chat, palette: palette)
-                    .overlay(Rectangle().stroke(palette.line, lineWidth: 1))
+                    .overlay(RoundedRectangle(cornerRadius: 14).stroke(palette.line, lineWidth: 0.7))
                     .shadow(color: .black.opacity(0.18), radius: 14, y: 6)
                     .padding(.trailing, showMemory ? 280 : 22).padding(.bottom, 86)
             }
@@ -587,8 +585,19 @@ struct SettingsPopover: View {
                                 DayMarker(date: message.at, palette: palette)
                             }
                             MessageRow(onReply: { chat.reply(to: message) }, message: message, palette: palette)
-                                .padding(8).overlay(RoundedRectangle(cornerRadius: 8).stroke(message.id == chat.focusedMessage ? palette.accent : .clear, lineWidth: 1)).id(message.id)
+                                .padding(8).overlay(RoundedRectangle(cornerRadius: 8).stroke(message.id == chat.focusedMessage ? palette.accent : .clear, lineWidth: 1))
+                            .overlay(alignment: .topTrailing) {
+                                if message.databaseID != nil && message.databaseID == chat.selectedInboxMessageID {
+                                    Button { chat.cancelInboxReply() } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(palette.muted).padding(4).background(palette.background, in: Circle()) }
+                                        .buttonStyle(.plain).disabled(chat.busy).accessibilityLabel("Cancel notification reply")
+                                }
+                            }.id(message.id)
                         MessageImages(ids: message.images, load: chat.imageURL)
+                        ForEach(message.emailDrafts, id: \.self) { id in
+                            EmailDraftPreview(id: id, request: chat.emailRequest) {
+                                chat.emailDraftID = id; chat.showEmailDrafts = true
+                            }.tint(palette.accent)
+                        }
                         }
                         if chat.connectionPrompt != nil { ChatConnectionPrompt(chat: chat) }
                         Color.clear.frame(height: 1).id("bottom")

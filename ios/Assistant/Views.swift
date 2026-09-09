@@ -74,8 +74,8 @@ struct MessageRow: View, Equatable {
                 Text(inlineMarkdown(message.text))
                     .font(.body).lineSpacing(3).foregroundStyle(palette.ink)
                     .padding(.horizontal, 12).padding(.vertical, 9)
-                    .background(palette.bubble)
-                    .overlay(Rectangle().stroke(palette.line, lineWidth: 1))
+                    .background(palette.bubble, in: RoundedRectangle(cornerRadius: 14))
+                    .overlay(RoundedRectangle(cornerRadius: 14).stroke(palette.line, lineWidth: 0.7))
                     .contextMenu {
                             Button("Copy", systemImage: "doc.on.doc") { UIPasteboard.general.string = message.text }
                             if message.reference != nil { Button("Reply", systemImage: "arrowshape.turn.up.left") { onReply?() } }
@@ -108,8 +108,6 @@ struct Composer: View {
     var body: some View {
         HStack(alignment: .bottom, spacing: 8) {
             ImageAttachmentPicker(images: $chat.pendingImages, error: $chat.imageError).disabled(chat.busy)
-            Button { chat.emailDraftID = nil; chat.showEmailDrafts = true } label: { Image(systemName: "envelope") }
-                .buttonStyle(SquareButton(palette: palette)).accessibilityLabel("Email drafts")
 
             if !chat.voice {
                 Button { focused = false; chat.toggleVoice() } label: { Image(systemName: "mic") }
@@ -119,13 +117,13 @@ struct Composer: View {
                 .lineLimit(1...6).font(.body).foregroundStyle(palette.ink).tint(palette.accent)
                 .focused($focused)
                 .padding(.horizontal, 12).padding(.vertical, 11)
-                .background(palette.surface)
-                .overlay(Rectangle().stroke(focused ? palette.accent : palette.line, lineWidth: 1))
+                .background(palette.surface, in: RoundedRectangle(cornerRadius: 14))
+                .overlay(RoundedRectangle(cornerRadius: 14).stroke(focused ? palette.accent.opacity(0.6) : palette.line, lineWidth: 1))
             if chat.busy {
                 Button { chat.stop() } label: { Image(systemName: "stop.fill") }
                     .buttonStyle(SquareButton(palette: palette)).accessibilityLabel("Stop reply")
             } else {
-                Button { chat.send() } label: { Image(systemName: "arrow.up") }
+                Button { focused = false; chat.send() } label: { Image(systemName: "arrow.up") }
                     .buttonStyle(SquareButton(palette: palette, prominent: true)).disabled(!canSend).accessibilityLabel("Send message")
             }
         }
@@ -384,7 +382,7 @@ struct SignInView: View {
                 TextField("Email", text: $email).keyboardType(.emailAddress).textContentType(.emailAddress)
                     .textInputAutocapitalization(.never).autocorrectionDisabled()
                     .font(.body).foregroundStyle(palette.ink).tint(palette.accent)
-                    .padding(12).background(palette.surface).overlay(Rectangle().stroke(palette.line, lineWidth: 1))
+                    .padding(12).background(palette.surface).overlay(RoundedRectangle(cornerRadius: 14).stroke(palette.line, lineWidth: 0.7))
             }
             if !account.problem.isEmpty { Text(account.problem).font(.caption).foregroundStyle(Color.orange) }
             HStack {
@@ -454,7 +452,7 @@ struct ConversationView: View {
         .sheet(isPresented: $showDay) {
             DayPanel(chat: chat, palette: palette).presentationDetents([.medium, .large]).presentationDragIndicator(.visible)
         }
-        .sheet(isPresented: $chat.showInbox) { MessageInbox(request: chat.inboxRequest, open: chat.openInbox) }
+        .sheet(isPresented: $chat.showInbox) { MessageInbox(palette: palette, request: chat.inboxRequest, open: chat.openInbox) }
         .sheet(isPresented: $chat.showEmailDrafts) { EmailDraftsView(initialID: chat.emailDraftID, request: chat.emailRequest) }
         .sheet(isPresented: $showSettings) { SettingsView(chat: chat, palette: palette) }
         .sheet(isPresented: $showImport) { ContextImportView(upload: chat.importPart, refresh: chat.imports, runtime: chat.selectedModel.hasPrefix("claude-agent-sdk/") ? "claude-agent-sdk" : "codex") }
@@ -483,15 +481,15 @@ struct ConversationView: View {
                 }
             } label: {
                 HStack(spacing: 4) {
-                    Text(AssistantIdentity.name).font(.headline)
+                    Text(AssistantIdentity.name).font(.headline).lineLimit(1).minimumScaleFactor(0.85)
                     Image(systemName: "chevron.down").font(.caption2)
                 }.foregroundStyle(palette.ink)
             }.disabled(chat.busy || chat.models.isEmpty).accessibilityLabel("Choose model")
             Spacer()
             Circle().fill(chat.connected ? palette.accent : palette.muted).frame(width: 7, height: 7).accessibilityLabel(chat.status).padding(.trailing, 4)
-            Button { chat.showInbox = true } label: { Image(systemName: "tray") }.accessibilityLabel("Open inbox")
-            Button { showDay = true } label: { Label("Calendar", systemImage: "calendar").font(.subheadline) }
-                .buttonStyle(.bordered).tint(palette.accent).accessibilityLabel("Open calendar")
+            Button { chat.showInbox = true } label: { Image(systemName: "tray") }.buttonStyle(SquareButton(palette: palette, size: 36)).fixedSize().accessibilityLabel("Open inbox")
+            Button { showDay = true } label: { Image(systemName: "calendar") }
+                .buttonStyle(SquareButton(palette: palette, size: 36)).fixedSize().accessibilityLabel("Open calendar")
             Menu {
                 Button("Clear", systemImage: "eraser") { chat.draft = ""; chat.connect(clear: true) }.disabled(!chat.connected || chat.busy)
                 Button("Start morning", systemImage: "sun.horizon") { chat.startMorning() }.disabled(!chat.connected || chat.busy)
@@ -523,8 +521,19 @@ struct ConversationView: View {
                         if index == 0 || !Calendar.current.isDate(chat.messages[index - 1].at, inSameDayAs: message.at) {
                             DayMarker(date: message.at, palette: palette)
                         }
-                        MessageRow(onReply: { chat.reply(to: message) }, message: message, palette: palette).equatable().padding(8).overlay(RoundedRectangle(cornerRadius: 8).stroke(message.id == chat.focusedMessage ? palette.accent : .clear, lineWidth: 1)).id(message.id)
+                        MessageRow(onReply: { chat.reply(to: message) }, message: message, palette: palette).equatable().padding(8).overlay(RoundedRectangle(cornerRadius: 8).stroke(message.id == chat.focusedMessage ? palette.accent : .clear, lineWidth: 1))
+                            .overlay(alignment: .topTrailing) {
+                                if message.databaseID != nil && message.databaseID == chat.selectedInboxMessageID {
+                                    Button { chat.cancelInboxReply() } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(palette.muted).padding(4).background(palette.background, in: Circle()) }
+                                        .buttonStyle(.plain).disabled(chat.busy).accessibilityLabel("Cancel notification reply")
+                                }
+                            }.id(message.id)
                         MessageImages(ids: message.images, load: chat.imageURL)
+                        ForEach(message.emailDrafts, id: \.self) { id in
+                            EmailDraftPreview(id: id, request: chat.emailRequest) {
+                                chat.emailDraftID = id; chat.showEmailDrafts = true
+                            }.tint(palette.accent)
+                        }
                     }
                     if let prompt = chat.connectionPrompt {
                         ConnectionCard(chat: chat, prompt: prompt, palette: palette)
@@ -590,7 +599,7 @@ struct ConnectionCard: View {
         }
         .padding(14)
         .background(palette.surface.opacity(0.85))
-        .overlay(Rectangle().stroke(palette.line, lineWidth: 1))
+        .overlay(RoundedRectangle(cornerRadius: 14).stroke(palette.line, lineWidth: 0.7))
         .padding(.leading, 32)
     }
 }
@@ -610,7 +619,7 @@ struct TokenForm: View {
                 Text(Service.instructions(provider)).font(.callout).foregroundStyle(palette.muted).fixedSize(horizontal: false, vertical: true)
                 SecureField("Token", text: $token).textContentType(.password).autocorrectionDisabled().textInputAutocapitalization(.never)
                     .font(.body.monospaced()).foregroundStyle(palette.ink).tint(palette.accent)
-                    .padding(12).background(palette.surface).overlay(Rectangle().stroke(palette.line, lineWidth: 1))
+                    .padding(12).background(palette.surface).overlay(RoundedRectangle(cornerRadius: 14).stroke(palette.line, lineWidth: 0.7))
                 if !problem.isEmpty { Text(problem).font(.caption).foregroundStyle(Color.orange) }
                 HStack {
                     Spacer()

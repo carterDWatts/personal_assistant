@@ -11,6 +11,12 @@ final class EmailReviewTests: XCTestCase {
         XCTAssertTrue(app.buttons["Open inbox"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["Your report is ready."].exists)
         XCTAssertFalse(app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Replying to'")).firstMatch.exists)
+        app.buttons["Cancel notification reply"].tap()
+        XCTAssertTrue(app.staticTexts["Your report is ready."].waitForNonExistence(timeout: 5))
+        app.buttons["Open inbox"].tap()
+        XCTAssertTrue(app.staticTexts["Your report is ready."].waitForExistence(timeout: 5))
+        let screenshot = XCTAttachment(screenshot: app.screenshot())
+        screenshot.name = "Inbox"; screenshot.lifetime = .keepAlways; add(screenshot)
     }
     func testFailedConnectionDisappears() {
         let app = XCUIApplication(); app.launchArguments = ["--sample", "--connection", "--connection-failure"]; app.launch()
@@ -22,13 +28,14 @@ final class EmailReviewTests: XCTestCase {
         let app = XCUIApplication()
         app.launchArguments = ["--sample"]
         app.launch()
-        let drafts = app.buttons["Email drafts"]
-        XCTAssertTrue(drafts.waitForExistence(timeout: 15))
-        XCTAssertTrue(app.buttons["Attach photos"].exists)
-        drafts.tap()
-        let subject = app.staticTexts["Friday coffee"]
-        XCTAssertTrue(subject.waitForExistence(timeout: 10))
-        subject.tap()
+        XCTAssertTrue(app.buttons["Attach photos"].waitForExistence(timeout: 15))
+        XCTAssertFalse(app.buttons["Email drafts"].exists)
+        let input = app.textFields["Reply"]
+        input.tap(); input.typeText("Write an email")
+        app.buttons["Send message"].tap()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 5))
+        let card = app.buttons["email-draft-sample-draft"]
+        XCTAssertTrue(card.waitForExistence(timeout: 10)); card.tap()
         XCTAssertTrue(app.staticTexts["me@example.com"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["alex@example.com"].exists)
         XCTAssertFalse(app.staticTexts["Sent through Gmail."].exists)

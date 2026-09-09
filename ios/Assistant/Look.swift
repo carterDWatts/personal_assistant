@@ -5,10 +5,10 @@ import UIKit
 struct Palette {
     let background, surface, bubble, line, ink, muted, accent, moss, sage, deep: Color
     static let concrete = Palette(
-        background: Color(red: 0.8, green: 0.79, blue: 0.76),
-        surface: Color(red: 0.86, green: 0.855, blue: 0.83),
-        bubble: Color(red: 0.73, green: 0.72, blue: 0.69),
-        line: Color.black.opacity(0.22),
+        background: Color(red: 0.89, green: 0.88, blue: 0.85),
+        surface: Color(red: 0.94, green: 0.935, blue: 0.91),
+        bubble: Color(red: 0.84, green: 0.85, blue: 0.80),
+        line: Color.black.opacity(0.10),
         ink: Color(red: 0.11, green: 0.11, blue: 0.1),
         muted: Color(red: 0.11, green: 0.11, blue: 0.1).opacity(0.55),
         accent: Color(red: 0.36, green: 0.49, blue: 0.27),
@@ -57,10 +57,10 @@ struct Concrete: View, Equatable {
                     let x = CGFloat.random(in: -40...size.width, using: &rng), y = CGFloat.random(in: -40...size.height, using: &rng)
                     let dark = Bool.random(using: &rng)
                     stains.fill(Path(ellipseIn: CGRect(x: x, y: y, width: w, height: h)),
-                                with: .color((dark ? Color.black : Color.white).opacity(dark ? 0.07 : 0.06)))
+                                with: .color((dark ? Color.black : Color.white).opacity(dark ? 0.025 : 0.025)))
                 }
             }
-            Image(uiImage: grainImage).resizable(resizingMode: .tile).opacity(0.11).blendMode(.overlay)
+            Image(uiImage: grainImage).resizable(resizingMode: .tile).opacity(0.045).blendMode(.overlay)
         }.allowsHitTesting(false).accessibilityHidden(true)
     }
 }
@@ -120,8 +120,8 @@ struct SquareButton: ButtonStyle {
             .font(.body.weight(.medium))
             .frame(minWidth: size, minHeight: size)
             .foregroundStyle(prominent ? Color.white : palette.ink)
-            .background(prominent ? palette.accent : palette.surface)
-            .overlay(Rectangle().stroke(palette.line, lineWidth: 1))
+            .background(prominent ? palette.accent : palette.surface, in: RoundedRectangle(cornerRadius: 10))
+            .overlay(RoundedRectangle(cornerRadius: 10).stroke(palette.line, lineWidth: 0.7))
             .opacity(configuration.isPressed ? 0.7 : enabled ? 1 : 0.4)
     }
 }
