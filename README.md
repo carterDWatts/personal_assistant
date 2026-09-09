@@ -4,11 +4,17 @@
 
 # Bunny Man
 
-I want an assistant I can tell something once and come back to from any device. It should know what changed, remember why, and notice when something needs my attention without waiting for me to bring it up.
+I’m building a personal assistant that keeps learning how to help me across conversations, devices, and model changes. I can tell it something on my phone, pick up on my Mac, or switch between Claude and ChatGPT. The shared memory carries forward what it knows, what changed, and what still needs doing.
 
-I built Bunny Man around a shared knowledge map in Postgres. The iPhone app, Mac app, and model sessions use the same structured memory and conversation history. I can switch between Claude and ChatGPT, restart the runtime, or pick up on another device and continue with the same context.
+The core is a temporal knowledge map in Postgres: people, projects, preferences, commitments, and their relationships. Facts point back to evidence. Changes preserve the previous state. Nightly review can propose new connections and ask about inconsistencies; when supporting evidence changes, dependent inferences are invalidated. A correction can distinguish “this changed” from “this was never true.”
 
-The important part is that continuity belongs to the system. It doesn't depend on keeping one model process alive forever.
+That memory powers the rest of the assistant:
+
+- **A conversation that survives the session.** Shared history, bounded context, incremental updates, and deeper retrieval let new model instances pick up the same work.
+- **Personalization learned in use.** Morning briefings, preferences, and standing rules develop through conversation rather than a hardcoded routine.
+- **Follow-through between conversations.** Contextual reminders, email monitoring, calendar access, and background research bring useful information back into the same chat.
+- **Code controls when; the model judges relevance.** Schedules, change checks, validated writes, and delivery records constrain background activity. The model applies my preferences inside those boundaries.
+- **An assistant I can extend.** Separate model adapters, connected services, and owner-only tools for tested repository changes keep the system adaptable.
 
 ## How the memory works
 

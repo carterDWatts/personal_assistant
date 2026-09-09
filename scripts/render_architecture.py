@@ -6,7 +6,7 @@ from PIL import Image, ImageDraw, ImageFont, ImageColor
 
 OUT = Path(__file__).resolve().parents[1] / 'docs/assets'
 OUT.mkdir(exist_ok=True)
-W, H, FPS, SECONDS = 1100, 740, 50, 28
+W, H, FPS, SECONDS = 1100, 820, 50, 28
 BG, INK, MUTED = '#F2F0E8', '#283C35', '#738178'
 GREEN, GOLD, CORAL = '#6A946E', '#E1B76D', '#C68570'
 FONT = next(p for p in ['/System/Library/Fonts/Supplemental/Arial.ttf', '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf'] if Path(p).exists())
@@ -92,8 +92,8 @@ def frame(t, variant="blocks"):
     # A separate evidence rail runs underneath the map.
     cube(324,487,203,65,18,'#BCC6B5')
     for i in range(8): ticket(329+i*21,477+i*7.35,w=17)
-    plaque(393,554,'EVIDENCE + FULL CONVERSATIONS')
-    text(393,572,'Every fact can point back to its source.',12,MUTED,anchor='mm')
+    plaque(393,607,'EVIDENCE + FULL CONVERSATIONS')
+    text(393,628,'Every fact can point back to its source.',12,MUTED,anchor='mm')
     # Current relationships, including an inferred one that loses its support.
     edges=[(0,1),(0,2),(1,3),(2,3),(1,4),(3,5),(3,6)]
     # Raised cables remain visible above the table, with packets moving along them.
@@ -132,16 +132,20 @@ def frame(t, variant="blocks"):
         d.ellipse((x+5,y-24,x+11,y-18),fill='#F0F0DC')
     plaque(590,181,'SHARED KNOWLEDGE MAP · POSTGRES')
     text(590,200,'Entities + attributes + typed relationships',13,MUTED,anchor='mm')
-    if t>=4.7:
-        labels=[('You',525,264),('Home',633,299),('Alex',412,305),('Project',523,341),('Nearby?',721,328),('Office',638,375),('Morning rule',428,371)]
-        for i,(label,x,y) in enumerate(labels):
-            if i==4 and t>=11.7:continue
-            text(x,y,label,12,INK,True,anchor='mm')
-    if 5<t<10:
-        text(559,316,'lives at',11,INK,anchor='mm')
-        text(475,332,'works on',11,INK,anchor='mm')
-    if 6<t<11.7:
-        text(740,397,'inferred',12,'#997534',True,anchor='mm')
+    # One focused label at a time, above the model; leader lines identify the object.
+    # Dense labels on every node obscured the actual relationships.
+    focus = ('Entity · You',0) if t<5 else ('Typed relationship · lives at',1) if t<10 else ('Home · current state updated',1) if t<15 else ('Rule · morning preferences',6)
+    if t>=3:
+        label,index=focus
+        target=point(index)
+        if 5<=t<10:
+            x,y=lerp(point(0),point(1),.5)
+            target=(x,y-26)
+        d.line([(560,258),(560,270),target],fill='#A0B09A',width=1)
+        face=ImageFont.truetype(BOLD,14)
+        width=d.textlength(label,font=face)+24
+        d.rounded_rectangle((560-width/2,230,560+width/2,258),7,fill=BG,outline='#CFD7C7')
+        text(560,244,label,14,INK,True,anchor='mm')
     # A new observation comes down the belt, once for learning and once for revision.
     for begin in [0.2,3,6,9,12.5,16,19]:
         u=(t-begin)/2.4
@@ -153,8 +157,8 @@ def frame(t, variant="blocks"):
     # Superseded state physically moves into a lower archive; it is not erased.
     cube(637,496,134,64,17,'#B2BEAD')
     for i in range(3): cube(646+i*32,488+i*11,23,23,12,'#C5CCBE')
-    plaque(715,565,'SUPERSEDED / INVALIDATED')
-    text(715,583,'Valid time + recorded time retained',12,MUTED,anchor='mm')
+    plaque(760,607,'SUPERSEDED / INVALIDATED')
+    text(760,628,'Valid time + recorded time retained',12,MUTED,anchor='mm')
     if t>=10:
         u=ease((t-10)/2)
         x,y=lerp(nodes[1],(743,521),u)
@@ -226,11 +230,11 @@ def frame(t, variant="blocks"):
              'Conversation and memory flow both ways: the session reads context and writes updates.',
              'Switch the agent process and keep the same map. Retrieve a bounded slice, not the whole store.')]
     _,title,caption,detail=next(p for p in reversed(phases) if t>=p[0])
-    d.line((48,611,1052,611),fill='#D8DDCF',width=1)
-    text(48,628,title,20,INK,True)
-    text(48,662,caption,16,INK)
-    text(48,690,detail,14,MUTED)
-    d.line((48,727,48+1004*t/22,727),fill=GREEN,width=3)
+    d.line((48,658,1052,658),fill='#D8DDCF',width=1)
+    text(48,676,title,20,INK,True)
+    text(48,714,caption,16,INK)
+    text(48,744,detail,14,MUTED)
+    d.line((48,800,48+1004*t/22,800),fill=GREEN,width=3)
     return im
 
 if __name__=='__main__':
