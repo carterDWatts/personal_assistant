@@ -216,8 +216,13 @@ class relay_test(MapTest):
                 prepared = host.session
                 self.assertIsNotNone(prepared.prepared.sections)
                 self.assertEqual(runtime.sent, [])
+                # Memory extraction must survive another live conversational turn.
+                host.memory_work=asyncio.create_task(asyncio.Event().wait())
                 self.submit()
                 await host.process(relay.claim())
+                self.assertFalse(host.memory_work.done())
+                host.memory_work.cancel()
+                with self.assertRaises(asyncio.CancelledError): await host.memory_work
                 self.assertIs(host.session, prepared)
                 self.assertNotIn('session_open_seconds', host.stream.timings)
             finally:

@@ -163,8 +163,6 @@ class Host:
 
     async def process(self, turn):
         self.stream.timings = {}
-        if self.memory_work and not self.memory_work.done():
-            self.memory_work.cancel()
         self.active = turn['id']
         if self.speech:
             await self.speech.begin(turn)
@@ -287,19 +285,16 @@ async def memory_loop(url, host):
         while not host.stopping.is_set():
             def idle():
                 return host.active is None and (not host.speech or not host.speech.task or host.speech.task.done())
-            if idle():
-                async def maintain():
-                    await worker.drain(on_processed=host.refresh_day, can_process=idle)
-                    if not idle(): return
-                    if idle(): await background.nightly()
-                    if idle(): await worker.drain(on_processed=host.refresh_day, can_process=idle)
-                host.memory_work = asyncio.create_task(maintain())
-                try:
-                    await host.memory_work
-                except asyncio.CancelledError:
-                    if host.stopping.is_set(): raise
-                finally:
-                    host.memory_work = None
+            async def maintain():
+                await worker.drain(on_processed=host.refresh_day, can_process=lambda: not host.stopping.is_set())
+                if idle(): await background.nightly()
+            host.memory_work = asyncio.create_task(maintain())
+            try:
+                await host.memory_work
+            except asyncio.CancelledError:
+                if host.stopping.is_set(): raise
+            finally:
+                host.memory_work = None
             try:
                 await asyncio.wait_for(host.stopping.wait(), 10)
             except asyncio.TimeoutError:

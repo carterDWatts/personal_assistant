@@ -14,6 +14,12 @@ Whether a new value replaces the old one depends on the attribute's cardinality,
 
 ## Observations are the record
 
+Dated activity and quantities live in `memory.records`: an event day, stable category and slot, actual/planned/retracted status, numeric values with units and evidence basis, details, an optional entity link, and the source message. These complement changing attributes such as an address. A meal is a dated event; a daily calorie total is a query over actual meals, not another mutable belief. Measurements and estimates remain distinguishable. Queries retain gaps and separate units instead of silently assuming zero or converting them.
+
+Corrections require the record ID and expected version. The database retains immutable revisions, and an older source cannot replace a newer correction. Replayed extraction cannot duplicate the same entry. The conversational agent can save these entries immediately; the independent memory worker remains a second write path and keeps a receipt of its operations and validation failures. A new chat turn no longer cancels extraction.
+
+Morning sessions store their chosen agenda and progress in `memory.routine_progress`. The agenda comes from saved preferences, not hard-coded topics. Completed sections survive model restarts and are not reopened by a repeated completion call.
+
 `observations` is an append-only log of everything that happened: a sentence in a conversation, an email, a calendar change, a sync run, an inference. Assertions point at the observation they came from, and `assertion_sources` lists every observation that ever supported one, including re-confirmations. Conversations and messages are stored in full for every agent, and an observation can cite the message it came from, so any fact can be traced to the words that produced it.
 
 The base tables cannot be updated or deleted by anyone. Triggers refuse it. The assertion tables allow updates only to metadata and to the closing bound of the interval. The fact's identity, its entity, attribute, value and start, is immutable.

@@ -27,18 +27,23 @@ class Session:
         self.sent_snapshot = None
         self.context_revision = 0
         self.prepared = context.PreparedContext(map_)
+        self.morning = False
 
     async def open(self, mode="talk", *, begin_morning=True):
         self.segment_id, resume, self.seed = self.conv.resolve(mode)
+        self.morning = mode == 'morning' or self.map.value('select agent=%s from memory.conversations where id=%s',('morning',self.segment_id))
         self.locked = bool(self.map.value("select pg_try_advisory_lock(hashtextextended(%s, 0))", ("conversation:" + str(self.segment_id),)))
         if not self.locked:
             self.segment_id = None
             raise RuntimeError("This conversation is already open on this Mac. Disconnect the other window first.")
         self.seen_message = self.map.value("select coalesce(max(id),0) from memory.messages")
         system = prompt("persona")
-        if mode == "morning":
+        if self.morning:
             system += "\n\n" + prompt("morning")
         specs = self.tools.read_specs(self.spotify_control)
+        if self.morning:
+            from engine.routine import spec
+            specs.append(spec(self.tools,self.segment_id))
         if self.before_tool:
             from dataclasses import replace
             def guarded(fn):
@@ -66,6 +71,10 @@ class Session:
         if revision != self.context_revision:
             self.sent_snapshot = None
         opening = context.update(self.sent_snapshot, sections)
+        if self.morning:
+            from engine.routine import progress
+            from engine.db import dumps
+            opening += '\n\nMorning progress (authoritative for this session):\n'+dumps(progress(self.map,self.segment_id))
         recent = self.map.rows(
             "select id, role, content, created_at from memory.messages where id > %s and conversation_id <> %s"
             " and role in ('user','assistant') and content is not null order by id limit 100",

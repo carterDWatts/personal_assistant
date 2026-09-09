@@ -27,7 +27,7 @@ class ToolSpec:
     fn: object  # async (args: dict) -> object
 
 
-READ_TOOLS = frozenset({"map_search", "entity_view", "fact_history", "plans_list", "conversation_history", "context_import_search", "reminders_list", "attention_list"})
+READ_TOOLS = frozenset({"map_search", "entity_view", "fact_history", "plans_list", "conversation_history", "context_import_search", "reminders_list", "attention_list", "records_read", "records_totals"})
 
 
 class ToolError(Exception):
@@ -89,11 +89,15 @@ class Tools:
 
     # --- provenance ------------------------------------------------------------
 
+    def event_time(self):
+        # Source time wins; otherwise use the same clock as the current-state views.
+        return self.observed_at or self.map.value('select now()')
+
     def observe(self, kind, content, payload=None):
         return self.map.call_value(
             "record_observation", p_source=self.source, p_kind=kind, p_content=content,
             p_payload=jsonb(payload) if payload is not None else None, p_source_ref=None,
-            p_agent=self.device, p_occurred_at=self.observed_at or datetime.now().astimezone(),
+            p_agent=self.device, p_occurred_at=self.event_time(),
             p_message_id=Int8(self.message_id) if self.message_id is not None else None)
 
     # --- reading ------------------------------------------------------------------
@@ -105,6 +109,7 @@ class Tools:
         like = f"%{q}%"
         return {
             "entities": self.map.rows("select * from memory.find_entity(%s, null, 8)", (q,)),
+            "records": self.map.rows("select * from memory.records where status<>'retracted' and (kind ilike %s or slot ilike %s or details::text ilike %s) order by day desc,id limit 30", (like,like,like)),
             "facts": self.map.rows(
                 "select id, entity_id, entity_name, entity_type, attribute, value, valid_from, confidence, level, stale"
                 " from memory.current_assertions where entity_name ilike %s or attribute ilike %s or value::text ilike %s"
@@ -128,6 +133,7 @@ class Tools:
             raise ToolError(f"no entity {eid}")
         return {
             "entity": entity,
+            "records": self.map.rows('select * from memory.records where entity_id=%s order by day desc,id limit 40',(eid,)),
             "facts": self.map.rows(
                 "select id, attribute, value, valid_from, confidence, level, last_confirmed_at, stale"
                 " from memory.current_assertions where entity_id = %s order by attribute", (eid,)),
@@ -157,8 +163,10 @@ class Tools:
             "select id, conversation_id, role, content, created_at from memory.messages"
             " where role in ('user','assistant') and content is not null"
             " and (%s::bigint is null or id < %s::bigint) and content ilike %s"
+            " and (%s::date is null or created_at >= %s::date) and (%s::date is null or created_at < %s::date+1)"
             " order by id desc limit %s",
-            (args.get("before_id"), args.get("before_id"), "%" + args.get("query", "") + "%", args.get("limit", 30)))
+            (args.get("before_id"), args.get("before_id"), "%" + args.get("query", "") + "%",
+             args.get('from_day'),args.get('from_day'),args.get('to_day'),args.get('to_day'),args.get("limit", 30)))
 
     # --- entities and registries --------------------------------------------------
 
@@ -204,7 +212,7 @@ class Tools:
                            {"entity_id": args["entity_id"], "attribute": args["attribute"], "value": args["value"]})
         return self.map.call(
             "assert_fact", p_entity_id=args["entity_id"], p_attribute=args["attribute"], p_value=jsonb(args["value"]),
-            p_asserted_by=self.device, p_valid_from=_when(args.get("valid_from")) or self.observed_at or datetime.now().astimezone(),
+            p_asserted_by=self.device, p_valid_from=_when(args.get("valid_from")) or self.event_time(),
             p_confidence=Float4(float(args.get("confidence", 1.0))), p_level=args.get("level") or "stated",
             p_observation_id=Int8(obs), p_valid_to=_when(args.get("valid_to")))
 
@@ -213,7 +221,7 @@ class Tools:
         obs = self.observe("statement", args.get("statement") or f"retracted {args['assertion_id']}")
         self.map.execute('update memory.assertions set resolution_reason=%s where id=%s',(args.get('statement'),args['assertion_id']))
         return self.map.call("retract_fact", p_assertion_id=args["assertion_id"], p_asserted_by=self.device,
-                             p_valid_to=_when(args.get("valid_to")) or self.observed_at or datetime.now().astimezone(), p_observation_id=Int8(obs))
+                             p_valid_to=_when(args.get("valid_to")) or self.event_time(), p_observation_id=Int8(obs))
 
     async def fact_deprecate(self, args):
         """Mark a fact as having been wrong, not merely outdated. It leaves the current view."""
@@ -235,7 +243,7 @@ class Tools:
         row = self.map.call(
             "assert_relationship", p_subject_id=args["subject_id"], p_relation=args["relation"],
             p_object_id=args["object_id"], p_asserted_by=self.device, p_properties=jsonb(args.get("properties") or {}),
-            p_valid_from=_when(args.get("valid_from")) or self.observed_at or datetime.now().astimezone(),
+            p_valid_from=_when(args.get("valid_from")) or self.event_time(),
             p_confidence=Float4(float(args.get("confidence", 1.0))), p_level=args.get("level") or "stated",
             p_observation_id=Int8(obs), p_valid_to=_when(args.get("valid_to")))
         return row
@@ -254,7 +262,7 @@ class Tools:
         self.map.execute('update memory.relationships set resolution_reason=%s where id=%s',(args.get('statement'),args['relationship_id']))
         self.map.execute('insert into memory.relationship_sources(relationship_id,observation_id) values(%s,%s) on conflict do nothing',(args['relationship_id'],obs))
         return self.map.call("retract_relationship", p_relationship_id=args["relationship_id"], p_asserted_by=self.device,
-                             p_valid_to=_when(args.get("valid_to")) or datetime.now().astimezone())
+                             p_valid_to=_when(args.get("valid_to")) or self.event_time())
 
     # --- plans -----------------------------------------------------------------------
 
@@ -262,18 +270,23 @@ class Tools:
         """Add something to a day's plan. origin is user when they said it, agent when you suggested it in
         conversation, map when you derived it from the map on your own (then give a rationale and status proposed),
         unplanned for something that already happened without a plan (then status done)."""
+        day=_day(args.get('day'),today=self.event_time().date())
+        if self.message_id:
+            existing=self.map.row('select p.* from memory.plans p join memory.observations o on o.id=p.source_observation_id where o.message_id=%s and p.day=%s and p.item=%s',
+                (self.message_id,day,args['item']))
+            if existing: return existing
         obs = self.observe("plan", args.get("statement") or args["item"])
         return self.map.row(
             "insert into memory.plans (day, item, category, entity_id, status, origin, rationale, source_observation_id, created_by)"
             " values (%s, %s, %s, %s, %s, %s, %s, %s, %s) returning *",
-            (_day(args.get("day"), today=self.observed_at.date() if self.observed_at else None), args["item"], args.get("category"), args.get("entity_id"),
+            (day, args["item"], args.get("category"), args.get("entity_id"),
              args.get("status") or ("proposed" if args.get("origin") in ("map", "agent") else "planned"), args.get("origin") or "user", args.get("rationale"), obs, self.device))
 
     async def plan_update(self, args):
         """Set what happened to a plan: planned (accepting a proposal), done, partial, skipped or dropped."""
         status = args["status"]
         self.observe("outcome", args.get("note") or f"plan {args['plan_id']} {status}")
-        resolved = datetime.now().astimezone() if status in ("done", "partial", "skipped", "dropped") else None
+        resolved = self.event_time() if status in ("done", "partial", "skipped", "dropped") else None
         row = self.map.row(
             "update memory.plans set status = %s, outcome_note = coalesce(%s, outcome_note), resolved_at = %s"
             " where id = %s returning *", (status, args.get("note"), resolved, args["plan_id"]))
@@ -385,14 +398,15 @@ class Tools:
         from engine.development import Development
         from engine.reconciliation import Reconciliation
         from engine.integrations import read_specs
-        return [spec for spec in self.specs() if spec.name in READ_TOOLS] + read_specs(spotify_control) + Reminders(self).specs() + Reconciliation(self).conversation_specs() + Jobs(self).specs() + Development(self).specs()
+        return [spec for spec in self.specs() if spec.name in READ_TOOLS | {'record_save','plan_add','plan_update'}] + read_specs(spotify_control) + Reminders(self).specs() + Reconciliation(self).conversation_specs() + Jobs(self).specs() + Development(self).specs()
 
     def specs(self):
+        from engine.records import Records
         entity_id = _s("entity id (uuid)")
         return [
             ToolSpec("attention_list", _doc(self.attention_list), _obj({"query": _s("optional topic")}, []), self.attention_list),
             ToolSpec("context_import_search", _doc(self.context_import_search), _obj({"query": _s("word or phrase from imported notes or chats")}, ["query"]), self.context_import_search),
-            ToolSpec("conversation_history", _doc(self.conversation_history), _obj({"query": _s("optional text search"), "before_id": _i("page before this message id"), "limit": _i("page size", minimum=1, maximum=100)}, []), self.conversation_history),
+            ToolSpec("conversation_history", _doc(self.conversation_history), _obj({"query": _s("optional topic or item, not a phrase containing relative dates"), "from_day":_s('Inclusive YYYY-MM-DD in the user timezone'), "to_day":_s('Inclusive YYYY-MM-DD in the user timezone'), "before_id": _i("page before this message id"), "limit": _i("page size", minimum=1, maximum=100)}, []), self.conversation_history),
             ToolSpec("map_search", _doc(self.map_search), _obj({"query": _s("word or phrase")}, ["query"]), self.map_search),
             ToolSpec("entity_view", _doc(self.entity_view), _obj({"entity_id": entity_id}, ["entity_id"]), self.entity_view),
             ToolSpec("fact_history", _doc(self.fact_history),
@@ -468,7 +482,7 @@ class Tools:
                                                                      enum=["available", "needs_setup", "enabled", "disabled", "error"]),
                 "needs": _s("what the user must provide"), "entity_id": _s("what it tracks, if one thing")}, ["name", "status"]),
                      self.connector_update),
-        ]
+        ] + Records(self).specs()
 
 
 def _doc(fn):
