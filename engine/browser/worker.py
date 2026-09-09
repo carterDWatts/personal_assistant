@@ -4,6 +4,7 @@ import base64
 import json
 import os
 import time
+import threading
 from pathlib import Path
 from urllib.parse import urlsplit
 from cryptography.hazmat.primitives import serialization
@@ -155,16 +156,29 @@ class Worker:
     async def close(self):
         await self.browser.close();await self.playwright.stop();self.proxy.shutdown();self.proxy.server_close()
 
-async def run(url,host):
-    await host.ready.wait()
+async def serve(url,worker_id,stop):
     map_=Map(url);worker=None
+    map_.execute("set statement_timeout='10s'")
+    map_.execute("set lock_timeout='5s'")
     try:
         worker=Worker(map_);await worker.start()
-        while not host.stopping.is_set():
-            if not map_.value('select exists(select 1 from assistant.host where worker_id=%s and lease_until>now())',(host.relay.worker_id,)):break
+        while not stop.is_set():
+            if not map_.value('select exists(select 1 from assistant.host where worker_id=%s and lease_until>now())',(worker_id,)):break
             await worker.tick();await asyncio.sleep(.25)
     except asyncio.CancelledError:raise
     except Exception:print('Browser access is unavailable; existing chat remains active.',flush=True)
     finally:
         if worker and hasattr(worker,'browser'):await worker.close()
         map_.close()
+
+
+async def run(url,host):
+    await host.ready.wait()
+    stop=threading.Event()
+    # Browser SQL and page extraction must not stall speech or token delivery.
+    task=asyncio.create_task(asyncio.to_thread(lambda:asyncio.run(serve(url,host.relay.worker_id,stop))))
+    try:
+        await asyncio.shield(task)
+    finally:
+        stop.set()
+        await task
