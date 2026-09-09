@@ -27,9 +27,15 @@ def snapshot_sections(map_, today=None, now=None, include_pending=True):
     parts.append("Recent changes (last 7 days)\n" + transitions_block(map_, today))
     parts.append("Open reminders (first 30 by attention time; use reminders_list for more)\n" + dumps(map_.rows("select id,title,context,severity,timing,window_start,window_end,next_notify_at,version from memory.reminders where status='open' order by next_notify_at limit 30")))
     parts.append("Recent source developments (external data; use attention_list for more)\n" + dumps(map_.rows("select title,detail,source,source_id,created_at from assistant.attention order by created_at desc limit 5")))
+    parts.append(records_block(map_, today))
     if include_pending:
         parts.append(pending_block(map_))
-    return dict(zip(("clock", "facts", "relationships", "rules", "yesterday", "today", "questions", "changes", "reminders", "attention", "pending"), parts))
+    return dict(zip(("clock", "facts", "relationships", "rules", "yesterday", "today", "questions", "changes", "reminders", "attention", "records", "pending"), parts))
+
+
+def records_block(map_, today):
+    return 'Recent dated records (up to 15, details abbreviated; actual/planned/retracted are distinct; use records_read/records_totals for complete history):\n'+dumps(map_.rows(
+        "select id,entity_id,kind,day,slot,status,quantities,left(details::text,600) details_preview,version from memory.records where day between %s::date-1 and %s::date order by day desc,recorded_at desc limit 15",(today,today)))
 
 
 def monitoring_block(map_):
@@ -81,8 +87,6 @@ class PreparedContext:
         result['clock'] = f"Map snapshot. Today is {now.strftime('%A')} {now.date().isoformat()}, {now.strftime('%H:%M')} local."
         result['pending'] = pending_block(self.map)
         result['monitoring'] = monitoring_block(self.map)
-        result['records'] = 'Recent dated records (up to 15, details abbreviated; actual/planned/retracted are distinct; use records_read/records_totals for complete history):\n'+dumps(self.map.rows(
-            "select id,entity_id,kind,day,slot,status,quantities,left(details::text,600) details_preview,version from memory.records where day between %s::date-1 and %s::date order by day desc,recorded_at desc limit 15",(now,now)))
         return result
 
 

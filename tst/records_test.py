@@ -1,4 +1,4 @@
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 import asyncio
 import json
 import os
@@ -93,6 +93,14 @@ class records_test(MapTest):
         self.run_async(self.records.save(self.meal(day=today)))
         self.assertIn('220',prepared.read()['records'])
         self.assertIn('yogurt',prepared.read()['records'])
+        self.assertIn('yogurt',context.snapshot(self.map))
+
+    def test_snapshot_uses_local_days_after_utc_midnight(self):
+        self.run_async(self.records.save(self.meal(day='2026-09-07')))
+        sections=context.snapshot_sections(self.map,now=datetime.fromisoformat('2026-09-08T23:00:00-07:00'))
+        self.assertIn('yogurt',sections['records'])
+        sections=context.snapshot_sections(self.map,now=datetime.fromisoformat('2026-09-09T00:01:00-07:00'))
+        self.assertNotIn('yogurt',sections['records'])
 
     def test_morning_progress_advances_once_and_does_not_repeat_sections(self):
         tool=spec(self.tools,self.segment)
