@@ -160,7 +160,7 @@ class Tools:
         """Read or search the shared transcript, including older conversations on other devices.
         Results are newest first; pass before_id from the oldest returned message to read further back."""
         return self.map.rows(
-            "select id, conversation_id, role, content, created_at from memory.messages"
+            "select id, conversation_id, role, content, created_at, payload->'images' as images from memory.messages"
             " where role in ('user','assistant') and content is not null"
             " and (%s::bigint is null or id < %s::bigint) and content ilike %s"
             " and (%s::date is null or created_at >= %s::date) and (%s::date is null or created_at < %s::date+1)"
@@ -395,10 +395,12 @@ class Tools:
     def read_specs(self, spotify_control=None):
         from engine.reminders import Reminders
         from engine.jobs import Jobs
+        from engine.images import Images
+        from engine.integrations.email import Drafts
         from engine.development import Development
         from engine.reconciliation import Reconciliation
         from engine.integrations import read_specs
-        return [spec for spec in self.specs() if spec.name in READ_TOOLS | {'record_save','plan_add','plan_update'}] + read_specs(spotify_control) + Reminders(self).specs() + Reconciliation(self).conversation_specs() + Jobs(self).specs() + Development(self).specs()
+        return [spec for spec in self.specs() if spec.name in READ_TOOLS | {'record_save','plan_add','plan_update'}] + read_specs(spotify_control) + Reminders(self).specs() + Reconciliation(self).conversation_specs() + Jobs(self).specs() + Development(self).specs() + Drafts(self).specs() + Images(self.map).specs()
 
     def specs(self):
         from engine.records import Records

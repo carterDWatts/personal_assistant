@@ -104,7 +104,7 @@ class CodexRuntime:
             command += ["-c", f"features.{flag}=false"]
         command += ["-c", "features.skip_host_skill_discovery=true", "-c", 'web_search="disabled"']
         self.process = await asyncio.create_subprocess_exec(*command, env=environment, cwd=state,
-            stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL, limit=4*1024*1024)
+            stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL, limit=24*1024*1024)
         self.reader = asyncio.create_task(self._read())
         await self.request("initialize", {"clientInfo": {"name": "personal_assistant", "version": "0.1.0"}, "capabilities": {"experimentalApi": True}})
         await self._write({"method": "initialized"})
@@ -131,8 +131,8 @@ class CodexRuntime:
         self.session_id = result["thread"]["id"]
         manifest(self.session_id).write_text(signature)
 
-    async def send(self, text):
-        params = {"threadId": self.session_id, "input": [{"type": "text", "text": text}], "environments": [], "effort": self.effort}
+    async def send(self, text, images=None):
+        params = {"threadId": self.session_id, "input": [{"type": "text", "text": text}]+[{"type":"image","url":"data:"+image["mime"]+";base64,"+image["data"]} for image in (images or [])], "environments": [], "effort": self.effort}
         if self.model: params["model"] = self.model
         result = await self.request("turn/start", params)
         self.turn_id = result["turn"]["id"]
@@ -160,7 +160,10 @@ class CodexRuntime:
                     spec = self.tools.get(name)
                     yield Event("tool_use", name=name, payload=params.get("arguments", {}))
                     answer, failed = await run(spec, params["arguments"]) if spec else ("Unknown tool", True)
-                    await self._write({"id": message["id"], "result": {"contentItems": [{"type": "inputText", "text": answer}], "success": not failed}})
+                    from engine.images import tool_content
+                    answer, tool_images = tool_content(answer)
+                    content=[{"type":"inputText","text":answer}]+[{"type":"inputImage","imageUrl":"data:"+image["mime"]+";base64,"+image["data"]} for image in tool_images]
+                    await self._write({"id": message["id"], "result": {"contentItems": content, "success": not failed}})
                     yield Event("tool_result", name=name, payload={"content": answer, "is_error": failed})
                 else:
                     await self._write({"id": message["id"], "error": {"code": -32601, "message": "Unsupported request"}})

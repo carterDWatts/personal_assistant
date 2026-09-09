@@ -29,6 +29,7 @@ def emit(kind, **values):
 
 
 class DesktopIO:
+    def input_saved(self, images): emit("images_saved", images=images)
     def start_turn(self): emit("start")
     def delta(self, text): emit("delta", text=text)
     def replace_text(self, text): emit("replace", text=text)
@@ -37,13 +38,15 @@ class DesktopIO:
     def tool_result(self, payload):
         from engine.integrations.google import CONNECTION_ACTIONS
         from engine.integrations.services import CONNECTION_ACTIONS as SERVICE_ACTIONS
-        if not payload.get("is_error"):
-            return
         try:
             data = json.loads(payload.get("content", ""))
         except (ValueError, TypeError):
             return
-        if isinstance(data, dict) and data.get("connection_action") in CONNECTION_ACTIONS | SERVICE_ACTIONS:
+        if isinstance(data,dict) and data.get('image',{}).get('id'):
+            emit('image',image=data['image'],caption=data.get('caption',''))
+        if isinstance(data,dict) and data.get('needs_review') and data.get('draft',{}).get('id'):
+            emit('email_draft',draft_id=data['draft']['id'])
+        if payload.get("is_error") and isinstance(data, dict) and data.get("connection_action") in CONNECTION_ACTIONS | SERVICE_ACTIONS:
             emit("connection_required", action=data["connection_action"], **{k:data[k] for k in ("session_id", "provider") if data.get(k)})
     def close(self): pass
 
@@ -61,6 +64,7 @@ async def main():
     connection_task = None
     outbound_cursor = 0
     jobs_task = None
+    email_task = None
 
     async def connection_status():
         google_status, service_status = await asyncio.gather(asyncio.to_thread(google.status), asyncio.to_thread(services.status))
@@ -110,12 +114,12 @@ async def main():
 
     interrupted = False
 
-    async def reply(text, reference=None):
+    async def reply(text, reference=None, images=None):
         nonlocal interrupted
         interrupted = False
         try:
             from engine.notifications import discussion_context
-            await session.send(text, extra_context=discussion_context(map_,reference) if reference else "")
+            await session.send(text, extra_context=discussion_context(map_,reference) if reference else "",images=images)
         except RuntimeError as error:
             if interrupted:
                 emit("ready")
@@ -156,6 +160,27 @@ async def main():
                         emit("imports", request_id=message.get("request_id"), **result)
                     except Exception:
                         emit("imports", request_id=message.get("request_id"), error="The import was not saved. Retry with the same text.")
+                elif action == 'image' and map_:
+                    from engine.images import Images
+                    import base64
+                    try:
+                        args=message.get('args',{})
+                        images=Images(map_)
+                        if args.get('operation')=='upload':
+                            result=await asyncio.to_thread(images.save,base64.b64decode(args['data'],validate=True),args.get('name','Image'),None,args.get('id'))
+                        elif args.get('operation')=='get':
+                            result=await asyncio.to_thread(images.preview,args['id'])
+                        else: raise ValueError('Invalid image operation')
+                        emit('client_response',request_id=message.get('request_id'),result=result)
+                    except Exception:
+                        emit('client_response',request_id=message.get('request_id'),error='The image could not be loaded. Try a smaller image.')
+                elif action == 'email' and map_:
+                    from engine.client import email_request
+                    try:
+                        result=email_request(map_,message.get('args',{}))
+                        emit('client_response',request_id=message.get('request_id'),result=result)
+                    except Exception:
+                        emit('client_response',request_id=message.get('request_id'),error='The draft changed or is unavailable. Review it again.')
                 elif action == "connect":
                     if session:
                         raise ValueError("Already connected")
@@ -174,12 +199,14 @@ async def main():
                     emit("ready")
                     memory_poll = asyncio.create_task(monitor_memory())
                     jobs_task = asyncio.create_task(run_jobs(map_.url))
+                    from engine.integrations.email import run as send_mail
+                    email_task = asyncio.create_task(send_mail(map_.url))
                 elif action == "send" and session:
                     if active and not active.done():
                         raise ValueError("Wait for the current reply")
                     text = message.get("text", "").strip()
                     if text:
-                        active = asyncio.create_task(reply(text, message.get("notification")))
+                        active = asyncio.create_task(reply(text, message.get("notification"), message.get("images")))
                 elif action == "stop" and session:
                     interrupted = bool(active and not active.done())
                     if not interrupted:
@@ -192,7 +219,7 @@ async def main():
             except Exception:
                 emit("error", text="Could not connect. Check your database setting and subscription login, then reconnect.")
     finally:
-        tasks = [task for task in (jobs_task, memory_poll, active, connection_task) if task]
+        tasks = [task for task in (email_task, jobs_task, memory_poll, active, connection_task) if task]
         for task in tasks:
             task.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)

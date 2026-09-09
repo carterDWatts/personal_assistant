@@ -73,6 +73,9 @@ def discover(args):
     root = urlsplit(url)
     if root.scheme != 'https' or not root.hostname or root.username or root.password:
         raise ToolError('Use the service’s official HTTPS website or integration documentation.')
+    if root.hostname=='linkedin.com' or root.hostname.endswith('.linkedin.com'):
+        from engine.integrations.linkedin import LIMITS
+        return {'service_url':url,'task':args['task'],'state':'limited_access',**LIMITS}
     base = f'https://{root.netloc}'
     urls = list(dict.fromkeys([url, base + '/.well-known/oauth-protected-resource', base + '/.well-known/oauth-authorization-server']))
     with ThreadPoolExecutor(max_workers=3) as pool:

@@ -17,7 +17,8 @@
         "mail.read",
         "tasks.read",
         "documents.read",
-        "contacts.read"
+        "contacts.read",
+        "mail.draft_and_send"
       ],
       "grants": [
         {
@@ -72,6 +73,17 @@
           "description": "Names, contact details and birthdays",
           "scopes": [
             "https://www.googleapis.com/auth/contacts.readonly"
+          ]
+        },
+        {
+          "id": "mail_send",
+          "action": "google_mail_send",
+          "slot": "google_mail_send",
+          "name": "Email drafts and sending",
+          "description": "Review each email before I send it",
+          "scopes": [
+            "https://www.googleapis.com/auth/gmail.send",
+            "https://www.googleapis.com/auth/gmail.readonly"
           ]
         }
       ],

@@ -109,3 +109,13 @@ On iPhone, authorization first tries the provider's verified universal link, the
 `service_discover` researches public documentation for unfamiliar services. `service_connect` offers only an implemented connection from the catalog. Discovery never registers a new integration or grants capabilities by itself. A service without an adapter needs implementation before its sign-in can be offered.
 
 The screenshot browser experiment has been removed from the apps, gateway and worker, along with Playwright and Chromium. Applied migration history is preserved. Its old private database tables are unused and can be retired separately; no existing account credentials or memory records are migrated by this refactor.
+
+## Email drafts
+
+Google email sending is a separate `google_mail_send` grant. Asking for an email offers the normal connection card, then `google_mail_draft` creates a reviewable draft. The phone and Mac show From, To, Cc, Bcc, subject, and body. Changes go through a new draft revision.
+
+The model only has prepare/read tools. The client approves through a separate authenticated endpoint with the displayed version and content hash. The database rejects stale reviews and changes to an approved draft. A deterministic sender claims each approved draft once, checks the sending account, and calls Gmail. Uncertain delivery is never automatically retried. Drafts remain assigned to the Mac or cloud host whose account prepared them.
+
+## LinkedIn access
+
+`linkedin_read` reads public pages when LinkedIn serves them; `linkedin_notifications` searches LinkedIn emails through connected Gmail. Shared text, exports, and screenshots can also provide context. These do not constitute live access to the personal feed, inbox, or saved posts. Standard LinkedIn sign-in only grants identity data. Its broader member portability API is restricted to eligible EU/EEA and Swiss members. See [LinkedIn API access](https://learn.microsoft.com/en-us/linkedin/shared/authentication/getting-access) and [member portability eligibility](https://www.linkedin.com/help/linkedin/answer/a6214075).

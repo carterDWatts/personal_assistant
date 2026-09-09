@@ -34,7 +34,7 @@ class Conversation:
     def latest_segment(self):
         return self.map.row(
             "select id, runtime_session_id from memory.conversations"
-            " where device = %s and runtime = %s and runtime_policy_version = 7 and runtime_session_id is not null"
+            " where device = %s and runtime = %s and runtime_policy_version = 8 and runtime_session_id is not null"
             " and started_at >= coalesce((select c.started_at from memory.messages m join memory.conversations c on c.id=m.conversation_id"
             " where m.role='system' and m.payload->>'event'='chat_cleared' order by m.id desc limit 1), '-infinity'::timestamptz)"
             " order by started_at desc limit 1",
@@ -48,7 +48,7 @@ class Conversation:
 
     def open_segment(self, mode):
         return self.map.value(
-            "insert into memory.conversations (agent, device, runtime, runtime_policy_version) values (%s, %s, %s, 7) returning id",
+            "insert into memory.conversations (agent, device, runtime, runtime_policy_version) values (%s, %s, %s, 8) returning id",
             (mode, self.device, self.runtime_name))
 
     def record(self, segment_id, role, content, payload=None):
@@ -96,4 +96,6 @@ class Conversation:
             when = m["created_at"].strftime("%b %d %H:%M")
             where = f" on {m['device']}" if m["device"] and m["device"] != self.device else ""
             lines.append(f"[{when}{where}] {m['role']}: {m['content']}")
+            if (m.get('payload') or {}).get('images'):
+                lines.append("Attached image IDs (use image_read): "+", ".join(m['payload']['images']))
         return "\n".join(lines)

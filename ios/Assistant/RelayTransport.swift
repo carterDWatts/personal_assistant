@@ -187,9 +187,15 @@ struct RelayError: LocalizedError {
     }
 
     func send(_ text: String, id: UUID, speech: Bool, model: String?, mode: String, notification: [String: String]?) {
+        submit(text, id: id, speech: speech, model: model, mode: mode, notification: notification, images: [])
+    }
+    func sendImages(_ text: String, id: UUID, model: String?, images: [String]) {
+        submit(text, id: id, speech: false, model: model, mode: "talk", notification: nil, images: images)
+    }
+    private func submit(_ text: String, id: UUID, speech: Bool, model: String?, mode: String, notification: [String: String]?, images: [String]) {
         Task {
             do {
-                var args: [String: Any] = ["client_message_id": id.uuidString.lowercased(), "text": text]
+                var args: [String: Any] = ["client_message_id": id.uuidString.lowercased(), "text": text, "images": images]
                 args["mode"] = mode
                 if let notification { args["notification"] = notification }
                 if speech {
@@ -270,6 +276,8 @@ struct RelayError: LocalizedError {
         default: return nil
         }
     }
+
+    func clientRequest(_ action: String, _ args: [String: Any]) async throws -> [String: Any] { try await call(action, args) }
 
     private func call(_ action: String, _ args: [String: Any] = [:]) async throws -> [String: Any] {
         let token = try await account.accessToken()

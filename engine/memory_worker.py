@@ -99,7 +99,7 @@ class Worker:
         try:
             self.map.execute("update memory.memory_jobs set status='processing', attempts=attempts+1 where message_id=%s", (job['message_id'],))
             # Only skip an opening greeting; after a question it could be an answer.
-            if re.fullmatch(r'\s*(hi|hello|hey|thanks|thank you)[!.\s]*', job['content'], re.I) and not self.map.value("select exists(select 1 from memory.messages where id<%s and role='assistant')", (job['message_id'],)):
+            if not (job.get('payload') or {}).get('images') and re.fullmatch(r'\s*(hi|hello|hey|thanks|thank you)[!.\s]*', job['content'], re.I) and not self.map.value("select exists(select 1 from memory.messages where id<%s and role='assistant')", (job['message_id'],)):
                 await self.save(job, {}, {'operations': []})
                 return
             tools = Tools(self.map, 'memory-worker')
@@ -170,7 +170,11 @@ class Worker:
             runtime = self.factory(job['runtime'])
             await runtime.open(system, [s for s in all_specs if s.name in READ_TOOLS] + [batch])
             async def consume():
-                async for _ in runtime.send(text):
+                from engine.images import Images
+                ids=(job.get('payload') or {}).get('images',[])
+                images=await asyncio.to_thread(Images(self.map).contents,ids) if ids else []
+                events=runtime.send(text,images=images) if images else runtime.send(text)
+                async for _ in events:
                     pass
             await asyncio.wait_for(consume(), 180)
             if self.map.value('select status from memory.memory_jobs where message_id=%s', (job['message_id'],)) != 'done':

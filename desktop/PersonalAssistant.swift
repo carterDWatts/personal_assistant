@@ -172,9 +172,13 @@ struct Composer: View {
     @ObservedObject var chat: Chat
     let palette: Palette
     @FocusState private var focused: Bool
-    private var canSend: Bool { chat.connected && !chat.busy && !chat.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+    private var canSend: Bool { chat.connected && !chat.busy && (!chat.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !chat.pendingImages.isEmpty) }
     var body: some View {
         HStack(alignment: .bottom, spacing: 8) {
+            ImageAttachmentPicker(images: $chat.pendingImages, error: $chat.imageError).disabled(chat.busy)
+            Button { chat.emailDraftID = nil; chat.showEmailDrafts = true } label: { Image(systemName: "envelope") }
+                .buttonStyle(.bordered).controlSize(.large).accessibilityLabel("Email drafts")
+
             Button { chat.toggleVoice() } label: {
                 Image(systemName: chat.voice ? "waveform" : "mic").frame(width: 16)
             }.buttonStyle(.bordered).controlSize(.large).tint(chat.voice ? palette.accent : nil)
@@ -520,6 +524,7 @@ struct SettingsPopover: View {
                     .popover(isPresented: $showConnections) { ConnectionsView(chat: chat) }
                 Button { showImport = true } label: { Image(systemName: "tray.and.arrow.down") }
                     .help("Import context")
+                    .sheet(isPresented: $chat.showEmailDrafts) { EmailDraftsView(initialID: chat.emailDraftID, request: chat.emailRequest).frame(minWidth: 540, minHeight: 580) }
                     .sheet(isPresented: $showImport) { ContextImportView(upload: chat.importPart, refresh: chat.imports, runtime: chat.runtime) }
                 Button("Clear") {
                     chat.draft = ""
@@ -575,6 +580,7 @@ struct SettingsPopover: View {
                                 DayMarker(date: message.at, palette: palette)
                             }
                             MessageRow(onReply: { chat.reply(to: message) }, message: message, palette: palette).id(message.id)
+                        MessageImages(ids: message.images, load: chat.imageURL)
                         }
                         if chat.connectionPrompt != nil { ChatConnectionPrompt(chat: chat) }
                         Color.clear.frame(height: 1).id("bottom")
@@ -602,6 +608,7 @@ struct SettingsPopover: View {
                     Button { chat.replyingTo = nil } label: { Image(systemName: "xmark") }.buttonStyle(.borderless)
                 }.padding(.horizontal, 32).padding(.vertical, 8)
             }
+            PendingImageStrip(images: $chat.pendingImages, error: chat.imageError)
             Composer(chat: chat, palette: palette)
                 .frame(maxWidth: column).frame(maxWidth: .infinity)
                 .padding(.horizontal, 32).padding(.bottom, 16)

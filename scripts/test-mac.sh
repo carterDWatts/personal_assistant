@@ -15,7 +15,7 @@ check VoiceTurnCheck "$ROOT/desktop/VoiceTurn.swift"
 check ReplyStateCheck "$ROOT/ios/Assistant/ReplyState.swift"
 check SpotifyCheck "$ROOT/shared/SpotifyCommand.swift"
 check LocalVoiceCheck "$ROOT/desktop/LocalVoice.swift" "$ROOT/desktop/OutputStream.swift" -framework AVFoundation
-check ChatCheck "$ROOT/desktop/Chat.swift" "$ROOT/desktop/EngineConnection.swift" \
+check ChatCheck "$ROOT/shared/ChatImages.swift" "$ROOT/desktop/Chat.swift" "$ROOT/desktop/EngineConnection.swift" \
   "$ROOT/desktop/OutputStream.swift" "$ROOT/desktop/LiveVoice.swift" \
   "$ROOT/desktop/LocalSpeech.swift" "$ROOT/desktop/LocalVoice.swift" \
   "$ROOT/desktop/VoiceTurn.swift" -framework AVFoundation

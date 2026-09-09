@@ -99,6 +99,18 @@ func plain(_ value: Any?) -> String {
     @Published var busy = false
     @Published var connected = false
     @Published var voice = false
+    private var imageGeneration = 0
+    @Published var pendingImages: [PendingImage] = []
+    @Published var imageError = ""
+    func imageRequest(_ args: [String: Any]) async throws -> [String: Any] { try await transport.clientRequest("image", args) }
+    func imageURL(_ id: String) async throws -> URL {
+        let result = try await imageRequest(["operation": "get", "id": id])
+        guard let value = result["url"] as? String, let url = URL(string: value), url.scheme == "https" else { throw ImageError.invalid }
+        return url
+    }
+    @Published var showEmailDrafts = false
+    var emailDraftID: String?
+    func emailRequest(_ args: [String: Any]) async throws -> [String: Any] { try await transport.clientRequest("email", args) }
     @Published var connectionPrompt: ConnectionPrompt? = nil
     @Published var connections: [Connection] = []
     @Published var connectionError = ""
@@ -188,6 +200,7 @@ func plain(_ value: Any?) -> String {
     }
 
     func connect(clear: Bool = false) {
+        imageGeneration += 1
         if clear { clearNotificationDiscussion() }
         liveVoice.stop(); voice = false; voiceTurn = VoiceTurn()
         messages = []; memoryStatus = ""; replyState.reset(messages: &messages); connectionPrompt = nil
@@ -200,6 +213,17 @@ func plain(_ value: Any?) -> String {
         let turn = event["turn_id"] as? String
         let text = event["text"] as? String ?? event["message"] as? String ?? ""
         switch type {
+        case "images_saved":
+            let ids = event["images"] as? [String] ?? []
+            pendingImages.removeAll { ids.contains($0.id.uuidString.lowercased()) }
+        case "image":
+            if let image = event["image"] as? [String: Any], let id = image["id"] as? String {
+                if let index = messages.indices.last, messages[index].role == "assistant" {
+                    if !messages[index].images.contains(id) { messages[index].images.append(id) }
+                } else { messages.append(ChatMessage(role: "assistant", text: event["caption"] as? String ?? "", images: [id])) }
+            }
+        case "email_draft":
+            emailDraftID = event["draft_id"] as? String; showEmailDrafts = true
         case "history":
             replyState.reset(messages: &messages)
             liveVoice.silencePlayback(); spokenTurns.removeAll(); playedChunks.removeAll()
@@ -280,9 +304,26 @@ func plain(_ value: Any?) -> String {
 
     func send() {
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard connected, !busy, !text.isEmpty else { return }
-        draft = ""
-        submit(text, speak: false)
+        guard connected, !busy, !text.isEmpty || !pendingImages.isEmpty else { return }
+        if pendingImages.isEmpty { draft = ""; submit(text, speak: false); return }
+        let photos = pendingImages
+        let generation = imageGeneration
+        busy = true; imageError = ""; status = "Uploading images…"
+        Task {
+            do {
+                var ids: [String] = []
+                for image in photos {
+                    let result = try await imageRequest(image.upload)
+                    guard let id = result["id"] as? String else { throw ImageError.invalid }
+                    ids.append(id)
+                }
+                guard connected, generation == imageGeneration else { throw ImageError.invalid }
+                let content = text.isEmpty ? "Please look at these images." : text
+                draft = ""
+                messages.append(ChatMessage(role: "user", text: content, images: ids))
+                transport.sendImages(content, id: UUID(), model: selectedModel.isEmpty ? nil : selectedModel, images: ids)
+            } catch { if generation == imageGeneration { imageError = error.localizedDescription; busy = false } }
+        }
     }
 
     private func submit(_ text: String, speak: Bool = true, mode: String = "talk") {
@@ -320,6 +361,7 @@ func plain(_ value: Any?) -> String {
     }
 
     func stop() {
+        imageGeneration += 1
         liveVoice.stop(); speechBuffer = ""; voice = false; voiceTurn.discardPending()
         if voiceTurn.interrupt(busy: busy) || hostSpeaks { transport.stop() }
         transport.foreground(inFront)

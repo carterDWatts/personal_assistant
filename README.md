@@ -44,6 +44,8 @@ Typed and interruptible voice conversations, a morning review that learns my pre
 
 I can also hand off research or a code investigation while keeping the conversation going. A bounded background worker messages me its result in the same chat. My owner instance can publish code changes as pull requests. Merging requires passing checks on the exact revision, and database migrations have a separate, scoped apply step. Other users do not get those development tools.
 
+I can ask it to draft an email and review the recipients and full message in the app. Sending requires a button press tied to that exact version; the model cannot approve its own draft. Photos work in both directions in chat, with private storage and visual input for both model runtimes.
+
 The phone streams Pocket TTS from the host. The Mac has local speech. My instance uses Google Calendar for events and keeps reminders separate, as I requested. Calendar providers and how commitments are organized should be choices each user can make through conversation; that customization is upcoming work.
 
 ## Stack and verification

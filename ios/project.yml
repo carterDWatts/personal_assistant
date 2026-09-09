@@ -30,6 +30,8 @@ targets:
       - path: ../shared/DaySchedule.swift
       - path: ../shared/integrations.json
         buildPhase: resources
+      - path: ../shared/ChatImages.swift
+      - path: ../shared/EmailDrafts.swift
       - path: ../shared/ContextImport.swift
       - path: ../desktop/VoiceTurn.swift
       - path: ../identity.json

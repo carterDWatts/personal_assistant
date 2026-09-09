@@ -107,6 +107,27 @@ def configure_speech():
     print('Private speech storage configured. Worker credentials stay on the host.')
 
 
+def configure_images():
+    """Private persistent image assets; the native bridge keeps its key in Keychain."""
+    import keyring
+    keys = json.loads(command(['supabase', 'projects', 'api-keys', '--project-ref', PROJECT, '-o', 'json']))
+    key = next(k['api_key'] for k in keys if k['name'] == 'service_role')
+    url = f'https://{PROJECT}.supabase.co'
+    headers = {'apikey': key, 'Authorization': f'Bearer {key}', 'Content-Type': 'application/json'}
+    with urllib.request.urlopen(urllib.request.Request(url+'/storage/v1/bucket',headers=headers),timeout=20) as response:
+        bucket=next((b for b in json.load(response) if b['id']=='chat-images'),None)
+    if bucket and bucket.get('public'): raise RuntimeError('The image bucket must be private.')
+    definition={'id':'chat-images','name':'chat-images','public':False,'file_size_limit':4000000,
+                'allowed_mime_types':['image/jpeg','image/png','image/webp']}
+    request=urllib.request.Request(url+'/storage/v1/bucket'+('/chat-images' if bucket else ''),headers=headers,
+        method='PUT' if bucket else 'POST',data=json.dumps(definition).encode())
+    with urllib.request.urlopen(request,timeout=20) as response: response.read()
+    keyring.set_password('com.carterwatts.personal-assistant.storage','prod',json.dumps({'url':url,'key':key}))
+    for name,value in [('ASSISTANT_STORAGE_KEY',key),('ASSISTANT_SUPABASE_URL',url)]:
+        command([RAILWAY,'variable','set',name,'--stdin','--skip-deploys','--service','worker'],input=value)
+    print('Private image storage configured. The Mac credential is in Keychain; hosted credentials stay on the worker.')
+
+
 def configure_auth():
     import keyring
     token = (os.environ.get('SUPABASE_ACCESS_TOKEN') or keyring.get_password('Supabase CLI', 'supabase')
@@ -226,6 +247,7 @@ if __name__ == '__main__':
     commands.add_parser('configure')
     commands.add_parser('auth')
     commands.add_parser('speech')
+    commands.add_parser('images')
     commands.add_parser('development')
     connections = commands.add_parser('connections')
     connections.add_argument('client_file')
@@ -243,6 +265,8 @@ if __name__ == '__main__':
             configure_account(args.provider,args.client_file)
         elif args.action == 'connections':
             configure_connections(args.client_file)
+        elif args.action == 'images':
+            configure_images()
         elif args.action == 'speech':
             configure_speech()
         elif args.action == 'auth':

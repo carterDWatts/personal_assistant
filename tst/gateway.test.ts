@@ -273,3 +273,41 @@ test('Spotify commands expose only the public app identifier after device valida
   }),/device_denied/);
   assert.equal(calls,1);
 });
+
+test('email approval uses authenticated client identity and a dedicated RPC', async () => {
+  let calls = 0;
+  const run = handler(config, async (url, options) => {
+    if (++calls === 1) return Response.json({id:owner});
+    assert.equal(String(url),config.url+'/rest/v1/rpc/assistant_email');
+    const input=JSON.parse(String(options?.body));
+    assert.equal(input.p_user,owner); assert.equal(input.p_action,'approve');
+    assert.equal(input.p_args.version,3);assert.equal(input.p_args.content_hash,'exact-displayed-hash');
+    return Response.json({state:'queued'});
+  });
+  assert.equal((await run(request({action:'email',device_id:device,args:{operation:'approve',id:owner,version:3,content_hash:'exact-displayed-hash'}}))).status,200);
+});
+
+test('email RPC rejects caller-supplied dispatch or delivery actions', async () => {
+  let calls=0;
+  const run=handler(config,async()=>{calls++;return Response.json({id:owner});});
+  assert.equal((await run(request({action:'email',device_id:device,args:{operation:'send'}}))).status,400);
+  assert.equal(calls,1);
+});
+
+test('image reads cannot sign objects before account and device checks pass', async () => {
+  let calls=0;
+  const run=handler(config,async (url) => {
+    if (++calls===1) return Response.json({id:owner});
+    assert.equal(String(url),config.url+'/rest/v1/rpc/assistant_image');
+    return Response.json({message:'device_denied'},{status:403});
+  });
+  assert.equal((await run(request({action:'image',device_id:device,args:{operation:'get',id:owner}}))).status,403);
+  assert.equal(calls,2);
+});
+
+test('image upload rejects a claimed image MIME type with different bytes', async () => {
+  let calls=0;
+  const run=handler(config,async ()=>{calls++;return Response.json({id:owner});});
+  assert.equal((await run(request({action:'image',device_id:device,args:{operation:'upload',id:owner,name:'fake.jpg',mime:'image/jpeg',data:btoa('<html>not a photo</html>')}}))).status,400);
+  assert.equal(calls,1);
+});

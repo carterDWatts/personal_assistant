@@ -5,6 +5,7 @@ struct ChatMessage: Identifiable {
     let id = UUID()
     let role: String
     var text: String
+    var images: [String] = []
     var at: Date = Date()
     var databaseID: String? = nil
     var reference: [String: String]? = nil
@@ -35,6 +36,30 @@ private func plain(_ value: Any?) -> String {
 
 @MainActor
 final class Chat: ObservableObject {
+    private var imageGeneration = 0
+    @Published var pendingImages: [PendingImage] = []
+    @Published var imageError = ""
+    func imageRequest(_ args: [String: Any]) async throws -> [String: Any] { try await clientRequest("image", args) }
+    func imageURL(_ id: String) async throws -> URL {
+        let result = try await imageRequest(["operation": "get", "id": id])
+        guard let value = result["url"] as? String, let url = URL(string: value), url.scheme == "https" else { throw ImageError.invalid }
+        return url
+    }
+    @Published var showEmailDrafts = false
+    var emailDraftID: String?
+    private var clientPending: [String: CheckedContinuation<[String: Any], Error>] = [:]
+    func emailRequest(_ args: [String: Any]) async throws -> [String: Any] { try await clientRequest("email", args) }
+    func clientRequest(_ action: String, _ args: [String: Any]) async throws -> [String: Any] {
+        let id = UUID().uuidString
+        return try await withCheckedThrowingContinuation { continuation in
+            clientPending[id] = continuation
+            write(["type": action, "args": args, "request_id": id])
+            Task { @MainActor in
+                try? await Task.sleep(for: .seconds(25))
+                clientPending.removeValue(forKey: id)?.resume(throwing: NSError(domain: "Client", code: 1, userInfo: [NSLocalizedDescriptionKey: "The request timed out. Check its status before trying again."]))
+            }
+        }
+    }
     @Published var messages: [ChatMessage] = []
     @Published var replyingTo: ChatMessage?
     func reply(to message: ChatMessage) { replyingTo = message }
@@ -108,6 +133,7 @@ final class Chat: ObservableObject {
     }
 
     private func connectionClosed(_ message: String) {
+        imageGeneration += 1
         liveVoice.stop(); voice = false; voiceTurn = VoiceTurn()
         finishImport(.failure(CancellationError()))
         finishStreaming()
@@ -167,6 +193,22 @@ final class Chat: ObservableObject {
         guard let type = event["type"] as? String else { return }
         let text = event["text"] as? String ?? ""
         switch type {
+        case "client_response":
+            if let id = event["request_id"] as? String, let pending = clientPending.removeValue(forKey: id) {
+                if let error = event["error"] as? String { pending.resume(throwing: NSError(domain: "Client", code: 1, userInfo: [NSLocalizedDescriptionKey: error])) }
+                else { pending.resume(returning: event["result"] as? [String: Any] ?? [:]) }
+            }
+        case "images_saved":
+            let ids = event["images"] as? [String] ?? []
+            pendingImages.removeAll { ids.contains($0.id.uuidString.lowercased()) }
+        case "image":
+            if let image = event["image"] as? [String: Any], let id = image["id"] as? String {
+                if let index = messages.indices.last, messages[index].role == "assistant" {
+                    if !messages[index].images.contains(id) { messages[index].images.append(id) }
+                } else { messages.append(ChatMessage(role: "assistant", text: event["caption"] as? String ?? "", images: [id])) }
+            }
+        case "email_draft":
+            emailDraftID = event["draft_id"] as? String; showEmailDrafts = true
         case "connection_required":
             connectionPrompt = event["action"] as? String
             connectionPromptSatisfied = false
@@ -195,7 +237,7 @@ final class Chat: ObservableObject {
         case "history":
             messages = (event["messages"] as? [[String: Any]] ?? []).compactMap { row in
                 guard let role = row["role"] as? String, let content = row["content"] as? String else { return nil }
-                return ChatMessage(role: role, text: content, at: parseDate(row["created_at"]) ?? Date(), databaseID: row["id"].map { String(describing: $0) }, reference: (row["payload"] as? [String: Any])?["reference"] as? [String: String])
+                return ChatMessage(role: role, text: content, images: (row["payload"] as? [String: Any])?["images"] as? [String] ?? [], at: parseDate(row["created_at"]) ?? Date(), databaseID: row["id"].map { String(describing: $0) }, reference: (row["payload"] as? [String: Any])?["reference"] as? [String: String])
             }
         case "proactive":
             if let row = event["message"] as? [String: Any], let content = row["content"] as? String {
@@ -238,15 +280,32 @@ final class Chat: ObservableObject {
     }
 
     private func finishStreaming() {
-        messages.removeAll { $0.id == streamingID && $0.text.isEmpty }
+        messages.removeAll { $0.id == streamingID && $0.text.isEmpty && $0.images.isEmpty }
         streamingID = nil
     }
 
     func send() {
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard connected, !busy, !text.isEmpty else { return }
-        draft = ""
-        submit(text)
+        guard connected, !busy, !text.isEmpty || !pendingImages.isEmpty else { return }
+        if pendingImages.isEmpty { draft = ""; submit(text); return }
+        let photos = pendingImages
+        let generation = imageGeneration
+        busy = true; imageError = ""; status = "Uploading images…"
+        Task {
+            do {
+                var ids: [String] = []
+                for image in photos {
+                    let result = try await imageRequest(image.upload)
+                    guard let id = result["id"] as? String else { throw ImageError.invalid }
+                    ids.append(id)
+                }
+                guard connected, generation == imageGeneration else { throw ImageError.invalid }
+                let content = text.isEmpty ? "Please look at these images." : text
+                draft = ""
+                messages.append(ChatMessage(role: "user", text: content, images: ids))
+                write(["type": "send", "text": content, "images": ids])
+            } catch { if generation == imageGeneration { imageError = error.localizedDescription; busy = false } }
+        }
     }
 
     private func submit(_ text: String) {
@@ -278,6 +337,7 @@ final class Chat: ObservableObject {
     }
 
     func stop() {
+        imageGeneration += 1
         liveVoice.stop(); speechBuffer = ""; voice = false; voiceTurn.discardPending()
         if voiceTurn.interrupt(busy: busy) { write(["type": "stop"]) }
     }

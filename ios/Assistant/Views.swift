@@ -104,9 +104,13 @@ struct Composer: View {
     @ObservedObject var chat: Chat
     let palette: Palette
     @FocusState private var focused: Bool
-    private var canSend: Bool { chat.connected && !chat.busy && !chat.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+    private var canSend: Bool { chat.connected && !chat.busy && (!chat.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !chat.pendingImages.isEmpty) }
     var body: some View {
         HStack(alignment: .bottom, spacing: 8) {
+            ImageAttachmentPicker(images: $chat.pendingImages, error: $chat.imageError).disabled(chat.busy)
+            Button { chat.emailDraftID = nil; chat.showEmailDrafts = true } label: { Image(systemName: "envelope") }
+                .buttonStyle(SquareButton(palette: palette)).accessibilityLabel("Email drafts")
+
             if !chat.voice {
                 Button { focused = false; chat.toggleVoice() } label: { Image(systemName: "mic") }
                     .buttonStyle(SquareButton(palette: palette)).disabled(!chat.connected).accessibilityLabel("Talk instead of typing")
@@ -432,6 +436,7 @@ struct ConversationView: View {
                 .overlay(alignment: .bottom) {
                     if chat.voice { VoiceGlow(voice: chat.liveVoice, palette: palette) }
                 }
+            PendingImageStrip(images: $chat.pendingImages, error: chat.imageError)
             if let selection = chat.notificationDiscussion {
                 HStack {
                     Label("Replying to \(AssistantIdentity.name): " + (selection["title"] ?? ""), systemImage: "arrowshape.turn.up.left").font(.caption).lineLimit(2)
@@ -456,6 +461,7 @@ struct ConversationView: View {
         .sheet(isPresented: $showDay) {
             DayPanel(chat: chat, palette: palette).presentationDetents([.medium, .large]).presentationDragIndicator(.visible)
         }
+        .sheet(isPresented: $chat.showEmailDrafts) { EmailDraftsView(initialID: chat.emailDraftID, request: chat.emailRequest) }
         .sheet(isPresented: $showSettings) { SettingsView(chat: chat, palette: palette) }
         .sheet(isPresented: $showImport) { ContextImportView(upload: chat.importPart, refresh: chat.imports, runtime: chat.selectedModel.hasPrefix("claude-agent-sdk/") ? "claude-agent-sdk" : "codex") }
         .sheet(isPresented: $showConnections) { ConnectionsView(chat: chat, palette: palette) }
@@ -523,6 +529,7 @@ struct ConversationView: View {
                             DayMarker(date: message.at, palette: palette)
                         }
                         MessageRow(onReply: { chat.reply(to: message) }, message: message, palette: palette).equatable().id(message.id)
+                        MessageImages(ids: message.images, load: chat.imageURL)
                     }
                     if let prompt = chat.connectionPrompt {
                         ConnectionCard(chat: chat, prompt: prompt, palette: palette)

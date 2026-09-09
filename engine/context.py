@@ -41,7 +41,8 @@ def records_block(map_, today):
 def monitoring_block(map_):
     state=map_.row("select count(*) as pending, min(created_at) as oldest from assistant.source_items where source='gmail' and processed_at is null")
     cursor=map_.row("select checked_at,last_error from assistant.source_cursors where source='gmail'")
-    return 'Email monitoring status (pending mail has NOT been assessed; do not claim all mail is covered): '+dumps({'queue':state,'fetch':cursor})
+    drafts=map_.rows("select id,state,left(payload->>'subject',120) as subject,receipt,error from assistant.email_drafts where user_id=(select user_id from assistant.owner) order by created_at desc limit 5")
+    return 'Email monitoring status (pending mail has NOT been assessed; do not claim all mail is covered): '+dumps({'queue':state,'fetch':cursor,'recent_drafts':drafts})
 
 
 def pending_block(map_):

@@ -41,6 +41,7 @@ class ClaudeAgentSDKRuntime:
             allowed_tools=[f"mcp__{SERVER}__{spec.name}" for spec in tools],
             setting_sources=[],
             include_partial_messages=True,
+            max_buffer_size=24*1024*1024,
             max_budget_usd=self.budget_usd,
             resume=resume,
             cwd=self.cwd,
@@ -48,8 +49,14 @@ class ClaudeAgentSDKRuntime:
         self.client = ClaudeSDKClient(options=options)
         await self.client.connect()
 
-    async def send(self, text):
-        await self.client.query(text)
+    async def send(self, text, images=None):
+        if images:
+            async def message():
+                yield {"type":"user","message":{"role":"user","content":[{"type":"text","text":text}]+[
+                    {"type":"image","source":{"type":"base64","media_type":image['mime'],"data":image['data']}} for image in images]},"parent_tool_use_id":None}
+            await self.client.query(message())
+        else:
+            await self.client.query(text)
         async for m in self.client.receive_response():
             if isinstance(m, StreamEvent):
                 ev = m.event or {}
@@ -89,7 +96,9 @@ def _wrap(spec):
     @tool(spec.name, spec.description, spec.schema)
     async def handler(args):
         text, is_error = await tools_mod.run(spec, args)
-        out = {"content": [{"type": "text", "text": text}]}
+        from engine.images import tool_content
+        text, images = tool_content(text)
+        out = {"content": [{"type": "text", "text": text}]+[{"type":"image","mimeType":image['mime'],"data":image['data']} for image in images]}
         if is_error:
             out["is_error"] = True
         return out

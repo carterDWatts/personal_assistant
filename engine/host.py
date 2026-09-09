@@ -28,6 +28,10 @@ class Stream:
     def timing(self, name, seconds):
         self.timings[name] = round(seconds, 3)
 
+    def input_saved(self, images):
+        self.pending.append({"type":"images_saved","images":images})
+        self.changed.set()
+
     def start_turn(self):
         pass  # Claiming the durable request already emitted start.
 
@@ -48,13 +52,17 @@ class Stream:
         self.changed.set()
 
     def tool_result(self, payload):
-        if not payload.get('is_error'):
-            return
         try:
             result = json.loads(payload.get('content', ''))
         except (ValueError, TypeError):
             return
-        if isinstance(result, dict) and result.get('connection_action') in CONNECTION_ACTIONS | SERVICE_ACTIONS:
+        if isinstance(result,dict) and result.get('image',{}).get('id'):
+            self.pending.append({'type':'image','image':result['image'],'caption':result.get('caption','')})
+            self.changed.set()
+        if isinstance(result,dict) and result.get('needs_review') and result.get('draft',{}).get('id'):
+            self.pending.append({'type':'email_draft','draft_id':result['draft']['id']})
+            self.changed.set()
+        if payload.get('is_error') and isinstance(result, dict) and result.get('connection_action') in CONNECTION_ACTIONS | SERVICE_ACTIONS:
             self.pending.append({'type': 'connection_required', 'action': result['connection_action'], 'session_id':result.get('session_id'), 'provider':result.get('provider'),
                                  'message': 'This service needs to be connected on this host.'})
 
@@ -145,7 +153,7 @@ class Host:
         if turn.get('mode') == 'morning':
             from engine.morning import prepare
             extra += "\n\n" + await prepare(self.stream)
-        await self.session.send(turn['text'], extra_context=extra)
+        await self.session.send(turn['text'], extra_context=extra, **({'images':turn['images']} if turn.get('images') else {}))
 
     async def interrupt(self, task):
         if self.session:
@@ -323,6 +331,7 @@ async def supervise(host, services):
 
 
 async def main():
+    from engine.integrations.email import run as send_mail
     from engine.background import gather_sources, classify_mail
     from engine.notifications import run as notify
     from engine.jobs import run as run_jobs
@@ -343,6 +352,7 @@ async def main():
             'commands': commands(relay_map.url, host),
             'sources': gather_sources(relay_map.url, host),
             'mail': classify_mail(relay_map.url, host),
+            'email_sender': send_mail(relay_map.url, host),
             'notifications': notify(relay_map.url, host),
             'jobs': run_jobs(relay_map.url, host),
             'attention': run_attention(relay_map.url, host),

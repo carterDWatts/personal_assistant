@@ -7,10 +7,12 @@ import AVFoundation
     var events: AsyncStream<[String: Any]> { get }
     func connect(clear: Bool)
     func send(_ text: String, id: UUID, speech: Bool, model: String?, mode: String, notification: [String: String]?)
+    func sendImages(_ text: String, id: UUID, model: String?, images: [String])
     func stop()
     func foreground(_ active: Bool)
     func close()
     /// Connection setup for the host. Credentials go only through these, never through send.
+    func clientRequest(_ action: String, _ args: [String: Any]) async throws -> [String: Any]
     func reminderRequest(_ action: String, _ args: [String: Any]) async throws -> [String: Any]
     func importPart(_ args: [String: Any]) async throws
     func imports() async throws -> [[String: Any]]
@@ -34,6 +36,16 @@ func isoDate(_ date: Date) -> String {
     private var reply: Task<Void, Never>?
     private var turn = 0
     private var history: [[String: Any]] = []
+    private var sampleEmailState = "draft"
+    func clientRequest(_ action: String, _ args: [String: Any]) async throws -> [String: Any] {
+        guard action == "email" else { throw ConnectionFailure("Unavailable in preview.") }
+        if args["operation"] as? String == "approve" { sampleEmailState = "sent" }
+        if args["operation"] as? String == "discard" { sampleEmailState = "discarded" }
+        let row: [String: Any] = ["id": "sample-draft", "version": 1, "content_hash": "sample", "state": sampleEmailState,
+            "payload": ["from": "me@example.com", "to": ["alex@example.com"], "cc": [], "bcc": [],
+                        "subject": "Friday coffee", "body": "Hi Alex,\n\nFriday morning works for me. Does 10:00 suit you?\n\nThanks!"]]
+        return args["operation"] as? String == "list" ? ["drafts": sampleEmailState == "discarded" ? [] : [row]] : row
+    }
     private static let answers = [
         "Morning. Nothing is on the calendar until the afternoon, so the dentist call is the one thing worth doing before lunch.",
         "That fits. I’ll keep it in the plan for today, and I can bring it up again tomorrow if it slips.",
@@ -183,6 +195,8 @@ struct MockError: LocalizedError {
 }
 
 @MainActor extension Transport {
+    func sendImages(_ text: String, id: UUID, model: String?, images: [String]) { send(text, id: id, speech: false, model: model, mode: "talk", notification: nil) }
+    func clientRequest(_ action: String, _ args: [String: Any]) async throws -> [String: Any] { throw ConnectionFailure("Unavailable in preview.") }
     func reminderRequest(_ action: String, _ args: [String: Any]) async throws -> [String: Any] { throw ConnectionFailure("Reminders are unavailable in preview.") }
     func importPart(_ args: [String: Any]) async throws { throw ConnectionFailure("Imports are unavailable in preview.") }
     func imports() async throws -> [[String: Any]] { [] }

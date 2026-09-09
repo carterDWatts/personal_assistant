@@ -125,3 +125,11 @@ Audio lives in a private speech bucket, signed for ten minutes, and is deleted a
 `proactive` events contain a `message` row (`id`, `role`, `content`, `created_at`, `payload`). Render it as an assistant chat message, deduplicated by database ID, without taking ownership of the active streamed reply or playing audio. Bootstrap history includes the same payload. `payload.reference` links a notice or reminder.
 
 Notification replies send `notification: {kind, id, message_id?}`. `notification_message` accepts that reference and returns the persisted message, including older messages outside the bootstrap tail. The gateway verifies owner and device; submit validates that the message belongs to that reference. After sending, clear the reply selection; the response and future conversation preserve the discussion naturally.
+
+## Draft review and images
+
+`email` is an authenticated client action with `operation: list | get | approve | discard`. Approval requires the draft `id`, `version`, and `content_hash` shown by the client. None of these client operations is a model tool. An `email_draft` event opens the review sheet; the draft list also survives reconnects.
+
+`image` supports `upload` and `get`. Upload accepts a client UUID, filename, MIME type, and base64 image data (4 MB maximum). It returns an image ID; get returns a short-lived signed URL after ownership checks. The private `chat-images` bucket is provisioned with `python3 scripts/cloud.py images`. Mac bridge credentials live in Keychain. Never store signed URLs or image bytes in transcript text.
+
+`submit` accepts up to four `images` IDs from the same account. Request retries must preserve these IDs. The host records image IDs in the user message payload and emits `images_saved` after persistence. The adapters provide image content to the model. `image_show` emits an `image` event and preserves the ID on the assistant message; `image_read` retrieves saved visual context on demand. Image output currently shares existing or public images; it does not add a paid image-generation service.

@@ -63,7 +63,7 @@ class Session:
         if mode == "morning" and begin_morning:
             await self.send("Begin the morning session.", role="system")
 
-    async def send(self, text, role="user", *, extra_context=""):
+    async def send(self, text, role="user", *, extra_context="", images=None):
         # Refresh on every turn, including resumed sessions. Model context is a cache.
         started = time.monotonic()
         sections = self.prepared.read()
@@ -85,12 +85,21 @@ class Session:
         if self.seed:
             opening += "\n\n" + self.seed
             self.seed = None
-        mid = self.conv.record(self.segment_id, role, text)
+        image_ids=[str(id) for id in (images or [])]
+        image_content=[]
+        if image_ids:
+            import asyncio
+            from engine.images import Images
+            image_content=await asyncio.to_thread(Images(self.map).contents,image_ids)
+            opening += '\nAttached image IDs: '+', '.join(image_ids)
+        mid = self.conv.record(self.segment_id, role, text, {"images":image_ids} if image_ids else None)
+        if image_ids and (saved := getattr(self.io, "input_saved", None)):
+            saved(image_ids)
         if timing := getattr(self.io, "timing", None):
             timing("context_seconds", time.monotonic() - started)
         try:
             await turn(self.runtime, self.conv, self.tools, self.io, self.segment_id, mid,
-                       f"{opening}\n\n{extra_context}\n\nThe user says:\n{text}")
+                       f"{opening}\n\n{extra_context}\n\nThe user says:\n{text}", images=image_content)
             self.sent_snapshot = sections if getattr(self.runtime, 'context_revision', 0) == revision else None
             self.context_revision = getattr(self.runtime, 'context_revision', 0)
         except BaseException:
@@ -132,15 +141,17 @@ async def run(mode, map_, runtime, io, device):
         await session.close()
 
 
-async def turn(runtime, conv, tools, io, segment_id, message_id, text):
+async def turn(runtime, conv, tools, io, segment_id, message_id, text, images=None):
     tools.message_id = message_id
     completed, pending = [], ""
+    shown_images = []
     failed = True
     io.start_turn()
     started = time.monotonic()
     first_text = True
     try:
-        async for ev in runtime.send(text):
+        events=runtime.send(text, images=images) if images else runtime.send(text)
+        async for ev in events:
             if first_text and ev.kind in ("text", "assistant_text") and ev.text:
                 first_text = False
                 if timing := getattr(io, "timing", None):
@@ -157,6 +168,12 @@ async def turn(runtime, conv, tools, io, segment_id, message_id, text):
                 io.note(ev.name)
                 conv.record(segment_id, "tool", None, {"call": ev.name, "input": ev.payload})
             elif ev.kind == "tool_result":
+                import json
+                try:
+                    receipt=json.loads((ev.payload or {}).get('content',''))
+                    if isinstance(receipt,dict) and receipt.get('image',{}).get('id'):
+                        shown_images.append(receipt['image']['id'])
+                except (ValueError,TypeError): pass
                 conv.record(segment_id, "tool", None, {"result_for": ev.name, **(ev.payload or {})})
                 if notify := getattr(io, "tool_result", None):
                     notify(ev.payload or {})
@@ -164,9 +181,9 @@ async def turn(runtime, conv, tools, io, segment_id, message_id, text):
     finally:
         if pending:
             completed.append(pending)
-        if completed:
-            final_text = "\n\n".join(completed)
-            conv.record(segment_id, "assistant", final_text, {"interrupted": failed})
+        if completed or shown_images:
+            final_text = "\n\n".join(completed) or "Image"
+            conv.record(segment_id, "assistant", final_text, {"interrupted": failed, "images":list(dict.fromkeys(shown_images))})
             if replace := getattr(io, "replace_text", None):
                 replace(final_text)
         if runtime.session_id:

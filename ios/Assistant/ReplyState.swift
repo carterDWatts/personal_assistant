@@ -4,6 +4,7 @@ struct ChatMessage: Identifiable {
     let id = UUID()
     let role: String
     var text: String
+    var images: [String] = []
     var at: Date = Date()
     var pending = false
     var databaseID: String? = nil
@@ -12,7 +13,7 @@ struct ChatMessage: Identifiable {
     static func stored(_ row: [String: Any]) -> ChatMessage? {
         guard let role = row["role"] as? String, let content = row["content"] as? String, !content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
         let payload = row["payload"] as? [String: Any]
-        return ChatMessage(role: role, text: content, databaseID: row["id"].map { String(describing: $0) }, reference: payload?["reference"] as? [String: String])
+        return ChatMessage(role: role, text: content, images: payload?["images"] as? [String] ?? [], databaseID: row["id"].map { String(describing: $0) }, reference: payload?["reference"] as? [String: String])
     }
 }
 
@@ -52,7 +53,7 @@ struct ReplyState {
     }
 
     private func finishRows(_ messages: inout [ChatMessage]) {
-        messages.removeAll { $0.role == "assistant" && $0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        messages.removeAll { $0.role == "assistant" && $0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && $0.images.isEmpty }
         for index in messages.indices { messages[index].pending = false }
     }
 }
