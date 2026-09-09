@@ -466,7 +466,7 @@ struct ConversationView: View {
         .onAppear { if !chat.connected && !chat.busy { chat.connect() } }
         .onChange(of: account.signedIn) { _, now in if now { chat.connect() } }
         .onOpenURL { url in
-            if !WebAuth.shared.receive(url) { Task { await account.open(url) } }
+            if !Spotify.shared.receive(url), !WebAuth.shared.receive(url) { Task { await account.open(url) } }
         }
         .onChange(of: phase) { _, now in chat.foreground(now == .active) }
         .preferredColorScheme(.light)

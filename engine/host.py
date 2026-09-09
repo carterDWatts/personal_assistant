@@ -126,9 +126,13 @@ class Host:
             runtime = load(choice['runtime'])(model=choice['model']) if choice else self.factory()
             self.model_id = model
             self.session = Session(self.map, runtime, self.stream, 'cloud',
-                                   auto_memory=False, before_tool=self.before_tool)
+                                   auto_memory=False, before_tool=self.before_tool, spotify_control=self.spotify_control)
             await self.session.open(mode, begin_morning=False)
             self.stream.timing('session_open_seconds', time.monotonic() - opened)
+
+    async def spotify_control(self, args):
+        from engine.integrations.spotify import phone_control
+        return await phone_control(self, args)
 
     async def answer(self, turn):
         await self.prepare_session(turn.get('model'), turn.get('mode', 'talk'))

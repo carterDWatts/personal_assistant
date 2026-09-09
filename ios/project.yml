@@ -13,12 +13,23 @@ settings:
     TARGETED_DEVICE_FAMILY: "1"
     MARKETING_VERSION: "0.1"
     CURRENT_PROJECT_VERSION: "1"
+packages:
+  SpotifyiOS:
+    url: https://github.com/spotify/ios-sdk
+    exactVersion: 5.0.1
 targets:
   Assistant:
     type: application
     platform: iOS
+    dependencies:
+      - package: SpotifyiOS
     sources:
       - path: Assistant
+      - path: ../shared/IntegrationCatalog.swift
+      - path: ../shared/SpotifyCommand.swift
+      - path: ../shared/DaySchedule.swift
+      - path: ../shared/integrations.json
+        buildPhase: resources
       - path: ../shared/ContextImport.swift
       - path: ../desktop/VoiceTurn.swift
       - path: ../identity.json
@@ -34,6 +45,7 @@ targets:
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
         ITSAppUsesNonExemptEncryption: false
+        LSApplicationQueriesSchemes: [spotify]
         UIBackgroundModes:
           - audio
         CFBundleURLTypes:

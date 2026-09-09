@@ -2,7 +2,7 @@ import type { Config } from './handler.ts';
 
 import { integrations, grants, providers, oauthProviders, registration, configured } from './catalog.ts';
 
-export const connectionActions = new Set(['connections','connection_start','connection_status','connection_token','connection_remove']);
+export const connectionActions = new Set(['connections','connection_start','connection_status','connection_token','connection_remove','spotify_command']);
 const encode = new TextEncoder();
 const b64 = (v: Uint8Array) => btoa(String.fromCharCode(...v));
 const bytes = (v: string) => Uint8Array.from(atob(v), x => x.charCodeAt(0));
@@ -41,6 +41,18 @@ export async function connection(config: Config, user: string, input: any, fetch
   // Every operation validates the authenticated owner and device before external I/O.
   const rows = await store(config,user,input.device_id,'list',{},fetcher) as any[];
   const args = input.args || {}, provider = args.provider;
+  if (input.action === 'spotify_command') {
+    const client = registration(config, 'spotify');
+    if (!['claim','finish'].includes(args.action)) throw new Error('invalid_request');
+    const response = await fetcher(`${config.url}/rest/v1/rpc/assistant_spotify`, {
+      method:'POST', headers:{'Content-Type':'application/json',apikey:config.serviceKey,authorization:`Bearer ${config.serviceKey}`},
+      body:JSON.stringify({p_user:user,p_device:input.device_id,p_action:args.action,p_args:args}),signal:AbortSignal.timeout(10000),
+    });
+    if (!response.ok) throw new Error('invalid_request');
+    const result = await response.json();
+    // Public app identifier only. OAuth secrets and refresh tokens stay on the host.
+    return result.state === 'ready' ? {...result, client_id:client.id} : result;
+  }
   if (input.action === 'connections') {
     const googleRows = rows.filter(r => r.slot.startsWith('google_'));
     const linked = Object.entries(grants).filter(([,g]) => googleRows.some(r => r.slot===g.slot && g.scopes.every(s => (r.metadata.scopes || []).includes(s)))).map(([name])=>name);
@@ -141,15 +153,17 @@ export async function accountCallback(req: Request, config: Config, provider: Ac
     const body=new URLSearchParams({grant_type:'authorization_code',code,redirect_uri:accountCallbackURL(config,provider),code_verifier:auth.verifier});
     const headers: Record<string,string>={'Accept':'application/json','Content-Type':'application/x-www-form-urlencoded'};
     if (details.clientAuth==='basic') headers.Authorization='Basic '+btoa(details.id+':'+details.secret);
+    else if (details.clientAuth==='pkce') body.set('client_id',details.id);
     else { body.set('client_id',details.id); body.set('client_secret',details.secret); }
     const response=await fetcher(details.token,{method:'POST',headers,body,redirect:'error',signal:AbortSignal.timeout(15000)});
     if (!response.ok) throw new Error('connection_rejected');
     const token=await response.json();
-    if (!token.access_token || token.error || (provider==='supabase' && !token.refresh_token)) throw new Error('connection_rejected');
+    if (!token.access_token || token.error || (['supabase','spotify'].includes(provider) && !token.refresh_token)) throw new Error('connection_rejected');
+    if (provider==='spotify' && !details.parameters.scope.split(' ').every(scope => (token.scope || '').split(' ').includes(scope))) throw new Error('connection_rejected');
     const profile=await fetcher(providers[provider].url,{headers:{Authorization:'Bearer '+token.access_token,...providers[provider].headers},redirect:'error',signal:AbortSignal.timeout(10000)});
     if (!profile.ok) throw new Error('connection_rejected');
     const info=await profile.json();
-    const account=provider==='github'?String(info.login):'Supabase account';
+    const account=provider==='github'?String(info.login):provider==='spotify'?String(info.display_name || info.id):'Supabase account';
     const credential=JSON.stringify({token:token.access_token,refresh_token:token.refresh_token,token_uri:details.token,
       client_id:details.id,client_secret:details.secret,provider,
       expiry:token.expires_in?new Date(Date.now()+token.expires_in*1000).toISOString():null});

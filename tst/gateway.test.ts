@@ -164,9 +164,9 @@ test('revoked connections cannot contact providers and rejected tokens are not s
 });
 
 import { accountCallback, unseal } from '../supabase/functions/assistant/connections.ts';
-for (const provider of ['github','supabase'] as const) {
+for (const provider of ['github','supabase','spotify'] as const) {
   test(`${provider} account sign-in binds PKCE, provider, owner and device`, async () => {
-    const settings={...connectedConfig,oauthApps:{...connectedConfig.oauthApps,github:{id:'github-client',secret:'github-secret'},supabase:{id:'supabase-client',secret:'supabase-secret'}}};
+    const settings={...connectedConfig,oauthApps:{...connectedConfig.oauthApps,github:{id:'github-client',secret:'github-secret'},supabase:{id:'supabase-client',secret:'supabase-secret'},spotify:{id:'spotify-client'}}};
     let intent:any, saved:any, consumed=false, state='';
     const fetcher:typeof fetch=async (url,options) => {
       if (String(url).includes('/rpc/')) {
@@ -186,7 +186,8 @@ for (const provider of ['github','supabase'] as const) {
         assert.ok(form.get('code_verifier'));
         assert.equal(form.get('redirect_uri'),`https://example.invalid/functions/v1/assistant/${provider}/callback`);
         if (provider==='supabase') assert.equal(new Headers(options?.headers).get('authorization'),'Basic '+btoa('supabase-client:supabase-secret'));
-        return Response.json({access_token:'private-access',refresh_token:'private-refresh',expires_in:3600});
+        if(provider==='spotify') { assert.equal(form.get('client_id'),'spotify-client'); assert.equal(form.get('client_secret'),null); assert.equal(new Headers(options?.headers).get('authorization'),null); }
+        return Response.json({access_token:'private-access',refresh_token:'private-refresh',expires_in:3600,scope:'user-read-private user-read-playback-state user-modify-playback-state app-remote-control'});
       }
       return Response.json(provider==='github'?{login:'carter'}:[]);
     };
@@ -254,4 +255,21 @@ test('retired browser commands are rejected before privileged database access', 
     const response = await execute(config,owner,{action,device_id:device,args:{}},fetcher);
     assert.equal(response.status,400);
   }
+});
+
+test('Spotify commands expose only the public app identifier after device validation', async () => {
+  const settings={...connectedConfig,oauthApps:{spotify:{id:'public-client'}}};
+  const result=await connection(settings,owner,{device_id:device,action:'spotify_command',args:{action:'claim',command_id:device}},async(url,options)=>{
+    const input=JSON.parse(String(options?.body));
+    assert.equal(input.p_user,owner);assert.equal(input.p_device,device);
+    if(String(url).endsWith('assistant_connection_store')) return Response.json([]);
+    assert.equal(input.p_action,'claim');
+    return Response.json({state:'ready',command:{action:'resume'}});
+  });
+  assert.deepEqual(result,{state:'ready',command:{action:'resume'},client_id:'public-client'});
+  let calls=0;
+  await assert.rejects(connection(settings,owner,{device_id:device,action:'spotify_command',args:{action:'claim'}},async()=>{
+    calls++;return Response.json({message:'device_denied'},{status:403});
+  }),/device_denied/);
+  assert.equal(calls,1);
 });

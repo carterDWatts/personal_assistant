@@ -17,8 +17,8 @@ export function registration(config: Config, provider: string) {
   if (!details) throw new Error('invalid_request');
   const id = config.oauthApps?.[provider]?.id;
   const secret = config.oauthApps?.[provider]?.secret;
-  if (!id || !secret || !config.credentialKey) throw new Error('connections_unavailable');
-  return {...details, id, secret};
+  if (!id || (!secret && details.clientAuth !== 'pkce') || !config.credentialKey) throw new Error('connections_unavailable');
+  return {...details, id, secret:secret || ''};
 }
 
 export function configured(config: Config, provider: Provider) {

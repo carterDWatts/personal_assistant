@@ -183,6 +183,36 @@
         "Notion-Version": "2026-03-11"
       },
       "grants": []
+    },
+    {
+      "id": "spotify",
+      "name": "Spotify",
+      "domains": [
+        "spotify.com"
+      ],
+      "action": "spotify_connect",
+      "auth": "oauth",
+      "setupURL": "https://accounts.spotify.com/",
+      "instructions": "Connect Spotify so I can find music and podcasts and control playback in Spotify.",
+      "capabilities": [
+        "music.search",
+        "podcasts.search",
+        "playback.control"
+      ],
+      "apiBase": "https://api.spotify.com/v1/",
+      "profile": "me",
+      "headers": {},
+      "grants": [],
+      "oauth": {
+        "authorize": "https://accounts.spotify.com/authorize",
+        "token": "https://accounts.spotify.com/api/token",
+        "clientAuth": "pkce",
+        "parameters": {
+          "scope": "user-read-private user-read-playback-state user-modify-playback-state app-remote-control"
+        },
+        "clientIdEnv": "SPOTIFY_CLIENT_ID",
+        "clientSecretEnv": "SPOTIFY_CLIENT_SECRET"
+      }
     }
   ]
 }

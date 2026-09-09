@@ -171,6 +171,11 @@ final class Chat: ObservableObject {
             connectionPrompt = event["action"] as? String
             connectionPromptSatisfied = false
             refreshConnections()
+        case "spotify_control":
+            if ["play", "resume"].contains(event["action"] as? String ?? "") {
+                liveVoice.stop(); voice = false; speechBuffer = ""; voiceTurn.discardPending()
+            }
+            status = "Controlling Spotify…"
         case "connections":
             if event["completed"] as? Bool == true {
                 let action = event["action"] as? String

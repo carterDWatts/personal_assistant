@@ -29,7 +29,7 @@ swiftc -parse-as-library "$ROOT"/desktop/*.swift "$ROOT"/shared/*.swift -o "$APP
 import json,plistlib,sys,pathlib
 app,root,python=sys.argv[1:]
 name=json.loads((pathlib.Path(root)/'identity.json').read_text())['name']
-info={'CFBundleExecutable':'PersonalAssistant','CFBundleIdentifier':'com.carterwatts.personal-assistant','CFBundleName':name,'CFBundleDisplayName':name,'CFBundlePackageType':'APPL','CFBundleVersion':'1','CFBundleShortVersionString':'0.1','LSMinimumSystemVersion':'13.0','CFBundleIconFile':'AppIcon','NSMicrophoneUsageDescription':'Talk to your personal assistant.','AssistantRoot':root,'AssistantPython':python}
+info={'CFBundleExecutable':'PersonalAssistant','CFBundleIdentifier':'com.carterwatts.personal-assistant','CFBundleName':name,'CFBundleDisplayName':name,'CFBundlePackageType':'APPL','CFBundleVersion':'1','CFBundleShortVersionString':'0.1','LSMinimumSystemVersion':'13.0','CFBundleIconFile':'AppIcon','NSMicrophoneUsageDescription':'Talk to your personal assistant.','NSAppleEventsUsageDescription':'Control Spotify playback when you ask.','AssistantRoot':root,'AssistantPython':python}
 with open(pathlib.Path(app)/'Contents/Info.plist','wb') as f: plistlib.dump(info,f)
 PY
 codesign --force --deep --sign - "$APP"

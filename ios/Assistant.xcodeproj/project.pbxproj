@@ -7,6 +7,9 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+        CF0100000000000000000001 = {isa = PBXBuildFile; fileRef = CF0100000000000000000002; };
+        CF0100000000000000000003 = {isa = PBXBuildFile; fileRef = CF0100000000000000000004; };
+        CF0100000000000000000005 = {isa = PBXBuildFile; productRef = CF0100000000000000000006; };
         CC0100000000000000000001 = {isa = PBXBuildFile; fileRef = CC0100000000000000000002; };
         CC0100000000000000000003 = {isa = PBXBuildFile; fileRef = CC0100000000000000000004; };
 		0046B9359FD9A79E7BF42619 /* VoiceTurn.swift in Sources */ = {isa = PBXBuildFile; fileRef = C85DAEEEE55F2BFC90BE3CC9 /* VoiceTurn.swift */; };
@@ -57,6 +60,8 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+        CF0100000000000000000002 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Assistant/Spotify.swift; sourceTree = SOURCE_ROOT; };
+        CF0100000000000000000004 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ../shared/SpotifyCommand.swift; sourceTree = SOURCE_ROOT; };
         CC0100000000000000000002 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ../shared/IntegrationCatalog.swift; sourceTree = SOURCE_ROOT; };
         CC0100000000000000000004 = {isa = PBXFileReference; lastKnownFileType = text.json; path = ../shared/integrations.json; sourceTree = SOURCE_ROOT; };
 		0497070F1E94B926A14D5A01 /* Voice.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Voice.swift; sourceTree = "<group>"; };
@@ -94,6 +99,9 @@
 		FE1E7DC00C8E768658B15BA8 /* Look.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Look.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
+/* Begin PBXFrameworksBuildPhase section */
+        CF0100000000000000000008 = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (CF0100000000000000000005,); runOnlyForDeploymentPostprocessing = 0; };
+/* End PBXFrameworksBuildPhase section */
 /* Begin PBXGroup section */
 		1329D326E9E0BB7176FFECDD /* AssistantUITests */ = {
 			isa = PBXGroup;
@@ -116,6 +124,7 @@
 		583D12035B56C18878C21C19 /* shared */ = {
 			isa = PBXGroup;
 			children = (
+                CF0100000000000000000004,
 				B74AEEBF9820A26218CCD184 /* ContextImport.swift */,
 				A6D18B908AE5488A90172222 /* DaySchedule.swift */,
 			);
@@ -155,6 +164,7 @@
 		D4E597498C9A526660060948 /* Assistant */ = {
 			isa = PBXGroup;
 			children = (
+                CF0100000000000000000002,
 				ED986764FEC8C073175A88FF /* Account.swift */,
 				DAD2018EE3CC52D3D8588EDC /* App.swift */,
 				986D1C1B277AB5299783326C /* Assets.xcassets */,
@@ -254,6 +264,7 @@
 			buildConfigurationList = 94BC18B1E9B9CE9991C87CC9 /* Build configuration list for PBXNativeTarget "Assistant" */;
 			buildPhases = (
 				4A705AB6FCFF81EB9402B068 /* Sources */,
+                CF0100000000000000000008 /* Frameworks */,
 				59C743D46B3CAF080DC2C7C3 /* Resources */,
 				1E8A34C7B35BBE814CFE0CB7 /* Name the app from identity.json */,
 			);
@@ -263,6 +274,7 @@
 			);
 			name = Assistant;
 			packageProductDependencies = (
+                CF0100000000000000000006,
 			);
 			productName = Assistant;
 			productReference = C10CBC59C32F901023B4AB71 /* Assistant.app */;
@@ -273,6 +285,7 @@
 /* Begin PBXProject section */
 		4ADD9DB5B6047DF5BDC8C491 /* Project object */ = {
 			isa = PBXProject;
+            packageReferences = (CF0100000000000000000007,);
 			attributes = {
 				BuildIndependentTargetsInParallel = YES;
 				LastUpgradeCheck = 1630;
@@ -367,6 +380,8 @@
 			buildActionMask = 2147483647;
 			files = (
 				E7822E63E1E8FC23FFFFAC2E /* Account.swift in Sources */,
+                CF0100000000000000000001,
+                CF0100000000000000000003,
 				CA24510F1F5E93FDAE862DA4 /* App.swift in Sources */,
 				DE85CB8159AB83773B5C0DA4 /* Chat.swift in Sources */,
 				0C3FD95CC5D35890D472ECD1 /* Connections.swift in Sources */,
@@ -419,6 +434,12 @@
 		};
 /* End PBXTargetDependency section */
 
+/* Begin XCRemoteSwiftPackageReference section */
+        CF0100000000000000000007 = {isa = XCRemoteSwiftPackageReference; repositoryURL = "https://github.com/spotify/ios-sdk"; requirement = {kind = exactVersion; version = 5.0.1; }; };
+/* End XCRemoteSwiftPackageReference section */
+/* Begin XCSwiftPackageProductDependency section */
+        CF0100000000000000000006 = {isa = XCSwiftPackageProductDependency; package = CF0100000000000000000007; productName = SpotifyiOS; };
+/* End XCSwiftPackageProductDependency section */
 /* Begin XCBuildConfiguration section */
 		145A8CADBB4FCF926019B33B /* Release */ = {
 			isa = XCBuildConfiguration;

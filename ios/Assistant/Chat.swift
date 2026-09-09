@@ -249,6 +249,11 @@ func plain(_ value: Any?) -> String {
             if !hostSpeaks && !voiceTurn.interrupted { speakSentences(flush: true); liveVoice.finishReplyAudio() }
         case "connection_required":
             connectionPrompt = ConnectionPrompt(event: event)
+        case "spotify_control":
+            if ["play", "resume"].contains(event["action"] as? String ?? "") {
+                liveVoice.stop(); voice = false; speechBuffer = ""; voiceTurn.discardPending()
+            }
+            status = "Controlling Spotify…"
         case "connections":
             connections = (event["providers"] as? [[String: Any]] ?? []).map(Connection.init)
         case "memory": memoryStatus = text

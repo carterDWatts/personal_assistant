@@ -21,7 +21,7 @@ def configured(provider):
     try:
         stored = keyring.get_password('com.carterwatts.personal-assistant.oauth-apps', provider)
         client = json.loads(stored) if stored else {}
-        return bool(client.get('client_id') and client.get('client_secret'))
+        return bool(client.get('client_id') and (OAUTH_PROVIDERS[provider]['oauth']['clientAuth'] == 'pkce' or client.get('client_secret')))
     except (keyring.errors.KeyringError, ValueError, TypeError):
         return False
 
@@ -42,6 +42,8 @@ def access_token(provider, service, account, stored):
         auth = None
         if OAUTH_PROVIDERS[provider]["oauth"]["clientAuth"] == "basic":
             auth = (value['client_id'], value['client_secret'])
+        elif OAUTH_PROVIDERS[provider]['oauth']['clientAuth'] == 'pkce':
+            data['client_id'] = value['client_id']
         else:
             data.update(client_id=value['client_id'], client_secret=value['client_secret'])
         response = requests.post(endpoint, data=data, auth=auth, headers={'Accept':'application/json'}, timeout=15, allow_redirects=False)
@@ -101,11 +103,14 @@ def connect_local(provider, service, account):
     data={'grant_type':'authorization_code','code':received['code'],'redirect_uri':callback,'code_verifier':verifier}
     auth=None
     if OAUTH_PROVIDERS[provider]["oauth"]["clientAuth"] == "basic":auth=(client['client_id'],client['client_secret'])
+    elif OAUTH_PROVIDERS[provider]['oauth']['clientAuth'] == 'pkce':data['client_id']=client['client_id']
     else:data.update(client_id=client['client_id'],client_secret=client['client_secret'])
     response=requests.post(ENDPOINTS[provider],data=data,auth=auth,headers={'Accept':'application/json'},timeout=15,allow_redirects=False)
     if response.status_code!=200:raise ToolError('Sign-in was not completed.')
     token=response.json()
     if not token.get('access_token') or token.get('error'):raise ToolError('Sign-in was not completed.')
+    if provider == 'spotify' and (not token.get('refresh_token') or not set(OAUTH_PROVIDERS[provider]['oauth']['parameters']['scope'].split()).issubset(token.get('scope','').split())):
+        raise ToolError('Spotify did not grant the requested playback access.')
     value={**client,'token':token['access_token'],'refresh_token':token.get('refresh_token'),'provider':provider,
            'expiry':(datetime.now(timezone.utc)+timedelta(seconds=token['expires_in'])).isoformat() if token.get('expires_in') else None}
     from engine.integrations.accounts import _request, PROVIDERS

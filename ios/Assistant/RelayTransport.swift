@@ -36,6 +36,7 @@ struct RelayError: LocalizedError {
     private var failures = 0
     private var replaying = false
     private var draining = false
+    private var playerGeneration = 0
     private let socket = RelaySocket()
     var socketResponses: Int { socket.responses }
 
@@ -47,6 +48,8 @@ struct RelayError: LocalizedError {
     }
 
     func connect(clear: Bool) {
+        playerGeneration += 1
+        Spotify.shared.cancel()
         poller?.cancel()
         guard account.signedIn else { emit(["type": "status", "text": "Sign in to continue"]); return }
         Task { await bootstrap(clear: clear) }
@@ -122,6 +125,26 @@ struct RelayError: LocalizedError {
             // Audio is for the live turn only; a reconnect keeps the text and skips the sound.
             if !replaying { payload["turn_id"] = envelope["turn_id"]; emit(payload) }
             if type == "speech_end", envelope["turn_id"] as? String == audioTurn { audioTurn = nil }
+        case "spotify_command":
+            guard !replaying, payload["device_id"] as? String == account.deviceID,
+                  let command = payload["command_id"] as? String else { return }
+            let generation = playerGeneration
+            let turn = activeTurn
+            Task {
+                do {
+                    let claimed = try await call("spotify_command", ["action": "claim", "command_id": command])
+                    guard claimed["state"] as? String == "ready", let args = claimed["command"] as? [String: Any],
+                          let client = claimed["client_id"] as? String,
+                          playerGeneration == generation, activeTurn == turn, turn != nil else { return }
+                    emit(["type": "spotify_control", "action": args["action"] as? String ?? ""])
+                    let result = await Spotify.shared.run(args, clientID: client)
+                    // Only the receipt is retried. Never repeat the player command.
+                    for attempt in 0..<3 {
+                        do { _ = try await call("spotify_command", ["action": "finish", "command_id": command, "result": result]); break }
+                        catch { if attempt < 2 { try? await Task.sleep(for: .seconds(1)) } }
+                    }
+                } catch { emit(["type": "status", "text": "Spotify control could not connect."]) }
+            }
         default:
             emit(payload)
         }
@@ -192,6 +215,8 @@ struct RelayError: LocalizedError {
     }
 
     func stop() {
+        playerGeneration += 1
+        Spotify.shared.cancel()
         guard let turn = activeTurn ?? audioTurn else { return }
         audioTurn = nil
         Task { _ = try? await call("cancel", ["turn_id": turn]) }
@@ -203,7 +228,7 @@ struct RelayError: LocalizedError {
         if active, poller != nil { Task { try? await drain() } }
     }
 
-    func close() { poller?.cancel(); socket.close() }
+    func close() { playerGeneration += 1; poller?.cancel(); socket.close(); Spotify.shared.cancel() }
 
     func reminderRequest(_ action: String, _ args: [String: Any]) async throws -> [String: Any] { try await call(action, args) }
     func importPart(_ args: [String: Any]) async throws { _ = try await call("import_part", args) }
@@ -235,6 +260,7 @@ struct RelayError: LocalizedError {
         var args: [String: Any] = ["provider": provider]
         if let grant { args["grant"] = grant }
         _ = try await call("connection_remove", args)
+        if provider == "spotify" { Spotify.shared.disconnect() }
     }
 
     private func number(_ value: Any?) -> Int64? {

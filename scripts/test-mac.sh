@@ -13,6 +13,7 @@ check() {
 check OutputStreamCheck "$ROOT/desktop/OutputStream.swift"
 check VoiceTurnCheck "$ROOT/desktop/VoiceTurn.swift"
 check ReplyStateCheck "$ROOT/ios/Assistant/ReplyState.swift"
+check SpotifyCheck "$ROOT/shared/SpotifyCommand.swift"
 check LocalVoiceCheck "$ROOT/desktop/LocalVoice.swift" "$ROOT/desktop/OutputStream.swift" -framework AVFoundation
 check ChatCheck "$ROOT/desktop/Chat.swift" "$ROOT/desktop/EngineConnection.swift" \
   "$ROOT/desktop/OutputStream.swift" "$ROOT/desktop/LiveVoice.swift" \

@@ -168,13 +168,16 @@ def configure_account(provider, client_file):
     import tempfile
     import keyring
     client=json.loads(Path(client_file).read_text())
-    client_id,secret=client['client_id'],client['client_secret']
-    if not all(isinstance(v,str) and v and not any(c.isspace() for c in v) for v in (client_id,secret)):
-        raise RuntimeError('Invalid OAuth client configuration.')
+    client_id,secret=client['client_id'],client.get('client_secret','')
     from engine.integrations.catalog import OAUTH_PROVIDERS
     registration=OAUTH_PROVIDERS[provider]['oauth']
+    values=(client_id,) if registration['clientAuth']=='pkce' else (client_id,secret)
+    if not all(isinstance(v,str) and v and not any(c.isspace() for c in v) for v in values):
+        raise RuntimeError('Invalid OAuth client configuration.')
     with tempfile.NamedTemporaryFile(mode='w',suffix='.env') as env:
-        env.write(f"{registration['clientIdEnv']}={client_id}\n{registration['clientSecretEnv']}={secret}\n");env.flush()
+        env.write(f"{registration['clientIdEnv']}={client_id}\n")
+        if secret: env.write(f"{registration['clientSecretEnv']}={secret}\n")
+        env.flush()
         command(['supabase','secrets','set','--project-ref',PROJECT,'--env-file',env.name])
     keyring.set_password('com.carterwatts.personal-assistant.oauth-apps',provider,json.dumps(client))
     print('OAuth registration installed in the gateway and local Keychain.')

@@ -162,7 +162,11 @@ async def main():
                     name = message.get("runtime", "claude-agent-sdk")
                     runtime = load(name)()
                     map_ = Map()
-                    session = Session(map_, runtime, DesktopIO(), config.DEVICE)
+                    async def spotify_control(args):
+                        from engine.integrations.spotify_mac import control
+                        emit('spotify_control', action=args['action'])
+                        return await control(args)
+                    session = Session(map_, runtime, DesktopIO(), config.DEVICE, spotify_control=spotify_control)
                     clear = message.get("clear") is True
                     outbound_cursor = map_.value("select coalesce(max(message_id),0) from assistant.outbound")
                     emit("history", messages=[] if clear else session.conv.tail(100))

@@ -62,8 +62,12 @@ def _request(provider, path, *, params=None, body=None, token=None, method=None)
             if response.status_code == 401:
                 raise ConnectionRequired(f"{label} rejected the credential. Reconnect in the chat.", f"{provider}_connect")
             if response.status_code == 403:
+                if provider == 'spotify':
+                    raise ToolError('Spotify denied playback. On-demand controls need Premium; also check the developer app allows this account.')
                 raise ToolError(f"{label} denied access. Check the account's permissions or rate limit.")
             if response.status_code == 404:
+                if provider == 'spotify' and path.startswith('me/player'):
+                    raise ToolError('Spotify has no available player on that device. Open Spotify there first.')
                 raise ToolError(f"This item is missing or not shared with the {label} connection.")
             if response.status_code == 429:
                 raise ToolError(f"{label} is rate-limiting requests. Try again later.")
@@ -74,7 +78,7 @@ def _request(provider, path, *, params=None, body=None, token=None, method=None)
                 data.extend(chunk)
                 if len(data) > 512000:
                     raise ToolError("Too much data. Narrow the search or read a smaller page.")
-            return json.loads(data)
+            return json.loads(data) if data else None
     except requests.RequestException:
         raise ToolError(f"{label} is temporarily unreachable.") from None
 

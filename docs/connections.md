@@ -13,6 +13,7 @@ The Mac app offers connection buttons in the conversation when a relevant tool n
 | Notion | Search page titles and read nested page blocks | Internal connection with Read content; share selected pages with it |
 | GitHub | Repositories, source files, issues, PR changes, commits and comments | Browser sign-in |
 | Supabase | Account projects, project status, schema types and deployed functions | Browser sign-in and organization approval |
+| Spotify | Find music and podcast episodes; play, pause, resume, skip and seek in Spotify | Spotify sign-in; installed app for local playback |
 
 A failed connection does not replace an existing credential. The secure setup field sends credentials only to the private desktop bridge and OS Keychain, never to Session.send, chat history, tool arguments or the memory worker. Test and production credentials occupy separate Keychain entries. Disconnect removes the local credential; revoke at the provider to invalidate it on every device. Optional Google grants use separate entries so they cannot replace Calendar/Gmail access.
 
@@ -30,7 +31,7 @@ Notion and Todoist still use guided token setup. GitHub and Supabase use OAuth w
 | --- | --- |
 | `engine/integrations/catalog.py` | Loads the shared definitions |
 | `accounts.py` and `oauth.py` | Credential validation, storage, refresh and authenticated HTTP |
-| `github.py`, `supabase.py`, `notion.py`, `todoist.py` | Explicit service operations and input schemas |
+| `github.py`, `supabase.py`, `notion.py`, `todoist.py`, `spotify.py` | Explicit service operations and input schemas |
 | `google.py`, `calendar.py`, `workspace.py` | Google authorization and service operations |
 | `supabase/functions/assistant/connections.ts` | Owned sign-in intents, callbacks and encrypted cloud credentials |
 | `shared/IntegrationCatalog.swift` | Shared app setup labels and authentication methods |
@@ -40,6 +41,8 @@ Implemented capabilities, configured sign-in and connected account state are sep
 To add an integration, add its public definition, implement its tool module, register it in `services.specs()`, and test input validation, missing access, denied permissions and failed reconnection. Add the credential slot to the database allowlist through a migration. Provision any developer OAuth registration outside git. A different authorization protocol needs explicit support and tests; a catalog entry alone does not implement it. The catalog supports the current Google/account OAuth and secure-token flows, not arbitrary authentication protocols.
 
 ## Limits
+
+Spotify audio plays in Spotify. The iPhone uses Spotify's official App Remote SDK; the Mac uses Spotify's installed scripting interface. An explicit device ID can target another Spotify Connect player. The assistant checks player state before claiming success. Phone commands belong to the requesting device and active turn, expire after 100 seconds, and can be claimed once. Reconnects never replay them. Account tokens stay in the existing encrypted credential store; native iPhone authorization stays in Keychain. Starting playback ends voice capture. Spotify's account, Premium and developer-mode restrictions still apply; opening the app alone does not prove playback started.
 
 GitHub, Supabase, Notion and Todoist are on-demand readers. Gmail is polled every two minutes and classified by a separate subscription worker, even during conversation. Failed items retry independently; classification decisions are retained, and a prolonged backlog produces one monitoring warning per incident. Reading a source does not import its entire account into memory. A cached excerpt is not current truth: tools must read again when a decision depends on current state. Search indexes can lag; pagination and nested blocks can contain more information. Google Tasks due dates are dates rather than appointment times. Notion searches titles only. Drive's text reader does not parse PDFs, images or binary attachments. GitHub comments, commits and code diffs use separate paginated reads.
 
@@ -58,6 +61,14 @@ Start morning is available in the day panel and conversation menu. It starts a f
 
 
 ## Developer registration
+
+For Spotify, register a Web API/iOS app with bundle ID `com.carterwatts.assistant` and these exact redirects:
+
+- `personal-assistant://spotify`
+- `https://<project>.supabase.co/functions/v1/assistant/spotify/callback`
+- `http://127.0.0.1:8766/spotify/callback`
+
+Run `python scripts/cloud.py account spotify /private/path/client.json` with `{"client_id":"..."}` from that registration. Spotify uses PKCE and requires no client secret here. Add the testing account to Spotify's developer allowlist. The shared catalog defines scopes. The iPhone's first playback request also authorizes App Remote through the installed Spotify app.
 
 Register an OAuth app for each OAuth-based provider. End users then press Sign in. Token-based providers retain their guided secure setup.
 Configure the hosted callback as `https://<project>.supabase.co/functions/v1/assistant/github/callback`

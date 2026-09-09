@@ -10,7 +10,7 @@ from engine import memory_worker
 
 
 class Session:
-    def __init__(self, map_, runtime, io, device, *, auto_memory=True, before_tool=None):
+    def __init__(self, map_, runtime, io, device, *, auto_memory=True, before_tool=None, spotify_control=None):
         self.map, self.runtime, self.io = map_, runtime, io
         self.conv = Conversation(map_, device, runtime.name)
         self.tools = Tools(map_, device)
@@ -23,6 +23,7 @@ class Session:
         self.locked = False
         self.auto_memory = auto_memory
         self.before_tool = before_tool
+        self.spotify_control = spotify_control
         self.sent_snapshot = None
         self.context_revision = 0
         self.prepared = context.PreparedContext(map_)
@@ -37,7 +38,7 @@ class Session:
         system = prompt("persona")
         if mode == "morning":
             system += "\n\n" + prompt("morning")
-        specs = self.tools.read_specs()
+        specs = self.tools.read_specs(self.spotify_control)
         if self.before_tool:
             from dataclasses import replace
             def guarded(fn):
