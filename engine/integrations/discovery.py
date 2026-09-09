@@ -1,13 +1,11 @@
 """Inspect a service's public connection options without requesting credentials."""
 import asyncio
-import http.client
 import json
 import re
-import socket
 from concurrent.futures import ThreadPoolExecutor
-from urllib.parse import urljoin, urlsplit, urldefrag
+from urllib.parse import urlsplit
 
-from engine.integrations.web import destination, Page
+from engine.integrations.web import open_public, Page
 from engine.tools import ConnectionRequired, ToolError, ToolSpec
 
 from engine.integrations.catalog import PROVIDERS
@@ -30,49 +28,27 @@ class ConnectionPage(Page):
 
 
 def fetch(url):
-    """Bounded, credential-free reads; validate and pin each redirect separately."""
-    for _ in range(4):
-        url = urldefrag(url)[0]
-        if urlsplit(url).scheme != 'https':
-            raise ValueError('Connection discovery requires HTTPS.')
-        parts, host, port, address = destination(url)
-        conn = http.client.HTTPSConnection(host, port, timeout=6)
-        conn._create_connection = lambda ignored, timeout, source_address=None: socket.create_connection((address, port), timeout, source_address)
-        try:
-            path = parts.path or '/'
-            if parts.query:
-                path += '?' + parts.query
-            conn.request('GET', path, headers={'Accept': 'application/json,text/html', 'User-Agent': 'PersonalAssistant/1.0'})
-            response = conn.getresponse()
-            if response.status in (301, 302, 303, 307, 308):
-                location = response.getheader('Location')
-                if not location:
-                    raise ValueError('Missing redirect destination.')
-                url = urljoin(url, location)
-                continue
-            result = {'url': url, 'status': response.status}
-            if response.status != 200:
-                return result
-            raw = response.read(512_001)
-            if len(raw) > 512_000:
-                return {**result, 'error': 'Page exceeds discovery limit; inspect it with web_read.'}
-            mime = response.headers.get_content_type()
-            text = raw.decode('utf-8', errors='replace')
-            if mime == 'application/json' or mime.endswith('+json'):
-                try:
-                    data = json.loads(text)
-                    if isinstance(data, dict):
-                        result['metadata'] = data
-                except ValueError:
-                    pass
-            elif mime in ('text/html', 'application/xhtml+xml'):
-                page = ConnectionPage(url); page.feed(text)
-                result.update(title=' '.join(page.title)[:200], text=''.join(page.text)[:5000],
-                              links=[link for link in page.links if KEYWORDS.search(link['url'] + ' ' + link['text'])][:12])
+    with open_public(url, https_only=True, timeout=6, redirects=4) as (url, response):
+        result = {'url': url, 'status': response.status}
+        if response.status != 200:
             return result
-        finally:
-            conn.close()
-    raise ValueError('Too many redirects.')
+        raw = response.read(512_001)
+        if len(raw) > 512_000:
+            return {**result, 'error': 'Page exceeds discovery limit; inspect it with web_read.'}
+        mime = response.headers.get_content_type()
+        text = raw.decode('utf-8', errors='replace')
+    if mime == 'application/json' or mime.endswith('+json'):
+        try:
+            data = json.loads(text)
+            if isinstance(data, dict):
+                result['metadata'] = data
+        except ValueError:
+            pass
+    elif mime in ('text/html', 'application/xhtml+xml'):
+        page = ConnectionPage(url); page.feed(text)
+        result.update(title=' '.join(page.title)[:200], text=''.join(page.text)[:5000],
+                      links=[link for link in page.links if KEYWORDS.search(link['url'] + ' ' + link['text'])][:12])
+    return result
 
 
 def inspect(url):

@@ -4,7 +4,7 @@ It is built from the views, never from the model's memory, and it is the same
 on every device. The richer preload and the per-turn delta belong to the hooks.
 """
 
-from datetime import date, datetime, timedelta
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 from engine import config
 from engine.db import dumps

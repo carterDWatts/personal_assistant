@@ -2,7 +2,7 @@
 import asyncio
 import time
 from dataclasses import replace
-from engine import config, context
+from engine import config
 from engine.db import Map, jsonb, dumps
 from engine.tools import ToolSpec, ToolError, READ_TOOLS, _obj, _s, _i
 from engine.outbound import post

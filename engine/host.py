@@ -308,45 +308,51 @@ async def memory_loop(url, host):
         map_.close()
 
 
-async def main():
-    relay_map, session_map = Map(), Map()
-    for map_ in (relay_map, session_map):
-        map_.execute("set statement_timeout='15s'")
-        map_.execute("set lock_timeout='5s'")
-    host = Host(Relay(relay_map), session_map)
-    loop = asyncio.get_running_loop()
-    for sig in (signal.SIGTERM, signal.SIGINT):
-        loop.add_signal_handler(sig, host.stopping.set)
-    listener = asyncio.create_task(commands(relay_map.url, host))
-    from engine.background import gather_sources, classify_mail
-    sources = asyncio.create_task(gather_sources(relay_map.url,host))
-    mail = asyncio.create_task(classify_mail(relay_map.url,host))
-    from engine.notifications import run as notify
-    notifications = asyncio.create_task(notify(relay_map.url, host))
-    from engine.jobs import run as run_jobs
-    jobs = asyncio.create_task(run_jobs(relay_map.url, host))
-    from engine.attention import run as run_attention
-    attention = asyncio.create_task(run_attention(relay_map.url,host))
-    memory = asyncio.create_task(memory_loop(relay_map.url, host))
-    running = asyncio.create_task(host.run())
+async def supervise(host, services):
+    workers = [asyncio.create_task(work, name=name) for name, work in services.items()]
+    running = asyncio.create_task(host.run(), name='conversation')
     try:
-        done, _ = await asyncio.wait((running, memory, jobs, mail, attention), return_when=asyncio.FIRST_COMPLETED)
+        done, _ = await asyncio.wait([running, *workers], return_when=asyncio.FIRST_COMPLETED)
         for task in done:
             task.result()
+        if not host.stopping.is_set():
+            raise RuntimeError(f'{next(iter(done)).get_name()} stopped unexpectedly.')
     finally:
         host.stopping.set()
-        attention.cancel()
-        jobs.cancel()
-        memory.cancel()
-        notifications.cancel()
-        sources.cancel()
-        mail.cancel()
-        listener.cancel()
+        for task in workers:
+            task.cancel()
+        # Let an active reply cancel and release its lease before closing the maps.
         with contextlib.suppress(Exception, asyncio.CancelledError):
             await asyncio.wait_for(running, 10)
-        await asyncio.gather(memory, jobs, listener, notifications, sources, mail, attention, return_exceptions=True)
-        relay_map.close()
-        session_map.close()
+        await asyncio.gather(running, *workers, return_exceptions=True)
+
+
+async def main():
+    from engine.background import gather_sources, classify_mail
+    from engine.notifications import run as notify
+    from engine.jobs import run as run_jobs
+    from engine.attention import run as run_attention
+
+    with contextlib.ExitStack() as resources:
+        relay_map = resources.enter_context(contextlib.closing(Map()))
+        session_map = resources.enter_context(contextlib.closing(Map()))
+        for map_ in (relay_map, session_map):
+            map_.execute("set statement_timeout='15s'")
+            map_.execute("set lock_timeout='5s'")
+        host = Host(Relay(relay_map), session_map)
+        loop = asyncio.get_running_loop()
+        for sig in (signal.SIGTERM, signal.SIGINT):
+            loop.add_signal_handler(sig, host.stopping.set)
+            resources.callback(loop.remove_signal_handler, sig)
+        await supervise(host, {
+            'commands': commands(relay_map.url, host),
+            'sources': gather_sources(relay_map.url, host),
+            'mail': classify_mail(relay_map.url, host),
+            'notifications': notify(relay_map.url, host),
+            'jobs': run_jobs(relay_map.url, host),
+            'attention': run_attention(relay_map.url, host),
+            'memory': memory_loop(relay_map.url, host),
+        })
 
 
 if __name__ == '__main__':

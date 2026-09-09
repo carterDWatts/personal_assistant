@@ -6,12 +6,9 @@ import sys
 import threading
 
 import numpy as np
-if '--american-lower' in sys.argv:
-    from engine.voice.csm import create_voice, generate
-    from engine.voice.csm_models import PLAYBACK_RATE
-else:
-    from engine.voice.kokoro import create_voice, generate
-    PLAYBACK_RATE = 24000
+from engine.voice.kokoro import create_voice, generate
+
+PLAYBACK_RATE = 24000
 
 
 def main():

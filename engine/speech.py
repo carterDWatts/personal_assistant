@@ -5,7 +5,6 @@ import json
 import io
 import wave
 import os
-import re
 import subprocess
 import tempfile
 import threading

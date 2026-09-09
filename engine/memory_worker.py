@@ -10,7 +10,7 @@ from jsonschema import validate
 from engine import config, context
 from engine.db import Map, dumps, jsonb
 from engine.runtime import load
-from engine.tools import Tools, ToolSpec, ToolError, READ_TOOLS
+from engine.tools import Tools, ToolSpec, READ_TOOLS
 
 LOCK = 'personal-assistant-memory-worker'
 

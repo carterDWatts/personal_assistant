@@ -13,8 +13,7 @@ fi
 "$PYTHON" -c 'import psycopg, sherpa_onnx, numpy, jsonschema'
 PYTHON="$($PYTHON -c 'import sys; print(sys.executable)')"
 (cd "$ROOT" && "$PYTHON" -m engine.voice.models && "$PYTHON" -m engine.voice.final_models)
-VOICE_PYTHON="$PYTHON"
-(cd "$ROOT" && "$VOICE_PYTHON" -m engine.voice.tts_models)
+(cd "$ROOT" && "$PYTHON" -m engine.voice.tts_models)
 NAME=$(/usr/bin/plutil -extract name raw -o - "$ROOT/identity.json")
 APP="$ROOT/build/$NAME.app"
 mkdir -p "$APP/Contents/MacOS"
@@ -26,11 +25,11 @@ cp "$ROOT/identity.json" "$APP/Contents/Resources/identity.json"
 cp "$ROOT/desktop/Assets/FlowerBed.png" "$APP/Contents/Resources/FlowerBed.png"
 iconutil -c icns "$ROOT/build/icon.iconset" -o "$APP/Contents/Resources/AppIcon.icns"
 swiftc -parse-as-library "$ROOT/desktop/PersonalAssistant.swift" "$ROOT/shared/IntegrationCatalog.swift" "$ROOT/shared/ContextImport.swift" "$ROOT/shared/DaySchedule.swift" "$ROOT/shared/BunnyGlyph.swift" "$ROOT/desktop/BunnyArtwork.swift" "$ROOT/desktop/OutputStream.swift" "$ROOT/desktop/LiveVoice.swift" "$ROOT/desktop/LocalSpeech.swift" "$ROOT/desktop/LocalVoice.swift" "$ROOT/desktop/VoiceTurn.swift" -o "$APP/Contents/MacOS/PersonalAssistant" -framework SwiftUI -framework AVFoundation
-"$PYTHON" - "$APP" "$ROOT" "$PYTHON" "$VOICE_PYTHON" <<'PY'
+"$PYTHON" - "$APP" "$ROOT" "$PYTHON" <<'PY'
 import json,plistlib,sys,pathlib
-app,root,python,voice_python=sys.argv[1:]
+app,root,python=sys.argv[1:]
 name=json.loads((pathlib.Path(root)/'identity.json').read_text())['name']
-info={'CFBundleExecutable':'PersonalAssistant','CFBundleIdentifier':'com.carterwatts.personal-assistant','CFBundleName':name,'CFBundleDisplayName':name,'CFBundlePackageType':'APPL','CFBundleVersion':'1','CFBundleShortVersionString':'0.1','LSMinimumSystemVersion':'13.0','CFBundleIconFile':'AppIcon','NSMicrophoneUsageDescription':'Talk to your personal assistant.','AssistantRoot':root,'AssistantPython':python,'AssistantVoicePython':voice_python}
+info={'CFBundleExecutable':'PersonalAssistant','CFBundleIdentifier':'com.carterwatts.personal-assistant','CFBundleName':name,'CFBundleDisplayName':name,'CFBundlePackageType':'APPL','CFBundleVersion':'1','CFBundleShortVersionString':'0.1','LSMinimumSystemVersion':'13.0','CFBundleIconFile':'AppIcon','NSMicrophoneUsageDescription':'Talk to your personal assistant.','AssistantRoot':root,'AssistantPython':python}
 with open(pathlib.Path(app)/'Contents/Info.plist','wb') as f: plistlib.dump(info,f)
 PY
 codesign --force --deep --sign - "$APP"

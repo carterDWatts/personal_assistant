@@ -1,7 +1,6 @@
 """Evidence-backed inference and atomic resolution of memory questions."""
-from datetime import datetime, timezone
 from jsonschema import validate
-from engine.db import dumps, jsonb
+from engine.db import jsonb
 from engine.tools import ToolSpec, ToolError, _obj, _s, _i, run
 
 REF = _obj({'kind':_s('record type',enum=['assertions','relationships']), 'id':_s('record UUID')},['kind','id'])
