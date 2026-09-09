@@ -22,6 +22,7 @@ def validate_files(files):
 
 
 class Development:
+    branch_prefix = "assistant/"
     def __init__(self,tools):self.tools=tools;self.map=tools.map
 
     def scope(self):
@@ -56,7 +57,7 @@ class Development:
         tree=await asyncio.to_thread(self.github,'git/trees',{'base_tree':commit['tree']['sha'],'tree':[
             {'path':p,'mode':'100644','type':'blob','content':c} for p,c in args['files'].items()]})
         saved=await asyncio.to_thread(self.github,'git/commits',{'message':args['title'],'tree':tree['sha'],'parents':[args['base_sha']]})
-        branch='assistant/'+str(uuid.uuid4())
+        branch=self.branch_prefix+str(uuid.uuid4())
         await asyncio.to_thread(self.github,'git/refs',{'ref':'refs/heads/'+branch,'sha':saved['sha']})
         pr=await asyncio.to_thread(self.github,'pulls',{'title':args['title'],'body':args['description'],'head':branch,'base':'main'})
         return {'number':pr['number'],'url':pr['html_url'],'sha':saved['sha'],'status':'awaiting_tests','deployed':False}

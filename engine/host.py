@@ -335,6 +335,7 @@ async def main():
     from engine.background import gather_sources, classify_mail
     from engine.notifications import run as notify
     from engine.jobs import run as run_jobs
+    from engine.developer import run as run_developer
     from engine.attention import run as run_attention
 
     with contextlib.ExitStack() as resources:
@@ -355,6 +356,7 @@ async def main():
             'email_sender': send_mail(relay_map.url, host),
             'notifications': notify(relay_map.url, host),
             'jobs': run_jobs(relay_map.url, host),
+            'development': run_developer(relay_map.url, host),
             'attention': run_attention(relay_map.url, host),
             'memory': memory_loop(relay_map.url, host),
         })

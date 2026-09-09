@@ -249,6 +249,8 @@ if __name__ == '__main__':
     commands.add_parser('speech')
     commands.add_parser('images')
     commands.add_parser('development')
+    reviews=commands.add_parser('development-reviews')
+    reviews.add_argument('--disable',action='store_true')
     connections = commands.add_parser('connections')
     connections.add_argument('client_file')
     account = commands.add_parser('account')
@@ -257,7 +259,10 @@ if __name__ == '__main__':
     account.add_argument('client_file')
     args = parser.parse_args()
     try:
-        if args.action == 'development':
+        if args.action == 'development-reviews':
+            command([RAILWAY,'variable','set','ASSISTANT_DEVELOPMENT_REVIEW','--stdin','--skip-deploys','--service','worker'],input='0' if args.disable else '1')
+            print('Development review setting saved. It takes effect on the next deployment.')
+        elif args.action == 'development':
             configure_development()
         elif args.action == 'bind-owner':
             bind_owner(args.email)
