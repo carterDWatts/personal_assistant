@@ -67,7 +67,7 @@ The hosted voice uses Pocket TTS 3.1.0 on CPU. Model assets are cached in the im
 
 ## Planned event notifications
 
-Google Calendar remains authoritative for timed events. Advance event notifications are a later feature; any local event cache must be disposable and reconciled with Google, not a second editable calendar. Reminders are separate commitments with their own context and completion state.
+The current owner chose Google Calendar as the authority for timed events and separate reminders for commitments and completion. This is an instance preference, not a product-wide requirement. Advance event notifications are a later feature. Event caches must remain disposable projections of the selected provider. Per-user provider selection and commitment routing are planned in [Data connections](connections.md#planned-per-user-customization).
 
 Context can be pasted through **Import context** on either app. Uploads are preserved
 in `memory.imports` / `memory.import_parts`; each completed upload queues bounded

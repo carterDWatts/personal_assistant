@@ -44,7 +44,7 @@ Typed and interruptible voice conversations, a morning review that learns my pre
 
 I can also hand off research or a code investigation while keeping the conversation going. A bounded background worker messages me its result in the same chat. My owner instance can publish code changes as pull requests. Merging requires passing checks on the exact revision, and database migrations have a separate, scoped apply step. Other users do not get those development tools.
 
-The phone streams Pocket TTS from the host. The Mac has local speech. Google Calendar remains authoritative for calendar events; reminders track commitments and completion separately.
+The phone streams Pocket TTS from the host. The Mac has local speech. My instance uses Google Calendar for events and keeps reminders separate, as I requested. Calendar providers and how commitments are organized should be choices each user can make through conversation; that customization is upcoming work.
 
 ## Stack and verification
 
@@ -78,4 +78,4 @@ open 'build/Bunny Man.app'
 
 Open `ios/Assistant.xcodeproj` for the phone app. The assistant's name is centralized in `identity.json`. Development and deployment track `main`.
 
-The next work is improving retrieval beyond the initial snapshot and making voice consistently comfortable. Memory search is currently lexical, inference still needs review, and this isn't yet a multi-user product. A standalone morning device is planned.
+Multi-user support and [per-user service choices](docs/connections.md#planned-per-user-customization) are upcoming architecture work. The current deployment is built around one owner; adding other users requires account isolation throughout memory, sessions, connections, and background work. I’m also improving retrieval and voice. Memory search is currently lexical, inference still needs review, and a standalone morning device is planned.

@@ -56,3 +56,20 @@ Run `python scripts/cloud.py account github /private/path/client.json` (or `supa
 Mac Keychain. Registration secrets are not bundled into either app or committed. Additional Mac installations need
 the developer registration provisioned separately in this personal deployment. Hosted phone sign-in needs no such
 local configuration. Refresh tokens are encrypted on the host, and never returned to the phone or model.
+
+
+## Planned per-user customization
+
+Recorded September 8, 2026. This is upcoming architecture work, not implemented multi-user support.
+
+The deployment currently serves one owner. Before onboarding other users, isolate memory, conversations, model sessions, credentials, background jobs, and notification delivery by authenticated account. Test that one account cannot retrieve or act on another account’s data. Shared infrastructure must not imply shared assistant context.
+
+Separate service capabilities from user choices:
+
+- Calendar adapters expose supported operations through a common interface. Google is the first implementation; other providers must not require rewriting the assistant’s planning behavior. Unsupported capabilities stay explicit.
+- Each account selects its connected calendars and where new events or commitments belong. Multiple calendars can coexist; each external record retains its provider, account, and native ID so updates reach the correct source.
+- Conversational preferences determine whether a commitment belongs in a calendar, a task service, or internal reminders. Store those choices as per-user rules and validated routing settings. Ask when the destination is ambiguous; connecting an account alone does not authorize moving existing records.
+- Keep one authority for each record. Cached views and memory references point to that source rather than creating independently editable copies. Changing providers needs an explicit migration or relinking step.
+- Learn morning content, reminder behavior, and other assistant preferences per user. Once resolved, code enforces routing and delivery settings; the model interprets intent within them. Credentials, access boundaries, and validation remain structural.
+
+The current owner’s Google Calendar and separate-reminder setup is one configuration to preserve during this work, not a default to impose on everyone.
