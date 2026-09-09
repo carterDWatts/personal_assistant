@@ -4,13 +4,15 @@
 
 # Bunny Man
 
-I’m building a personal assistant that keeps learning how to help me across conversations, devices, and model changes. I can tell it something on my phone, pick up on my Mac, or switch between Claude and ChatGPT. The shared memory carries forward what it knows, what changed, and what still needs doing.
+I’m building Bunny Man to feel like one continuous assistant. I can talk to it on my phone, come back on my Mac, and pick up where we left off. It should carry our conversation, what it knows about me, and what we’re working on forward—even when I close the app, restart a session, or switch between Claude and ChatGPT.
+
+That continuity is the point of the architecture. The shared memory, conversation history, learned preferences, and ongoing work belong to Bunny Man. Each model instance picks up from that shared state, so using a new instance can still feel like talking to the same assistant.
 
 The core is a temporal knowledge map in Postgres: people, projects, preferences, commitments, and their relationships. Facts point back to evidence. Changes preserve the previous state. Nightly review can propose new connections and ask about inconsistencies; when supporting evidence changes, dependent inferences are invalidated. A correction can distinguish “this changed” from “this was never true.”
 
 That memory powers the rest of the assistant:
 
-- **A conversation that survives the session.** Shared history, bounded context, incremental updates, and deeper retrieval let new model instances pick up the same work.
+- **One ongoing relationship across instances.** Shared history, structured memory, and learned preferences carry understanding forward. Bounded context, incremental updates, and deeper retrieval let a fresh model instance continue the conversation and unfinished work.
 - **Personalization learned in use.** Morning briefings, preferences, and standing rules develop through conversation rather than a hardcoded routine.
 - **Follow-through between conversations.** Contextual reminders, email monitoring, calendar access, and background research bring useful information back into the same chat.
 - **Code controls when; the model judges relevance.** Schedules, change checks, validated writes, and delivery records constrain background activity. The model applies my preferences inside those boundaries.
@@ -29,6 +31,8 @@ The map stores entities, aliases, attributes, relationships, standing rules, pla
 Every user message queues a durable extraction job. A smaller model processes it asynchronously, so saving memory doesn't hold up a conversation. Explicit preferences and corrections can be written during the turn. Both paths use the same validated operations.
 
 ## Keeping a conversation continuous
+
+The experience I’m aiming for is coming back to someone who knows where we left off. A reminder, a background research result, and a conversation on another device all return to the same ongoing chat. Continuity includes what still needs doing and how I like to be helped, as well as facts I’ve shared.
 
 Each session starts with a bounded snapshot of current knowledge and recent messages. The engine caches that context, sends changed sections as memory updates, and exposes search, entity views, and history tools for deeper retrieval. It doesn't paste the entire database into every prompt.
 
