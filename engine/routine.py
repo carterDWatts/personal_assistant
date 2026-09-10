@@ -3,11 +3,31 @@ from engine.db import jsonb
 from engine.tools import ToolError, ToolSpec, _obj, _s, _i
 
 
+def active(map_):
+    """The morning belongs to the day, even if its first reply was interrupted."""
+    return map_.value("select c.id from memory.conversations c where c.agent='morning'"
+        " and c.started_at::date=current_date and c.started_at >= coalesce("
+        "(select created_at from memory.messages where role='system' and payload->>'event'='chat_cleared'"
+        " order by id desc limit 1), '-infinity'::timestamptz) order by c.started_at desc limit 1")
+
+
 def progress(map_, conversation):
     row=map_.row('select steps,position,rule_ids from memory.routine_progress where conversation_id=%s',(conversation,))
     if not row: return {'state':'not_started','instruction':'Build the agenda from active saved preferences; do not invent required sections.'}
-    return {**row,'current':row['steps'][row['position']] if row['position']<len(row['steps']) else None,
+    return {**row,'state':'active' if row['position']<len(row['steps']) else 'complete',
+            'current':row['steps'][row['position']] if row['position']<len(row['steps']) else None,
             'completed':row['steps'][:row['position']]}
+
+
+async def steer(tools, conversation, text):
+    # Explicit navigation is applied before inference. Other replies need interpretation.
+    import re
+    command = re.sub(r"[^a-z ]", '', text.lower().replace('’', "'"))
+    command = ' '.join(command.split())
+    if command in {'move on', 'lets move on', 'please move on', 'next section', 'skip this section'}:
+        current = progress(tools.map, conversation).get('current')
+        if current:
+            await spec(tools, conversation).fn({'completed_step': current})
 
 
 def spec(tools,conversation):

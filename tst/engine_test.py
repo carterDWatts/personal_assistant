@@ -1,3 +1,4 @@
+import os
 import unittest
 
 from engine import config, engine
@@ -86,6 +87,85 @@ class engine_test(MapTest):
         self.assertEqual(second.opened["resume"], "fake-session-1")
         self.assertIn("Map snapshot.", second.sent[0])
         self.assertTrue(second.sent[0].endswith("you there?"))
+
+    def test_interrupted_morning_survives_a_new_runtime_before_its_first_message(self):
+        from engine.conversation import Conversation
+        from engine.routine import progress
+        morning = Conversation(self.map, 'cloud', 'previous-runtime').open_segment('morning')
+        rt = FakeRuntime([[call('routine_progress', steps=['Calendar', 'Reminders', 'Updates']),
+                           say('Here is your calendar.')], [say('Here are your reminders.')]])
+        io = FakeTerminal(['Let’s plan my day.', 'Let’s move on.'])
+        self.run_async(engine.run('talk', self.map, rt, io, 'cloud'))
+        self.assertIn('morning session', rt.opened['system_prompt'])
+        self.assertIn('routine_progress', rt.tools)
+        self.assertIn('"state": "not_started"', rt.sent[0])
+        self.assertIn('"current": "Reminders"', rt.sent[1])
+        self.assertEqual(progress(self.map, morning)['position'], 1)
+
+    def test_routine_progress_survives_model_changes_and_stays_complete(self):
+        from engine.routine import progress
+        first = FakeRuntime([[call('routine_progress', steps=['Calendar', 'Updates']),
+                              call('routine_progress', completed_step='Calendar'), say('Next: updates.')]])
+        self.run_async(engine.run('morning', self.map, first, FakeTerminal([]), 'cloud'))
+        second = FakeRuntime([[call('routine_progress', completed_step='Updates'), say('All covered.')]])
+        second.name = 'another-runtime'
+        self.run_async(engine.run('talk', self.map, second, FakeTerminal(['Continue']), 'phone'))
+        self.assertIn('"current": "Updates"', second.sent[0])
+        third = FakeRuntime([[say('What else is on your mind?')]])
+        self.run_async(engine.run('talk', self.map, third, FakeTerminal(['Move on']), 'mac'))
+        self.assertIn('"state": "complete"', third.sent[0])
+        morning = self.map.value("select id from memory.conversations where agent='morning'")
+        self.assertEqual(progress(self.map, morning)['position'], 2)
+
+    def test_clear_and_a_new_day_do_not_revive_the_previous_morning(self):
+        from engine.conversation import Conversation
+        from engine.routine import active
+        conv = Conversation(self.map, 'cloud', 'fake')
+        old = conv.open_segment('morning')
+        self.map.execute("update memory.conversations set started_at=current_date-interval '1 day' where id=%s", (old,))
+        self.assertIsNone(active(self.map))
+        fresh = conv.open_segment('morning')
+        self.assertEqual(active(self.map), fresh)
+        rt = FakeRuntime([[say('Fresh chat.')]])
+        self.run_async(engine.run('clear', self.map, rt, FakeTerminal(['Hello']), 'cloud'))
+        self.assertNotIn('routine_progress', rt.tools)
+        self.assertIsNone(active(self.map))
+
+    @unittest.skipUnless(os.environ.get('ASSISTANT_LIVE_ROUTINE_TEST') == '1', 'Opt-in subscription test')
+    def test_live_morning_moves_on_after_acknowledgment_and_interruption(self):
+        import asyncio
+        from unittest.mock import patch
+        from engine.conversation import Conversation
+        from engine.routine import progress
+        from engine.runtime.codex import CodexRuntime
+        self.map.execute("insert into memory.rules(kind,text,created_by) values('preference',%s,'test')", (
+            'My morning has three sections: calendar, reminders, then a garden check. Pause after each section. '
+            'Keep it brief. I have no events or reminders today. The garden needs watering.',))
+        morning = Conversation(self.map, 'cloud', 'interrupted-runtime').open_segment('morning')
+        async def check():
+            runtime = CodexRuntime(model='gpt-5.5', effort='low')
+            session = engine.Session(self.map, runtime, FakeTerminal([]), 'cloud', auto_memory=False)
+            try:
+                await session.open('talk')
+                await session.send('Let’s plan my day.')
+                self.assertNotEqual(progress(self.map, morning)['state'], 'not_started')
+                position = progress(self.map, morning)['position']
+                await session.send('OK, cool.')
+                self.assertGreater(progress(self.map, morning)['position'], position)
+                position = progress(self.map, morning)['position']
+                await session.close()
+                session = engine.Session(self.map, CodexRuntime(model='gpt-5.5', effort='low'), FakeTerminal([]), 'phone', auto_memory=False)
+                await session.open('talk')
+                self.assertEqual(session.routine_id, morning)
+                await session.send('Move on')
+                self.assertGreater(progress(self.map, morning)['position'], position)
+                await session.send('OK, cool.')
+                self.assertEqual(progress(self.map, morning)['state'], 'complete')
+            finally:
+                await session.close()
+        # No external service tools or production memory are available to this probe.
+        with patch.object(config, 'ENV', 'test'), patch.object(engine.Tools, 'read_specs', side_effect=lambda *_: []):
+            self.run_async(asyncio.wait_for(check(), 120))
 
 
 if __name__ == "__main__":

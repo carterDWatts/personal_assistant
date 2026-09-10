@@ -28,10 +28,13 @@ class Session:
         self.context_revision = 0
         self.prepared = context.PreparedContext(map_)
         self.morning = False
+        self.routine_id = None
 
     async def open(self, mode="talk", *, begin_morning=True):
         self.segment_id, resume, self.seed = self.conv.resolve(mode)
-        self.morning = mode == 'morning' or self.map.value('select agent=%s from memory.conversations where id=%s',('morning',self.segment_id))
+        from engine.routine import active
+        self.routine_id = self.segment_id if mode == 'morning' else active(self.map)
+        self.morning = self.routine_id is not None
         self.locked = bool(self.map.value("select pg_try_advisory_lock(hashtextextended(%s, 0))", ("conversation:" + str(self.segment_id),)))
         if not self.locked:
             self.segment_id = None
@@ -43,7 +46,7 @@ class Session:
         specs = self.tools.read_specs(self.spotify_control)
         if self.morning:
             from engine.routine import spec
-            specs.append(spec(self.tools,self.segment_id))
+            specs.append(spec(self.tools,self.routine_id))
         if self.before_tool:
             from dataclasses import replace
             def guarded(fn):
@@ -72,9 +75,13 @@ class Session:
             self.sent_snapshot = None
         opening = context.update(self.sent_snapshot, sections)
         if self.morning:
-            from engine.routine import progress
+            from engine.routine import progress, steer
             from engine.db import dumps
-            opening += '\n\nMorning progress (authoritative for this session):\n'+dumps(progress(self.map,self.segment_id))
+            if role == 'user':
+                if self.before_tool:
+                    await self.before_tool()
+                await steer(self.tools,self.routine_id,text)
+            opening += '\n\nMorning progress (authoritative; resume here, not at the greeting):\n'+dumps(progress(self.map,self.routine_id))
         recent = self.map.rows(
             "select id, role, content, created_at from memory.messages where id > %s and conversation_id <> %s"
             " and role in ('user','assistant') and content is not null order by id limit 100",
