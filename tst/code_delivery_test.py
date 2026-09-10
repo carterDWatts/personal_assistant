@@ -134,6 +134,10 @@ class delivery_test(MapTest):
         self.run_async(d.advance(Worker(self.map).finish))
         self.assertEqual(self.map.value('select status from assistant.jobs'),'failed')
         d.dev.merge.assert_not_called()
+        self.run_async(self.jobs.retry({'id':str(d.job['id'])}))
+        state=self.map.value("select artifacts->'delivery' from assistant.jobs")
+        self.assertEqual(state['phase'],'checks')
+        self.assertNotIn('outcome',state)
 
     def test_changed_revision_cannot_ship(self):
         d=self.submitted();d.dev.github=Mock(return_value={'head':{'sha':'c'*40},'state':'open'})
@@ -156,7 +160,7 @@ class delivery_test(MapTest):
         d=self.submitted()
         with patch.dict(os.environ,{'ASSISTANT_DEVELOPMENT_AUTOSHIP':'0'}):self.run_async(d.advance(Worker(self.map).finish))
         d.dev.github.assert_not_called();d.dev.merge.assert_not_called()
-        self.assertIn('not been merged',self.map.value('select result from assistant.jobs'))
+        self.assertIn('not enabled',self.map.value('select result from assistant.jobs'))
 
     def test_code_prose_without_submission_fails(self):
         self.start(kind='code')

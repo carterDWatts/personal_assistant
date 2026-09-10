@@ -48,9 +48,9 @@ class Delivery:
         if not state:return False
         review=state['review']
         def done(status,message):
-            finish(self.job,status,message,{'delivery':{**state,'phase':status}})
-        if not state['automatic'] or os.environ.get('ASSISTANT_DEVELOPMENT_AUTOSHIP')!='1':
-            done('completed','I prepared a pull request for review: '+review['url']+'. It has not been merged or deployed. Automatic delivery is limited to iPhone source changes.')
+            finish(self.job,status,message,{'delivery':{**state,'outcome':status}})
+        if state['phase']=='checks' and (not state['automatic'] or os.environ.get('ASSISTANT_DEVELOPMENT_AUTOSHIP')!='1'):
+            done('completed','I prepared a pull request for review: '+review['url']+'. Automatic delivery is not enabled for this change; check the PR for its current status.')
             return True
         if datetime.now(timezone.utc)-datetime.fromisoformat(state['started_at'])>timedelta(hours=2):
             done('failed','The release has not completed within two hours. The saved PR and release status are available at '+review['url']+'.')

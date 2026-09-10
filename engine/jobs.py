@@ -39,7 +39,11 @@ class Jobs:
             self.map.execute('select user_id from assistant.owner for update')
             if self.map.value("select count(*) from assistant.jobs where status in ('queued','running')")>=4:
                 raise ToolError('Four jobs are already pending.')
-            row=self.map.row("update assistant.jobs set status='queued',finished_at=null,started_at=null where id=%s and status='failed' returning id,status",(args['id'],))
+            row=self.map.row("""update assistant.jobs set status='queued',finished_at=null,started_at=null,result=null,
+                artifacts=(artifacts-'failure'-'partial_result') || case when artifacts ? 'delivery' then
+                  jsonb_build_object('delivery',((artifacts->'delivery')-'outcome'-'last_error') ||
+                    jsonb_build_object('started_at',now(),'next_check',now())) else '{}'::jsonb end
+                where id=%s and status='failed' returning id,status""",(args['id'],))
             if not row:raise ToolError('Only failed jobs can be resumed. Cancelled work stays cancelled.')
             return row
 
