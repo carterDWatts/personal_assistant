@@ -2,6 +2,23 @@ import XCTest
 @testable import Assistant
 
 @MainActor final class MessageTests: XCTestCase {
+    func testFailedReplyRemainsVisibleAfterEndAndReady() async throws {
+        let transport = MessageTransport()
+        let chat = Chat(transport: transport)
+        chat.clearNotificationDiscussion()
+        defer { chat.clearNotificationDiscussion(); transport.close() }
+        transport.emit(["type":"ready"])
+        transport.emit(["type":"start", "turn_id":"failed"])
+        transport.emit(["type":"error", "turn_id":"failed", "message":"The reply stopped. Please retry."])
+        transport.emit(["type":"end", "turn_id":"failed", "status":"failed"])
+        transport.emit(["type":"ready"])
+        try await Task.sleep(for: .milliseconds(100))
+        XCTAssertTrue(chat.messages.contains { $0.text == "The reply stopped. Please retry." })
+        XCTAssertFalse(chat.messages.contains { $0.pending })
+        XCTAssertFalse(chat.busy)
+        XCTAssertTrue(chat.connected)
+    }
+
     func testProactiveMessageDoesNotTakeOverReplyAndCarriesExactReference() async throws {
         let transport = MessageTransport()
         let chat = Chat(transport: transport)

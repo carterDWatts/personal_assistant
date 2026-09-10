@@ -318,8 +318,7 @@ func plain(_ value: Any?) -> String {
             memoryErrors = (event["errors"] as? NSNumber)?.intValue ?? 0
         case "status": status = text.replacingOccurrences(of: "_", with: " ")
         case "error":
-            guard turn == nil || replyState.accepts(turn) else { return }
-            replyState.end(turn, messages: &messages)
+            guard replyState.fail(text, turn: turn, messages: &messages) else { return }
             busy = false; status = text; voice = false; liveVoice.stop(); voiceTurn = VoiceTurn()
             if let unsent = event["unsent"] as? String {
                 if messages.last?.role == "user" && messages.last?.text == unsent { messages.removeLast() }

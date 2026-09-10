@@ -73,6 +73,22 @@ class Stream:
         pass
 
 
+class ReplyDeadline:
+    """Wall-clock bounds, unaffected by reasoning/status traffic or tool calls."""
+    def __init__(self, started):
+        self.started = started
+        self.notified = False
+
+    def check(self, now, has_text):
+        elapsed = now - self.started
+        if elapsed >= 300 or (not has_text and elapsed >= 45):
+            return 'timeout'
+        if not has_text and elapsed >= 8 and not self.notified:
+            self.notified = True
+            return 'waiting'
+        return None
+
+
 class Host:
     def __init__(self, relay, map_, runtime_factory=None):
         self.relay, self.map = relay, map_
@@ -180,6 +196,7 @@ class Host:
         status = 'completed'
         heartbeat = asyncio.get_running_loop().time()
         checked_cancel = 0
+        deadline = ReplyDeadline(heartbeat)
         try:
             while not task.done():
                 with contextlib.suppress(asyncio.TimeoutError):
@@ -196,18 +213,31 @@ class Host:
                     status = 'cancelled'
                     await self.interrupt(task)
                     break
+                state = deadline.check(now, 'model_first_text_seconds' in self.stream.timings)
+                if state == 'waiting':
+                    self.stream.note('Still waiting for the reply. You can stop this request, then retry or choose another model.')
+                elif state == 'timeout' and not task.done():
+                    status = 'failed'
+                    self.stream.timings['reply_deadline_exceeded'] = 1
+                    await self.interrupt(task)
+                    self.stream.pending.append({'type': 'error', 'message':
+                        'The reply took too long and was stopped. Your message is saved. Try again or choose another model; check any requested action before retrying.'})
+                    break
                 if asyncio.get_running_loop().time() - heartbeat >= 20:
                     await self.call(self.relay.heartbeat)
                     heartbeat = asyncio.get_running_loop().time()
-            if status != 'cancelled':
+            if status == 'completed':
                 try:
                     await task
-                except Exception:
+                except Exception as error:
                     status = 'failed'
+                    # Exception text may contain private tool/model data; record only a bounded category.
+                    self.stream.timings['runtime_timeout'] = int(isinstance(error, TimeoutError))
                     self.stream.pending.append({'type': 'error', 'message':
-                        'The subscription runtime could not finish. Check the host login or usage limit before retrying.'})
+                        'The reply could not finish. Your message is saved. Try again or choose another model; check any requested action before retrying.'})
             if self.speech:
                 self.speech.finish(status)
+            self.stream.timing('reply_total_seconds', asyncio.get_running_loop().time() - deadline.started)
             self.stream.pending.append({'type': 'timing', **self.stream.timings})
             await self.flush()
             await self.refresh_day()

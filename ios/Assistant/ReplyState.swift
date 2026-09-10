@@ -49,6 +49,14 @@ struct ReplyState {
         return true
     }
 
+    @discardableResult mutating func fail(_ text: String, turn: String?, messages: inout [ChatMessage]) -> Bool {
+        guard turn == nil || accepts(turn) else { return false }
+        // Keep partial output and the failure visible after transport emits end/ready.
+        reset(messages: &messages)
+        messages.append(ChatMessage(role: "system", text: text))
+        return true
+    }
+
     mutating func reset(messages: inout [ChatMessage]) {
         finishRows(&messages)
         turn = nil; message = nil
