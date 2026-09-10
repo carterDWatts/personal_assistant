@@ -1,108 +1,140 @@
 # The engine
 
-The engine is the program that runs the conversation. It reads and writes the knowledge map directly over Postgres, hands the model a fixed set of tools over the map, mirrors every message into the map, and records runtime usage estimates. It is `assistant.py` plus the `engine` package.
+Bunny Man is one shared assistant with several agent roles. A single Railway worker
+runs the conversation and supervised background loops. Supabase holds the durable
+state. Model sessions can end; conversations, knowledge, preferences and unfinished
+work survive them.
 
-## One conversation
+## Runtime architecture
 
-There is one conversation and it never ends. Its canonical form is the message stream in the map, which every device appends to. What a model runtime calls a session is a cache of that stream on one device.
+```mermaid
+flowchart TB
+    phone["iPhone app"] <--> relay["Supabase Auth and relay<br/>Durable requests and streamed events"]
+    mac["Mac app<br/>Local Python engine"] <--> state[("Shared Postgres state<br/>Conversations, knowledge map and queues")]
+    relay <--> state
+    subgraph host["Railway: one supervised Python host"]
+        chat["Conversation agent<br/>Warm Claude or Codex session"]
+        background["Memory, mail and attention agents<br/>Fresh bounded sessions"]
+        jobs["Research and code jobs<br/>One job runner"]
+        developer["Automatic Astra developer<br/>Restricted code-review jobs"]
+        clock["Deterministic schedules<br/>Leases, retries and delivery"]
+    end
+    relay <--> chat
+    chat <--> state
+    state <--> background
+    state <--> jobs
+    state --> developer
+    clock --> background
+    clock --> jobs
+    clock --> developer
+    sources["Connected services<br/>Mail, calendars and other tools"] <--> chat
+    sources --> background
+    jobs --> inbox["Durable inbox and push notifications"]
+    background --> inbox
+    developer --> inbox
+    inbox --> phone
+    inbox --> mac
+```
 
-`talk` joins the conversation. If this device's last runtime session is still current, meaning nothing has been said on another device since, the runtime resumes it and the model has its full context already. If something was said elsewhere, a fresh runtime session is seeded with a snapshot of the map and the recent tail of the shared stream, and the conversation continues from there. Older messages remain searchable with `conversation_history`; the initial tail is deliberately bounded.
+The boxes are responsibilities, not separate virtual machines. Provider harnesses
+and speech can run as child processes, but the host owns scheduling and database
+connections. Background jobs have no tools for recursively spawning more agents.
+The phone uses the hosted engine; the Mac also supports running the engine locally
+against the same map. The Pi interface is planned.
 
-`morning` is the same conversation. It always starts a fresh runtime session, seeded the same way, adds the morning instructions to the persona, and has the assistant speak first.
+## Agent roles
 
-The runtime's own session id is stored on the map's conversation row so a later process on the same device can resume it. Every user message, assistant message, tool call and tool result is written to the map as it happens, and each tool call records the message it was answering, so any fact can be traced to the words that produced it.
+| Role | Starts when | Reads and produces |
+|---|---|---|
+| Conversation | App request; kept warm between turns | Bounded current context, recent chat and deeper retrieval. Replies, validated memory updates and connected-service actions. |
+| Morning | Explicit morning start | The conversation agent with morning instructions and persisted routine progress. Preferences come from memory; interruptions do not reset the agenda. |
+| Memory extraction | A durable message job is pending | Source message, candidate facts, registries and retrieval tools. One atomic batch of structured updates and an extraction receipt. |
+| Mail triage | The two-minute Gmail scan finds unprocessed messages | Incoming and sent mail, standing preferences and matching facts. Relevant memory jobs and eligible incoming-email alerts. |
+| Nightly maintenance | After 03:00 local time, once per day when idle | Current map plus deeper retrieval. Evidence-linked inferences, duplicate-rule cleanup and clarification questions. |
+| Proactive attention | Memory/work/day changes, subject to a 30-minute cooldown | Bounded current evidence and prior alerts. A useful nudge or queued research; reminder timing belongs to the scheduler. |
+| Research / code worker | A durable job is queued | Scoped tools, task and saved checkpoints. Research results or proposed source changes, returned through the inbox. |
+| Automatic developer | New chat evidence passes review eligibility | Astra inspects software defects and current source. A restricted PR or a review note; no automatic merge. |
 
-## The runtime
+Memory, mail, nightly and attention use the configurable background runtime factory.
+Its Codex default is `gpt-5.5` with low effort; the Claude default is `haiku`.
+`ASSISTANT_MEMORY_OPENAI_MODEL` and `ASSISTANT_MEMORY_CLAUDE_MODEL` override them.
+Research/code jobs use their recorded provider and model. Automatic development
+jobs explicitly select `gpt-6-astra` with high effort. These are separate model
+sessions sharing durable state, not copies of one unlimited context window.
 
-`engine/runtime` defines what the engine needs from a model harness: open a session with a system prompt and a list of tools, send a message and stream back events, close and report metrics. `engine/runtime/claude_agent_sdk.py` is the first implementation, on the Claude Agent SDK, which uses the existing Claude login and rejects API-key environment variables. Dollar values emitted by the SDK are usage estimates; they do not establish how a subscription is billed. `engine/runtime/codex.py` uses the official Codex app server with a ChatGPT subscription account. It has a separate local state directory, exposes the same map tools, and disables inherited plugins, MCP servers, shell tools and API authentication.
+Reminders, email-send execution, queue dispatch and push delivery are code, not
+additional agents. A model cannot approve its own email draft: the app confirms
+the exact reviewed version before the sender worker can send it.
 
-The SDK implementation locks its MCP configuration to our tool server and loads no settings, because by default every request would carry the tool schemas of every connector configured in Claude Code, which measured at 36,000 tokens per turn. Locked down, an empty turn is about 500 tokens. Each session also carries a hard dollar cap.
+## Conversation and memory
 
-## The tools
+`engine/engine.py` coordinates a session. The model's local session ID is a resumable
+cache; the database message stream is the canonical history. Fresh sessions receive
+a bounded snapshot and recent messages. Search, entity views, fact history and
+conversation retrieval remain available for anything outside those initial limits.
 
-`engine/tools.py` defines the tools once, as plain async functions with JSON schemas, independent of any runtime: search the map, view an entity, read history, register attributes and relations, assert, retract, deprecate and confirm facts, assert and retract relationships, manage plans, rules, tuning, questions and connectors. Tool inputs are validated against their JSON schemas. Each tool runs in a database transaction, so its observation and memory update succeed or roll back together. Fact writes link their source observation to the user message.
+`engine/context.py` caches prepared context by database revision and expiry. Before
+each turn, it checks for changes and sends changed sections rather than repeating
+the entire map. Messages arriving from other sessions are incorporated separately.
+Clear starts a new runtime and visible-chat boundary without deleting structured
+knowledge or its source history.
 
-## Background memory
+The conversational agent can save explicit preferences, corrections, quantities,
+plans and reminders during the turn. Independently, a database trigger queues user
+messages for extraction. Selected connector material and imports also queue durable
+jobs. In the hosted deployment, a persistent loop drains this queue and retries
+failures; it does not boot another Python worker for every reply.
 
-The conversational model receives only read tools. A database trigger queues each user message durably; after the reply, a detached worker extracts structured updates using the same subscription provider. ChatGPT extraction defaults to `gpt-5.4-mini`; Claude extraction defaults to `haiku`. `ASSISTANT_MEMORY_OPENAI_MODEL` and `ASSISTANT_MEMORY_CLAUDE_MODEL` override these choices.
+`engine/memory_worker.py` resolves entity references and submits validated operations
+as a batch. The writes and job completion commit together. An advisory lock
+serializes extraction; completed jobs cannot be applied twice. External email is
+source evidence, with restricted write tools, not authority to alter standing rules.
+See [the knowledge map](knowledge-map.md) for temporal semantics and provenance.
 
-The worker submits one batch using the existing memory operations. The batch and queue completion commit in one transaction, so retries cannot partially save or duplicate a completed update. A database advisory lock serializes workers, and messages are processed in order. Mutable properties become assertions, with provenance linked to the source message.
+## Runtime and tool boundaries
 
-Queued work survives closing the app. Failed work remains queued for a later app launch or turn, with a five-minute retry delay; there is no always-running retry scheduler. Memory progress appears separately from reply progress and never disables the composer. `prompts/memory.md` defines extraction behavior.
+`engine/runtime/` exposes open, send, interrupt and close operations behind separate
+Claude Agent SDK and Codex app-server adapters. They use the configured subscription
+login and isolate inherited tools/settings. Provider usage estimates do not establish
+subscription billing. The memory and tool contracts belong to this project.
 
-## The snapshot
+`engine/tools.py` and the integration modules define the allowed operations and JSON
+schemas. Tools validate arguments and keep related database writes transactional.
+OAuth credentials stay in the account store; models receive tool results, not tokens.
+Base prompts ship with code, while learned preferences live in the map.
 
-`engine/context.py` builds fresh context before every turn, including resumed sessions: current facts by entity, current relationships, standing rules, yesterday's and today's plans, the best open questions and the last week's transitions. It is built from the map's views on every device identically. Facts and relationships have retrieval limits; the model can search for more. Recent user statements awaiting extraction are included directly, so replies can use them immediately. External connector synchronization is not implemented yet.
+The [development architecture](development.md) separates automatic bug review from
+owner-authorized development. Those roles have different tools and edit boundaries.
 
-## Prompts
+## Voice and delivery
 
-`prompts/persona.md` is who the assistant is and how it works the map. `prompts/morning.md` is added for the morning session. They travel with the code; rules the assistant learns in conversation live in the map.
+The iPhone handles recognition, interruption and playback, with Pocket TTS audio
+streamed from the host. The Mac has local recognition and synthesis processes.
+Text and audio can arrive incrementally; reconnects replay persisted conversation
+events. The [client contract](client-contract.md) describes transport and state.
 
-## Running it
+Background results enter an inbox. Selecting one attaches it to the conversation;
+internal progress does not continually append messages to chat. Delivery uses saved
+records, eligibility checks and deduplication. Sent mail cannot consume an incoming
+reply's alert slot. Reminders keep their own timing and completion state.
 
-```bash
-export ASSISTANT_DATABASE_URL='postgresql://...'   # the project's session pooler URI, in your shell profile
+## Running and verifying
+
+```sh
 python3 assistant.py talk
 python3 assistant.py morning
 python3 assistant.py snapshot
 python3 assistant.py status
+scripts/test.sh
 ```
 
-`ASSISTANT_RUNTIME`, `ASSISTANT_OPENAI_MODEL`, `ASSISTANT_MODEL`, `ASSISTANT_EFFORT`, `ASSISTANT_SESSION_BUDGET_USD`, `ASSISTANT_DEVICE` and `ASSISTANT_TIMEZONE` override the defaults. The time zone matters: the map connection sets it so every date the database computes matches the device.
+Set `ASSISTANT_DATABASE_URL` for local engine use. `ASSISTANT_ENV=test` selects the
+separate local test map. The test runner creates a disposable database, applies all
+migrations and runs SQL, Python and shared Swift checks. Real-model retrieval and
+local speech checks live in `scripts/check_memory.py`, `scripts/check_voice.py` and
+`scripts/check_synthesis.py`. Audio fixtures do not prove real-room echo cancellation
+or performance on an untested device.
 
-## The test map
-
-The real map only ever holds real life. Anything exploratory runs against a separate test map: `--test` on any command, or `ASSISTANT_ENV=test`, switches the engine to `ASSISTANT_TEST_DATABASE_URL`. `scripts/testdb.sh up` provides one locally, a persistent Postgres 17 container with pgvector and every migration applied, and prints the URL to put in that variable. `reset` wipes it. `scripts/push.sh test` pushes migrations to a hosted test project instead, when there is one.
-
-## Tests
-
-`scripts/test.sh` runs everything against a throwaway Postgres: the migrations, the SQL checks, then the Python suite, which exercises the tools, the conversation continuity rules, the snapshot and the engine loop with a scripted runtime in place of the model.
-
-## Desktop transport
-
-The SwiftUI app starts `python -m engine.desktop` as a child process and exchanges newline-delimited JSON over private pipes. There is no HTTP listener and no database password in the app bundle. Every few seconds the bridge also sends a `map` event with the latest facts learned, today's plan, the count of open questions and the memory queue state, which the app uses for its day panel. Runtime opening, streaming, interruption and closing use the same `Session` class as the terminal. Partial replies survive failed or interrupted turns.
-
-The native audio loop uses AVFoundation. `LiveVoice` keeps capture running during playback, with Apple voice processing enabled for echo cancellation and automatic recovery after audio configuration changes. It sends bounded PCM frames to `engine.voice.recognize` over a private pipe. That process runs sherpa-onnx locally and emits partial and final transcripts. It has no database access, model credentials or network dependency. Partial text appears in a fixed panel below the chat, without moving the conversation. The same Python module can run on Linux; sherpa's C API supports mobile integrations, which are not implemented here yet.
-
-Recognized speech cancels synthesis, queued playback and model generation. Completed utterances wait for the previous model turn to end. `engine.voice.synthesize` keeps Kokoro loaded in a separate local process and streams sentence audio through a private pipe. The selected voice is British George (speaker 26). Cancellation invalidates queued synthesis and stops playback immediately; late audio is discarded by request ID. Both speech processes run without database or model-provider credentials. Physical speaker/microphone echo testing remains outstanding.
-
-To verify retrieval with a real subscription model, run `python3 -m scripts.check_memory`. This creates a random fact in a rolled-back transaction on the local test map. A fresh ChatGPT session gets no transcript or snapshot and must recover the value through map tools. The check leaves existing chats and facts unchanged.
-
-Clear starts a fresh agent and resets the visible conversation in the selected memory environment. The boundary persists across restarts and model changes. Structured facts and queued extraction remain intact; older messages remain stored for provenance and explicit history searches but are excluded from the conversation seed and pending-message context.
-
-## Voice verification
-
-Run `python3 -m engine.voice.models` once, then `python3 -m scripts.check_voice`. The check streams two public model-test recordings in 20 ms chunks through the actual recognition subprocess. It checks silence, partial text before the recording ends, final text accuracy, and consecutive utterances. It never writes to the knowledge map or calls an LLM. Fixtures and model weights live outside the repository under `~/.personal-assistant/models`; model revision and ONNX checksums are pinned. `ASSISTANT_SPEECH_MODEL` overrides the directory.
-
-Unit tests cover malformed audio framing and interruption state. Those tests do not establish acoustic echo rejection, microphone selection, expressive voice quality, or Pi performance.
-
-## Independent devices
-
-Every device is intended to run its own engine, connected directly to shared memory and the model provider. No Mac relay is part of this design. The voice library supports Mac, Linux, Android and iOS, but only the Mac integration is currently implemented and tested. There is no additional speech API bill.
-
-The model harness is a separate unresolved constraint: [Claude Code documents 4 GB RAM and desktop operating systems](https://code.claude.com/docs/en/setup), while the [Pi 3 Model B has 1 GB RAM](https://www.raspberrypi.com/products/raspberry-pi-3-model-b/). Independent subscription access from a mobile app has not been established. These requirements must be solved explicitly before claiming either device is deployable.
-
-Speech dependencies: [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) and the [Apache-2.0 English model](https://huggingface.co/csukuangfj/sherpa-onnx-streaming-zipformer-en-2023-06-26). We use the library directly, without its server or a hosted voice framework.
-
-For synthesis, run `python3 -m engine.voice.tts_models`, then `python3 -m scripts.check_synthesis`. This exercises real audio generation, cancellation and another utterance without reloading the model. An optional output WAV path saves a sample. It does not use your microphone or call a paid API. Kokoro weights are Apache-2.0; the accompanying eSpeak NG data is GPL-licensed. The weight license remains beside the cached model. See [Kokoro voice mapping](https://k2-fsa.github.io/sherpa/onnx/tts/pretrained_models/kokoro.html) and [eSpeak NG licensing](https://github.com/espeak-ng/espeak-ng/blob/master/COPYING).
-
-On the development Mac, the larger recognizer reduced first-clip word error from 16.7% to zero on the two public recordings; first partial text arrived around one second. These read-speech fixtures are regression checks, not evidence of accuracy on conversational speech in a room. Pi and mobile performance still need device testing.
-
-### Background eligibility and usage
-
-The scheduler owns reminder delivery times. Context review cannot turn a reminder
-into an early alert, and facts extracted from an already-announced source cannot
-independently announce that source again. Research preparation stays internal.
-The model decides relevance and wording after these checks, using learned rules.
-
-Context review checks revision markers before loading a prompt. It runs at most
-once per 30 minutes, and only after a memory change, completed job, or local date
-change. Mail triage receives standing rules and bounded matching facts. Memory
-extraction receives candidate facts, registries, and a short conversation window,
-with read tools for resolving missing context rather than the whole day snapshot.
-
-Background usage is recorded in `assistant.source_items` under `runtime-usage`:
-provider token/cache counters, elapsed time, and input size, without prompt text.
-Memory extraction already records metrics in `memory.memory_jobs`. Provider cost
-estimates are not subscription charges, and cached-token fields may overlap input
-token totals. Missing metrics are unknown, not zero usage.
+The [cloud guide](cloud.md) covers deployment, credentials and operational checks.
+Memory job metrics live in `memory.memory_jobs`; background usage is recorded under
+`runtime-usage` in `assistant.source_items`. Missing metrics mean unknown usage.

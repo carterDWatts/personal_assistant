@@ -48,6 +48,36 @@ I can ask it to draft an email and review the recipients and full message in the
 
 The phone streams Pocket TTS from the host. The Mac has local speech. My instance uses Google Calendar for events and keeps reminders separate, as I requested. Calendar providers and how commitments are organized should be choices each user can make through conversation; that customization is upcoming work.
 
+## Developing the assistant
+
+I also run a separate Astra developer against my owner instance. It reviews new
+conversation evidence for software bugs, checks the current source, and can propose
+a fix with regression tests. The conversation is evidence of a problem, not permission
+to turn a personal preference into code. Its tools block direct edits to protected
+personality, memory and permission files, and it cannot merge or deploy its own work.
+
+```mermaid
+flowchart TB
+    chat["New conversation evidence"] --> gate["Code-controlled eligibility<br/>Cooldown and daily budget"]
+    gate --> astra["Astra developer<br/>Inspect source and draft a fix"]
+    astra --> pr["Restricted pull request"]
+    pr --> ci["GitHub Actions<br/>Database, Python and app checks"]
+    ci --> review["Owner review"]
+    review --> main["main"]
+    main --> host["Railway<br/>Backend deployment"]
+    main --> release["Mac release command<br/>Signed iPhone build"]
+    release --> phone["Private TestFlight<br/>Over-the-air updates"]
+    astra --> inbox["Development update<br/>In the app inbox"]
+```
+
+The automatic reviewer stops at a PR. Owner-requested code jobs have a separate
+publish path; the assistant's merge tool checks CI on the exact revision and accepts
+only that path's branches. Database migrations are a separate explicit operation.
+TestFlight uploads are also explicit: a push does not silently update the phone.
+
+[Full agent architecture](docs/engine.md#runtime-architecture) ·
+[Development permissions and workflow](docs/development.md)
+
 ## Stack and verification
 
 SwiftUI on iOS and macOS, Python for the engine, Supabase/Postgres for memory and the relay, and a Railway worker defined in code. Model inference uses my existing subscriptions; this is currently a personal, single-owner deployment.
@@ -64,6 +94,7 @@ This creates a throwaway database, applies the migrations, and runs the SQL, Pyt
 
 - [Knowledge map](docs/knowledge-map.md): the schema and update semantics.
 - [Engine](docs/engine.md): sessions, context, tools, and runtime adapters.
+- [Owner development](docs/development.md): automatic Astra reviews, protected files, and the release path.
 - [Cloud deployment](docs/cloud.md): authentication, infrastructure, notifications, and the hosted worker.
 - [Client contract](docs/client-contract.md): phone/host communication.
 - [Connections](docs/connections.md): service integrations and setup.
