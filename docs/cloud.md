@@ -104,11 +104,13 @@ The NYT RSS tool remains available on request; it is not automatically called.
 
 Background gathering scans Gmail every two minutes, with a persisted time cursor
 and replay-safe source IDs. A scan advances only after all pages are saved. New
-messages are triaged in batches of five by the cheaper subscription model while
-conversation is idle. Empty polls use no inference. Only consequential unread mail
-is eligible for an alert; unread state is checked again just before dispatch.
-Sent mail can supply context but cannot trigger an alert about itself. Relevant
-source material is preserved and may queue structured extraction. External sources
+messages are triaged in batches of five by a separate subscription worker. Empty
+polls use no inference. Consequential mail can warrant an alert even after being
+read, according to learned preferences. Drafts are excluded. Sent mail supplies
+context about replies, commitments and awaited responses, with direction, thread
+and source IDs preserved. It cannot trigger an alert about itself or consume an
+incoming reply's alert slot. Sending is not proof that the underlying task is done.
+Relevant source material is preserved and may queue structured extraction. External sources
 cannot use reminder or rule-writing tools. Failures retry with backoff.
 
 Nightly maintenance runs once per local day after 03:00, when idle. It retires exact

@@ -15,6 +15,8 @@ class background_test(MapTest):
         with patch('engine.integrations.google._get',side_effect=[{'messages':[{'id':'a'}],'nextPageToken':'next'},{'messages':[{'id':'b'}]}]) as get:
             poll_mail(self.map)
             self.assertEqual(get.call_count,2)
+            self.assertNotIn('labelIds',get.call_args.args[1])
+            self.assertIn('-in:drafts',get.call_args.args[1]['q'])
         self.assertEqual(self.map.value('select count(*) from assistant.source_items'),2)
         with patch('engine.integrations.google._get') as get:
             poll_mail(self.map)
@@ -35,10 +37,25 @@ class background_test(MapTest):
         raw={'id':'abc','internalDate':'1788840000000','labelIds':['SENT','UNREAD'], 'payload':{'mimeType':'text/plain','body':{'data':base64.urlsafe_b64encode(b'Application submitted').decode()}}}
         with patch('engine.integrations.google._get',return_value=raw): self.run_async(Background(self.map,lambda _:runtime).triage())
         self.assertIn('Related current facts (bounded)',runtime.sent[0])
-        self.assertFalse(self.map.value('select notify from assistant.attention'))
+        self.assertEqual(self.map.value('select count(*) from assistant.attention'),0)
         self.assertEqual(self.map.value('select count(*) from memory.memory_jobs'),1)
         self.assertTrue(self.map.value("select (payload->>'external')::boolean from memory.messages"))
         self.assertEqual(self.map.value('select role from memory.messages'),'system')
+        self.assertEqual(self.map.value("select payload->>'direction' from memory.messages"),'sent')
+        self.assertEqual(self.map.value("select payload->>'thread_id' from memory.messages"),'abc')
+        self.assertEqual(self.map.value('select count(*) from assistant.outbound'),0)
+
+    def test_sent_mail_does_not_suppress_a_later_incoming_reply(self):
+        for id,labels in [('sent',['SENT']),('reply',['INBOX'])]:
+            self.map.execute("insert into assistant.source_items(source,id) values('gmail',%s)",(id,))
+            result={'id':id,'relevant':True,'notify':True,'remember':True,'title':'Project reply','reason':'Planning update','message':'The project time changed.'}
+            raw={'threadId':'project','internalDate':'1788840000000','labelIds':labels,'payload':{}}
+            with patch('engine.integrations.google._get',return_value=raw):
+                self.run_async(Background(self.map,lambda _:FakeRuntime([[call('classify',items=[result])]])).triage())
+        self.assertEqual(self.map.value('select source_id from assistant.attention'),'reply')
+        self.assertTrue(self.map.value('select notify from assistant.attention'))
+        self.assertEqual(self.map.value('select count(*) from memory.memory_jobs'),2)
+        self.assertEqual(self.map.value('select count(*) from assistant.outbound'),1)
 
     def test_failed_classification_backs_off(self):
         self.map.execute("insert into assistant.source_items(source,id) values('gmail','abc')")
