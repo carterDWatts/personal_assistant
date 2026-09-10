@@ -44,6 +44,7 @@ targets:
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         CFBundleDisplayName: Bunny Man
         CFBundleName: Bunny Man
+        NSAlarmKitUsageDescription: I can ring an alarm for a reminder you explicitly ask me not to let you miss.
         NSMicrophoneUsageDescription: The microphone is on while a voice conversation is on.
         NSSpeechRecognitionUsageDescription: What you say is turned into text so the assistant can answer.
         UILaunchScreen: {}

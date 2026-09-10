@@ -444,6 +444,7 @@ struct ConversationView: View {
                 .overlay(alignment: .bottom) {
                     if chat.voice { VoiceGlow(voice: chat.liveVoice, palette: palette) }
                 }
+            AlarmStatusView(alarms: chat.alarms, retry: chat.syncAlarms)
             PendingImageStrip(images: $chat.pendingImages, error: chat.imageError)
             if chat.voice {
                 if typing { Composer(chat: chat, palette: palette).padding(.horizontal, 16).padding(.bottom, 10) }
@@ -726,12 +727,14 @@ struct ReminderPanel: View {
                 if notificationStatus.contains("Settings"), let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) }
                 else { Notifications.shared?.enable() }
             }.font(.caption)
+            AlarmStatusView(alarms: chat.alarms, retry: chat.syncAlarms)
             if !chat.reminderStatus.isEmpty { Text(chat.reminderStatus).font(.caption).foregroundStyle(.secondary) }
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
                     ForEach(chat.reminders) { item in
                         VStack(alignment: .leading, spacing: 4) {
                             Text(item.title).font(.callout)
+                            if item.alarmAt != nil { AlarmStatusView(alarms: chat.alarms, reminderID: item.id, retry: chat.syncAlarms) }
                             if item.severity != "normal" { Text(item.severity.capitalized + " importance").font(.caption2).foregroundStyle(.secondary) }
                             if !item.context.isEmpty { Text(item.context).font(.caption).foregroundStyle(.secondary) }
                             if let next = item.next { Text("Next check: " + next.formatted(date: .abbreviated, time: .shortened)).font(.caption2) }
@@ -749,6 +752,22 @@ struct ReminderPanel: View {
                 notificationStatus = Notifications.shared?.status ?? "Enable reminder notifications"
                 do { try await Task.sleep(for: .seconds(1)) } catch { return }
             }
+        }
+    }
+}
+
+struct AlarmStatusView: View {
+    @ObservedObject var alarms: NativeAlarms
+    var reminderID: String? = nil
+    let retry: () -> Void
+    var body: some View {
+        if let id = reminderID ?? alarms.statuses.first(where: { ["denied", "unsupported", "failed"].contains($0.value) })?.key {
+            Button {
+                if alarms.statuses[id.lowercased()] == "denied", let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) }
+                else { retry() }
+            } label: { Label(alarms.label(id), systemImage: "alarm").font(.caption) }
+        } else if !alarms.problem.isEmpty {
+            Button(alarms.problem, action: retry).font(.caption)
         }
     }
 }

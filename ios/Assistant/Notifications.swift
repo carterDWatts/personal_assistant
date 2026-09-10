@@ -71,12 +71,14 @@ struct ReminderItem: Identifiable {
     let title, context, severity: String
     let version: Int
     let next: Date?
+    let alarmAt: Date?
     init(_ row: [String: Any]) {
         id = row["id"] as? String ?? ""
         title = row["title"] as? String ?? ""
         context = row["context"] as? String ?? ""
         severity = row["severity"] as? String ?? "normal"
         version = row["version"] as? Int ?? 1
+        alarmAt = parseDate(row["alarm_at"])
         next = parseDate(row["next_notify_at"])
     }
 }

@@ -109,6 +109,25 @@ func plain(_ value: Any?) -> String {
         message.at = parseDate(row["created_at"]) ?? Date()
         messages.append(message)
     }
+    let alarms = NativeAlarms()
+    private var syncingAlarms = false
+    private var resyncAlarms = false
+    func syncAlarms() {
+        guard connected, UIApplication.shared.applicationState == .active else { return }
+        guard !flushingReminders, (UserDefaults.standard.array(forKey: "reminderActions") ?? []).isEmpty else { return }
+        if syncingAlarms { resyncAlarms = true; return }
+        syncingAlarms = true
+        Task {
+            defer { syncingAlarms = false; if resyncAlarms { resyncAlarms = false; syncAlarms() } }
+            do {
+                let result = try await transport.reminderRequest("alarm_sync", [:])
+                try await alarms.sync(result["alarms"] as? [[String: Any]] ?? []) { args in
+                    _ = try await self.transport.reminderRequest("alarm_receipt", args)
+                }
+                alarms.problem = ""
+            } catch { alarms.problem = "I couldn’t confirm the alarms on this phone. Tap to retry." }
+        }
+    }
     @Published var reminders: [ReminderItem] = []
     @Published var reminderStatus = ""
     @Published var plans: [PlanItem] = []
@@ -179,16 +198,20 @@ func plain(_ value: Any?) -> String {
         UserDefaults.standard.set(latest, forKey: "reminderActions")
     }
     func flushReminderActions() {
-        guard connected, !flushingReminders else { return }
+        guard !flushingReminders else { return }
         flushingReminders = true
         Task {
-            defer { flushingReminders = false }
+            defer { flushingReminders = false; syncAlarms() }
             while let pending = UserDefaults.standard.array(forKey: "reminderActions") as? [[String: Any]], let args = pending.first {
                 do {
+                    let title = reminders.first(where: { $0.id == args["id"] as? String })?.title ?? "Reminder"
+                    try await alarms.applyAction(args, title: title)
+                    guard connected else { return }
                     let result = try await transport.reminderRequest("reminder_action", args)
                     reminders = (result["reminders"] as? [[String: Any]] ?? []).map(ReminderItem.init)
                     removeReminderAction(args)
                     reminderStatus = ""
+                    syncAlarms()
                 } catch let error as RelayError where error.code == "idempotency_conflict" {
                     removeReminderAction(args)
                     reminderStatus = "That reminder changed. Check it before updating it."
@@ -267,6 +290,7 @@ func plain(_ value: Any?) -> String {
                 if let token = UserDefaults.standard.string(forKey: "pushToken") { registerPush(token) }
                 loadNotificationDiscussion()
                 flushReminderActions()
+                syncAlarms()
             }
             connected = true; busy = false; status = "Connected"
             if let pending = voiceTurn.ready(), voice { submit(pending) }
@@ -308,6 +332,7 @@ func plain(_ value: Any?) -> String {
         case "connections":
             connections = (event["providers"] as? [[String: Any]] ?? []).map(Connection.init)
         case "memory": memoryStatus = text
+        case "alarms_changed": syncAlarms()
         case "map":
             attention = (event["attention"] as? [[String: Any]] ?? []).map(AttentionItem.init)
             reminders = (event["reminders"] as? [[String: Any]] ?? []).map(ReminderItem.init)
@@ -399,6 +424,7 @@ func plain(_ value: Any?) -> String {
 
     /// A voice conversation keeps the stream alive with the screen off; otherwise the phone rests in the background.
     func foreground(_ active: Bool) {
+        if active { syncAlarms(); loadNotificationDiscussion() }
         inFront = active
         transport.foreground(active || voice)
     }

@@ -12,13 +12,16 @@
 		20CB022D16C16345828B8930 /* Transport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 19166F88EC58DDC6BF56BDD6 /* Transport.swift */; };
 		27AE07C0E505531260112DCF /* Notifications.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9DB1C69949F8867309EA4FA5 /* Notifications.swift */; };
 		2939F427E2186B2A19F3CF25 /* interrupt.wav in Resources */ = {isa = PBXBuildFile; fileRef = DCE622D07F21DB8741ABAEB6 /* interrupt.wav */; };
+		2FE61FEB94B7AB8BB2CC0F6A /* AlarmTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 141AC6AC6F1EE3C5F7B9A104 /* AlarmTests.swift */; };
 		309E505AF2A73B3795D5187A /* MessageTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5063AD0BF055B36F3C136CA7 /* MessageTests.swift */; };
 		435A748B8312FA4153388598 /* ChatImages.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7CC96A9E009EAD7BE04002B7 /* ChatImages.swift */; };
 		47EC57B989427548F0A3BFDA /* voice-bill.m4a in Resources */ = {isa = PBXBuildFile; fileRef = F37B8051E46D90501D250BBB /* voice-bill.m4a */; };
+		482096C5087510FB1E9CC4E5 /* Alarms.swift in Sources */ = {isa = PBXBuildFile; fileRef = 94503A2E98E66791B0F7ECDD /* Alarms.swift */; };
 		484497CADF48A954A2DF3006 /* DaySchedule.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9D3ECC060FC904FB576920A /* DaySchedule.swift */; };
 		48459D3A71D78D775DD0F949 /* Spotify.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EF4E4DE9CC2F5DC4385BC65 /* Spotify.swift */; };
 		51F8F3E0738873E5351D2E5D /* voice-michael.m4a in Resources */ = {isa = PBXBuildFile; fileRef = 17575427781DBC1348FEFC6D /* voice-michael.m4a */; };
 		63B70AB8344C1CEB6A0FEBD4 /* Views.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2CF368B5C1B83543A7E505E0 /* Views.swift */; };
+		662D45019A7E7AB5B959E287 /* AlarmUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8AE9B7CCF1325F7B5BDF7691 /* AlarmUITests.swift */; };
 		66FF56AE21030B2A105C6BB2 /* EmailReviewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2F12477FC94F3ED3D826B6C /* EmailReviewTests.swift */; };
 		70AA426D91D2A45B5E3CD318 /* pause.wav in Resources */ = {isa = PBXBuildFile; fileRef = 0C519B140121EAE3E4FAA063 /* pause.wav */; };
 		74BE8C1B54D60ADD47A77699 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 986D1C1B277AB5299783326C /* Assets.xcassets */; };
@@ -69,6 +72,7 @@
 		0A20A9483B2B64425BF1A36D /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		0C519B140121EAE3E4FAA063 /* pause.wav */ = {isa = PBXFileReference; lastKnownFileType = audio.wav; path = pause.wav; sourceTree = "<group>"; };
 		13FBAF14C1B1F7867606D118 /* VoiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceTests.swift; sourceTree = "<group>"; };
+		141AC6AC6F1EE3C5F7B9A104 /* AlarmTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AlarmTests.swift; sourceTree = "<group>"; };
 		17575427781DBC1348FEFC6D /* voice-michael.m4a */ = {isa = PBXFileReference; path = "voice-michael.m4a"; sourceTree = "<group>"; };
 		19166F88EC58DDC6BF56BDD6 /* Transport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Transport.swift; sourceTree = "<group>"; };
 		1F1E5B86C6AB6771AE700088 /* Assistant.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Assistant.entitlements; sourceTree = "<group>"; };
@@ -82,8 +86,10 @@
 		6F8C7E076DFC1900D744A38C /* input.wav */ = {isa = PBXFileReference; lastKnownFileType = audio.wav; path = input.wav; sourceTree = "<group>"; };
 		724ACE294C39595C12007206 /* AssistantUITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = AssistantUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		7CC96A9E009EAD7BE04002B7 /* ChatImages.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatImages.swift; sourceTree = "<group>"; };
+		8AE9B7CCF1325F7B5BDF7691 /* AlarmUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AlarmUITests.swift; sourceTree = "<group>"; };
 		8EF4E4DE9CC2F5DC4385BC65 /* Spotify.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Spotify.swift; sourceTree = "<group>"; };
 		943C7F4182F35505F7A0B412 /* Connections.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Connections.swift; sourceTree = "<group>"; };
+		94503A2E98E66791B0F7ECDD /* Alarms.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Alarms.swift; sourceTree = "<group>"; };
 		986D1C1B277AB5299783326C /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		9DB1C69949F8867309EA4FA5 /* Notifications.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Notifications.swift; sourceTree = "<group>"; };
 		A4D4A74A289C9F0CC4315DDF /* IntegrationCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IntegrationCatalog.swift; sourceTree = "<group>"; };
@@ -122,6 +128,7 @@
 		1329D326E9E0BB7176FFECDD /* AssistantUITests */ = {
 			isa = PBXGroup;
 			children = (
+				8AE9B7CCF1325F7B5BDF7691 /* AlarmUITests.swift */,
 				F2F12477FC94F3ED3D826B6C /* EmailReviewTests.swift */,
 				CA74C70DCFB1C3907F0518B0 /* ReplayPermissions.swift */,
 			);
@@ -187,6 +194,7 @@
 			isa = PBXGroup;
 			children = (
 				ED986764FEC8C073175A88FF /* Account.swift */,
+				94503A2E98E66791B0F7ECDD /* Alarms.swift */,
 				DAD2018EE3CC52D3D8588EDC /* App.swift */,
 				986D1C1B277AB5299783326C /* Assets.xcassets */,
 				1F1E5B86C6AB6771AE700088 /* Assistant.entitlements */,
@@ -225,6 +233,7 @@
 		DEF85963868B92E490CE2315 /* AssistantTests */ = {
 			isa = PBXGroup;
 			children = (
+				141AC6AC6F1EE3C5F7B9A104 /* AlarmTests.swift */,
 				5063AD0BF055B36F3C136CA7 /* MessageTests.swift */,
 				13FBAF14C1B1F7867606D118 /* VoiceTests.swift */,
 				B2E02EE2D580932108EC32BE /* Fixtures */,
@@ -404,6 +413,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				E7822E63E1E8FC23FFFFAC2E /* Account.swift in Sources */,
+				482096C5087510FB1E9CC4E5 /* Alarms.swift in Sources */,
 				CA24510F1F5E93FDAE862DA4 /* App.swift in Sources */,
 				DE85CB8159AB83773B5C0DA4 /* Chat.swift in Sources */,
 				435A748B8312FA4153388598 /* ChatImages.swift in Sources */,
@@ -433,6 +443,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				2FE61FEB94B7AB8BB2CC0F6A /* AlarmTests.swift in Sources */,
 				309E505AF2A73B3795D5187A /* MessageTests.swift in Sources */,
 				F40E0625E27CD01A3996677B /* VoiceTests.swift in Sources */,
 			);
@@ -442,6 +453,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				662D45019A7E7AB5B959E287 /* AlarmUITests.swift in Sources */,
 				66FF56AE21030B2A105C6BB2 /* EmailReviewTests.swift in Sources */,
 				EC3C740A01AD6FD1D948F530 /* ReplayPermissions.swift in Sources */,
 			);

@@ -15,12 +15,13 @@ import XCTest
         transport.emit(["type":"end", "turn_id":"turn"])
         transport.emit(["type":"ready"])
         try await Task.sleep(for: .milliseconds(100))
-        XCTAssertEqual(chat.messages.filter { $0.databaseID == "123" }.count, 1)
+        XCTAssertEqual(chat.messages.filter { $0.databaseID == "123" }.count, 0)
         XCTAssertTrue(chat.messages.contains { $0.text == "Here is your reply." })
         XCTAssertFalse(chat.messages.contains { $0.pending })
         XCTAssertFalse(chat.liveVoice.speaking)
-        let message = try XCTUnwrap(chat.messages.last)
-        chat.reply(to: message)
+        chat.discussNotification(kind: "notice", id: "notice", title: "I found something useful.", messageID: "123")
+        try await Task.sleep(for: .milliseconds(100))
+        XCTAssertEqual(chat.messages.filter { $0.databaseID == "123" }.count, 1)
         chat.draft = "Yes, show me."
         chat.send()
         XCTAssertEqual(transport.reference?["message_id"], "123")
@@ -61,7 +62,14 @@ import XCTest
     func stop() {}
     func foreground(_ active: Bool) {}
     func close() { finish() }
-    func reminderRequest(_ action: String, _ args: [String:Any]) async throws -> [String:Any] { request=args; return ["message":row] }
+    func clientRequest(_ action: String, _ args: [String:Any]) async throws -> [String:Any] {
+        XCTAssertEqual(action, "inbox_open")
+        return ["message":row]
+    }
+    func reminderRequest(_ action: String, _ args: [String:Any]) async throws -> [String:Any] {
+        if action == "notification_message" { request=args }
+        return ["message":row]
+    }
     func importPart(_ args: [String:Any]) async throws {}
     func imports() async throws -> [[String:Any]] { [] }
     func connections() async throws -> [[String:Any]] { [] }
