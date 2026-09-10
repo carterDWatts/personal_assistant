@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Archive and upload the iPhone app to private TestFlight testing."""
 import argparse
+import json
 import os
 from pathlib import Path
 import plistlib
@@ -26,6 +27,13 @@ def main():
     archive = output / 'Assistant.xcarchive'
     auth = []
     credentials = [os.environ.get(name) for name in ('ASC_KEY_PATH', 'ASC_KEY_ID', 'ASC_ISSUER_ID')]
+    config = Path.home() / '.config/personal-assistant/apple/release.json'
+    if not any(credentials) and config.is_file():
+        try:
+            saved = json.loads(config.read_text())
+            credentials = [saved[name] for name in ('key_path', 'key_id', 'issuer_id')]
+        except (OSError, ValueError, KeyError, TypeError):
+            parser.error(f'Invalid release credentials in {config}.')
     if any(credentials):
         if not all(credentials):
             parser.error('Set ASC_KEY_PATH, ASC_KEY_ID and ASC_ISSUER_ID together.')

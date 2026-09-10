@@ -24,6 +24,9 @@ successful archive, fix the account issue and retry with `--upload-existing`.
 
 For unattended authentication, set `ASC_KEY_PATH`, `ASC_KEY_ID`, and `ASC_ISSUER_ID`
 for an App Store Connect API key with the necessary signing and upload permissions.
+Automatic cloud signing requires an Admin key. Alternatively, save `key_path`,
+`key_id`, and `issuer_id` in `~/.config/personal-assistant/apple/release.json`
+with file permissions `600`. The environment variables override that file as a set.
 Keep the private key outside the repository. With no key supplied, Xcode uses its
 signed-in developer account. API keys, signing certificates and provisioning profiles
 must never be committed.
