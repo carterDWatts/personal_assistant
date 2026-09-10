@@ -51,6 +51,14 @@ class images_test(MapTest):
         with self.assertRaisesRegex(psycopg.Error,'account_denied'):
             self.map.value('select public.assistant_image(%s,%s,%s,%s)',(uuid.uuid4(),self.device,'get',jsonb({'id':image['id']})))
 
+    def test_image_only_submit_preserves_empty_text(self):
+        image=self.images.save(picture(),'photo.png')
+        args={'text':'','client_message_id':str(uuid.uuid4()),'images':[image['id']]}
+        first=self.client('submit',args);self.assertEqual(first,self.client('submit',args))
+        self.assertEqual(self.map.value('select text from assistant.turns where id=%s',(first['turn_id'],)),'')
+        with self.assertRaisesRegex(psycopg.Error,'invalid_request'):
+            self.client('submit',{'text':'','client_message_id':str(uuid.uuid4()),'images':[]})
+
     def test_invalid_or_oversized_images_are_rejected(self):
         for data in (b'<html>not an image</html>',b'x'*4000001):
             with self.assertRaises(ToolError):normalized(data)

@@ -345,10 +345,9 @@ func plain(_ value: Any?) -> String {
                     ids.append(id)
                 }
                 guard connected, generation == imageGeneration else { throw ImageError.invalid }
-                let content = text.isEmpty ? "Please look at these images." : text
                 draft = ""
-                messages.append(ChatMessage(role: "user", text: content, images: ids))
-                transport.sendImages(content, id: UUID(), model: selectedModel.isEmpty ? nil : selectedModel, images: ids)
+                messages.append(ChatMessage(role: "user", text: text, images: ids))
+                transport.sendImages(text, id: UUID(), model: selectedModel.isEmpty ? nil : selectedModel, images: ids)
             } catch { if generation == imageGeneration { imageError = error.localizedDescription; busy = false } }
         }
     }
