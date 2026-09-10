@@ -40,6 +40,8 @@ targets:
     info:
       path: Assistant/Info.plist
       properties:
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         CFBundleDisplayName: Bunny Man
         CFBundleName: Bunny Man
         NSMicrophoneUsageDescription: The microphone is on while a voice conversation is on.

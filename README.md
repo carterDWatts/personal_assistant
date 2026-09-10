@@ -78,6 +78,6 @@ scripts/build-mac.sh
 open 'build/Bunny Man.app'
 ```
 
-Open `ios/Assistant.xcodeproj` for the phone app. The assistant's name is centralized in `identity.json`. Development and deployment track `main`.
+Open `ios/Assistant.xcodeproj` for the phone app. [TestFlight releases](docs/ios-release.md) install over the internet without connecting the phone to a Mac. The assistant's name is centralized in `identity.json`. Development and deployment track `main`.
 
 Multi-user support and [per-user service choices](docs/connections.md#planned-per-user-customization) are upcoming architecture work. The current deployment is built around one owner; adding other users requires account isolation throughout memory, sessions, connections, and background work. I’m also improving retrieval and voice. Memory search is currently lexical, inference still needs review, and a standalone morning device is planned.

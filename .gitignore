@@ -15,3 +15,10 @@ build/
 google-client.json
 node_modules/
 xcuserdata/
+
+# Apple signing credentials and release artifacts.
+*.p8
+*.p12
+*.mobileprovision
+*.xcarchive/
+*.ipa
