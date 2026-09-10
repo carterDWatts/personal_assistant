@@ -24,7 +24,6 @@ jobs:
       contents: write
     env:
       DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
-      ASC_KEY_PATH: ${{ runner.temp }}/AuthKey.p8
       ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
       ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
       ASC_APP_ID: ${{ vars.ASC_APP_ID }}
@@ -45,7 +44,7 @@ jobs:
           python - <<'PY'
           import base64, os, secrets, subprocess
           from pathlib import Path
-          key = Path(os.environ['ASC_KEY_PATH'])
+          key = Path(os.environ['RUNNER_TEMP']) / 'AuthKey.p8'
           key.touch(mode=0o600)
           key.write_text(os.environ['ASC_PRIVATE_KEY'])
           chain = str(Path(os.environ['RUNNER_TEMP']) / 'signing.keychain-db')
@@ -68,6 +67,7 @@ jobs:
           build = 1000 + int(os.environ['GITHUB_RUN_NUMBER']) * 10 + int(os.environ['GITHUB_RUN_ATTEMPT'])
           with open(os.environ['GITHUB_ENV'], 'a') as out:
               out.write(f'IPHONE_BUILD={build}\n')
+              out.write(f'ASC_KEY_PATH={key}\n')
           PY
       - name: Archive and upload
         run: python scripts/release-ios.py --build-number "$IPHONE_BUILD"
@@ -93,5 +93,5 @@ jobs:
       - name: Remove signing key
         if: always()
         run: |
-          rm -f "$ASC_KEY_PATH" "$RUNNER_TEMP/signing.p12"
+          rm -f "$RUNNER_TEMP/AuthKey.p8" "$RUNNER_TEMP/signing.p12"
           security delete-keychain "$RUNNER_TEMP/signing.keychain-db" || true
