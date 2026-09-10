@@ -104,6 +104,11 @@ class Session:
             saved(image_ids)
         if timing := getattr(self.io, "timing", None):
             timing("context_seconds", time.monotonic() - started)
+            # Sizes only, never snapshot contents. These are characters, not token estimates.
+            timing("context_chars", len(opening))
+            timing("snapshot_chars", sum(len(value) for value in sections.values()))
+            timing("context_full_snapshot", int(self.sent_snapshot is None))
+            timing("context_revision", revision)
         try:
             await turn(self.runtime, self.conv, self.tools, self.io, self.segment_id, mid,
                        f"{opening}\n\n{extra_context}\n\nThe user says:\n{text}", images=image_content)

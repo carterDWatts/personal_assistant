@@ -32,6 +32,17 @@ import Foundation
         precondition(rows.last!.text == "I found an answer.")
         state.end("five", messages: &rows)
         precondition(rows.allSatisfy { !$0.pending })
-        print("Finished and superseded turns cannot leave thinking rows.")
+        state.begin("failed", messages: &rows)
+        precondition(!state.fail("Stale failure", turn: "old", messages: &rows))
+        precondition(state.fail("Please retry.", turn: "failed", messages: &rows))
+        state.end("failed", messages: &rows)
+        state.reset(messages: &rows) // ready/reconnect bookkeeping cannot erase the error
+        precondition(rows.last!.text == "Please retry." && rows.last!.role == "system")
+        state.begin("partial", messages: &rows)
+        precondition(state.update("Partial reply", turn: "partial", replace: false, messages: &rows))
+        precondition(state.fail("Stopped.", turn: "partial", messages: &rows))
+        precondition(rows[rows.count - 2].text == "Partial reply")
+        precondition(rows.allSatisfy { !$0.pending })
+        print("Finished, failed and superseded turns cannot silently lose their state.")
     }
 }

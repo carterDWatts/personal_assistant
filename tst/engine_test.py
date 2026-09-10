@@ -79,6 +79,17 @@ class engine_test(MapTest):
         roles = [r["role"] for r in self.map.rows("select role from memory.messages order by id")]
         self.assertEqual(roles, ["system", "assistant", "user", "assistant"])
 
+    def test_context_diagnostics_are_sizes_and_unchanged_sections_are_not_resent(self):
+        rt = FakeRuntime([[say("First")], [say("Second")]])
+        io = FakeTerminal(["hello", "again"])
+        measured = []
+        io.timing = lambda name, value: measured.append((name, value))
+        self.run_async(engine.run("talk", self.map, rt, io, "mac"))
+        self.assertEqual([v for k, v in measured if k == 'context_full_snapshot'], [1, 0])
+        self.assertEqual(len([v for k, v in measured if k == 'context_chars']), 2)
+        self.assertTrue(all(isinstance(v, (int, float)) for _, v in measured))
+        self.assertNotIn("Nothing recorded yet.", rt.sent[1])
+
     def test_resumed_session_gets_fresh_snapshot(self):
         first = FakeRuntime([[say("hi")]])
         self.run_async(engine.run("talk", self.map, first, FakeTerminal(["hello"]), "mac"))
