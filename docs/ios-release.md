@@ -1,8 +1,19 @@
 # iPhone releases
 
 TestFlight delivers the app over the internet. The phone does not need to be
-connected to the build machine. This command builds on a Mac; it does not require
-a cloud build service.
+connected to a build machine. Relevant changes on main trigger the GitHub Actions
+`release-ios.yml` workflow. It signs and uploads on a Mac runner, waits for Apple to
+report internal testing availability, and publishes an `ios-<commit>` release receipt.
+PR checks do not receive signing secrets. The workflow never submits for public
+App Store review.
+
+One-time repository setup: secrets `ASC_PRIVATE_KEY`, `ASC_KEY_ID`, `ASC_ISSUER_ID`,
+`APPLE_SIGNING_P12` (base64), and `APPLE_SIGNING_PASSWORD`; variable `ASC_APP_ID`.
+The runner imports the development signing identity into a temporary keychain and
+removes it afterward. The Admin API key handles provisioning and cloud distribution
+signing. CI build numbers start above 1000 and increase by workflow run and attempt.
+
+To release from a developer Mac instead:
 
 ```sh
 python3 scripts/release-ios.py

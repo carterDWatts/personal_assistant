@@ -14,6 +14,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--archive-only', action='store_true', help='Build without uploading.')
     parser.add_argument('--upload-existing', action='store_true', help='Retry uploading the existing archive.')
+    parser.add_argument('--build-number', type=int, help='Explicit monotonically increasing CI build number.')
     args = parser.parse_args()
     if args.archive_only and args.upload_existing:
         parser.error('Choose archive-only or upload-existing, not both.')
@@ -53,7 +54,7 @@ def main():
             raise SystemExit(f'Xcode failed. Read {log}; upload completion is unconfirmed.')
 
     if not args.upload_existing:
-        build = subprocess.check_output(['git', 'rev-list', '--count', 'HEAD'], cwd=ROOT, text=True).strip()
+        build = str(args.build_number) if args.build_number else subprocess.check_output(['git', 'rev-list', '--count', 'HEAD'], cwd=ROOT, text=True).strip()
         xcode(['-project', 'ios/Assistant.xcodeproj', '-scheme', 'Assistant', '-configuration', 'Release',
                '-destination', 'generic/platform=iOS', '-archivePath', str(archive),
                f'CURRENT_PROJECT_VERSION={build}', 'archive'], 'archive.log')
@@ -69,7 +70,7 @@ def main():
     options.write_bytes(plistlib.dumps({
         'method': 'app-store-connect', 'destination': 'upload', 'signingStyle': 'automatic',
         'teamID': settings['ApplicationProperties']['Team'],
-        'manageAppVersionAndBuildNumber': True, 'testFlightInternalTestingOnly': True, 'uploadSymbols': True,
+        'manageAppVersionAndBuildNumber': not bool(args.build_number), 'testFlightInternalTestingOnly': True, 'uploadSymbols': True,
     }))
     xcode(['-exportArchive', '-archivePath', str(archive), '-exportPath', str(output / 'export'),
            '-exportOptionsPlist', str(options)], 'upload.log')

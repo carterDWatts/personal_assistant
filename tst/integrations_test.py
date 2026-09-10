@@ -141,3 +141,7 @@ class integrations_test(unittest.IsolatedAsyncioTestCase):
             result=github._github_file({'owner':'carter','repo':'assistant','path':'README.md','ref':'branch'})
         self.assertTrue(result['truncated']);self.assertEqual(len(result['content']),24000)
         self.assertEqual(request.call_args.kwargs['params'],{'ref':'branch'})
+        with patch.object(github,'_request',return_value=data):
+            tail=github._github_file({'owner':'carter','repo':'assistant','path':'README.md','ref':'branch','offset':result['next_offset']})
+        self.assertEqual(result['content']+tail['content'],'x'*25000)
+        self.assertIsNone(tail['next_offset']);self.assertFalse(tail['truncated'])

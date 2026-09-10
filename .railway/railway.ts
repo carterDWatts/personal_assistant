@@ -19,6 +19,8 @@ export default defineRailway(() => {
       ASSISTANT_DEVELOPER_OWNER: preserve(),
       ASSISTANT_DEVELOPER_PROJECT: preserve(),
       ASSISTANT_DEVELOPER_REPO: preserve(),
+      ASSISTANT_DEVELOPMENT_REVIEW: preserve(),
+      ASSISTANT_DEVELOPMENT_AUTOSHIP: preserve(),
       ASSISTANT_OPENAI_MODEL: "gpt-5.5",
       ASSISTANT_EFFORT: "low",
       ASSISTANT_TIMEZONE: "America/Los_Angeles",

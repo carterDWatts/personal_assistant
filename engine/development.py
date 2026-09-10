@@ -51,13 +51,23 @@ class Development:
 
     async def publish(self,args):
         self.scope();validate_files(args['files'])
+        branch=self.branch_prefix+(getattr(self,'publication_key',None) or str(uuid.uuid4()))
+        if getattr(self,'publication_key',None):
+            repo,_=self.scope()
+            previous=await asyncio.to_thread(self.github,'pulls?state=all&head='+repo.split('/')[0]+':'+branch)
+            if previous:
+                pr=previous[0]
+                return {'number':pr['number'],'url':pr['html_url'],'sha':pr['head']['sha'],'status':'awaiting_tests','deployed':False}
+            refs=await asyncio.to_thread(self.github,'git/matching-refs/heads/'+branch)
+            if any(ref['ref']=='refs/heads/'+branch for ref in refs):
+                pr=await asyncio.to_thread(self.github,'pulls',{'title':args['title'],'body':args['description'],'head':branch,'base':'main'})
+                return {'number':pr['number'],'url':pr['html_url'],'sha':pr['head']['sha'],'status':'awaiting_tests','deployed':False}
         base=await asyncio.to_thread(self.github,'git/ref/heads/main')
         if base['object']['sha']!=args['base_sha']:raise ToolError('Main changed. Read the latest source and rebase your changes.')
         commit=await asyncio.to_thread(self.github,'git/commits/'+args['base_sha'])
         tree=await asyncio.to_thread(self.github,'git/trees',{'base_tree':commit['tree']['sha'],'tree':[
             {'path':p,'mode':'100644','type':'blob','content':c} for p,c in args['files'].items()]})
         saved=await asyncio.to_thread(self.github,'git/commits',{'message':args['title'],'tree':tree['sha'],'parents':[args['base_sha']]})
-        branch=self.branch_prefix+str(uuid.uuid4())
         await asyncio.to_thread(self.github,'git/refs',{'ref':'refs/heads/'+branch,'sha':saved['sha']})
         pr=await asyncio.to_thread(self.github,'pulls',{'title':args['title'],'body':args['description'],'head':branch,'base':'main'})
         return {'number':pr['number'],'url':pr['html_url'],'sha':saved['sha'],'status':'awaiting_tests','deployed':False}

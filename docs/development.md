@@ -6,7 +6,7 @@ used by the owner and their coding assistants. They do not share the same author
 | Path | Trigger | Allowed result | Stops before |
 |---|---|---|---|
 | Automatic Astra reviewer | New conversation evidence and scheduler eligibility | Restricted `development/` PR and inbox update | Merging, deployment, SQL execution, protected-file edits |
-| Owner-requested code job | A task delegated through the assistant | `assistant/` PR, source inspection and scoped read-only database diagnostics | Merging or deploying from the background job |
+| Owner-requested code job | A task delegated through the assistant | Durable workspace → `assistant/` PR → CI → eligible iPhone release | Automatic delivery of backend, prompt, memory or permission changes |
 | Owner-authorized assistant tools | An explicit development request in conversation | Merge a tested `assistant/` revision; separately apply a committed migration | Unscoped repositories/projects and an untested revision |
 | Developer checkout | Work directed by the owner outside the app | Local edits, tests, commits, deployment and signed releases | Governed by the operator's tools and permissions, not the hosted review restrictions |
 
@@ -47,11 +47,25 @@ scope. Tokens never enter prompts or repository files. These are personal develo
 credentials, so their provider permissions remain broader than the tools exposed.
 Disconnect either account to revoke the assistant's use of that connection.
 
-A code job reads current source and calls `development_publish` with complete
-changed files and the main revision it read. The result is a branch and pull request,
-not a deployment. GitHub runs Python/database tests and builds both apps without
-production credentials. `development_merge` requires both checks to pass on the
-exact proposed revision. Merging starts the existing Railway deployment.
+A code job reads a pinned main revision through `workspace_read`, then makes exact
+snippet replacements with `workspace_edit`. Reads are paginated; the complete source
+stays on the host, so editing a large file cannot discard its unseen tail. The worker
+saves changed files in the job record. `workspace_submit` publishes them under a
+stable per-job branch. Retries recover the draft or existing PR instead of duplicating
+work. A prose diff alone cannot complete an owner code job.
+
+After submission, `engine/code_delivery.py` advances the persisted job through CI,
+merge and release checks without starting another model. With
+`ASSISTANT_DEVELOPMENT_AUTOSHIP=1`, owner-requested iPhone Swift changes and related
+tests can ship automatically. File scope is checked again from GitHub before merge.
+Both required checks must pass on the exact revision. Other changes stop at a PR
+for review; disabling the flag also stops pending automatic merges. The passive
+Astra review path never enters automatic delivery.
+
+GitHub runs Python/database tests and builds both apps without production credentials.
+Failures preserve the PR and report the failed stage. Completion is announced only
+after the release workflow confirms that Apple made the build available to internal
+TestFlight testers. It does not claim the phone has installed the update.
 
 `development_database_read` uses Supabase's read-only query endpoint.
 `development_database_migrate` only reads timestamped SQL files from current main.
@@ -72,9 +86,10 @@ assistant merge tool checks both on the supplied commit SHA. This gate applies t
 that tool; it does not imply that every operator push goes through a PR.
 
 Backend changes on main trigger the configured Railway build. Database migrations
-remain explicit. iPhone updates use `scripts/release-ios.py` on a developer Mac,
-then Apple's processing and the private TestFlight group. Signing credentials stay
-outside the repository. The phone does not need a cable or a running Mac to install
-an uploaded release. There is no automatic GitHub-to-TestFlight build workflow yet.
+remain explicit. Relevant changes on main trigger `release-ios.yml` on a GitHub Mac
+runner: archive, sign, upload, wait for Apple, then publish a verified release receipt.
+Signing credentials are repository secrets used only on main, never in PR tests.
+The scripts also run on a developer Mac. The phone needs neither a cable nor a
+running laptop to receive an uploaded update.
 
 See the [agent diagram](engine.md#runtime-architecture) and [release instructions](ios-release.md).

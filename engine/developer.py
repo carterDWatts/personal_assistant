@@ -15,7 +15,8 @@ PROTECTED = ('prompts/', 'supabase/', 'engine/runtime/', 'engine/integrations/',
              'engine/develop', 'engine/reconciliation', 'engine/context', 'engine/background',
              'engine/attention', 'engine/reminders', 'engine/notifications', 'engine/records',
              'engine/tools', 'engine/config', 'engine/client', 'engine/images', 'engine/jobs')
-PROTECTED_FILES = {'identity.json', 'shared/integrations.json', 'scripts/test.sh', 'engine/workspace.py'}
+PROTECTED_FILES = {'identity.json', 'shared/integrations.json', 'scripts/test.sh', 'engine/workspace.py',
+                   'engine/code_delivery.py', 'scripts/release-ios.py', 'scripts/testflight.py'}
 
 
 def editable(path):

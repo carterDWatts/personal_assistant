@@ -65,15 +65,22 @@ flowchart TB
     ci --> review["Owner review"]
     review --> main["main"]
     main --> host["Railway<br/>Backend deployment"]
-    main --> release["Mac release command<br/>Signed iPhone build"]
+    request["Owner requests an app change"] --> workspace["Durable source workspace"]
+    workspace --> submitted["Submitted PR<br/>Exact revision passes CI"]
+    submitted --> scope["Code checks automatic shipping scope"]
+    scope --> main
+    scope --> review
+    main --> release["GitHub Mac runner<br/>Sign, upload, verify Apple availability"]
     release --> phone["Private TestFlight<br/>Over-the-air updates"]
     astra --> inbox["Development update<br/>In the app inbox"]
 ```
 
 The automatic reviewer stops at a PR. Owner-requested code jobs have a separate
-publish path; the assistant's merge tool checks CI on the exact revision and accepts
-only that path's branches. Database migrations are a separate explicit operation.
-TestFlight uploads are also explicit: a push does not silently update the phone.
+publish path. Eligible iPhone changes continue through CI and TestFlight without
+another conversation turn; a code worker tracks each stage without more model calls.
+Backend, prompt, memory and permission changes stop for review. Database migrations
+remain a separate explicit operation. The release receipt means an update is available,
+not that the phone has installed it.
 
 [Full agent architecture](docs/engine.md#runtime-architecture) ·
 [Development permissions and workflow](docs/development.md)

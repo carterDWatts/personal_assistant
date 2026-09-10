@@ -1,5 +1,7 @@
 """Editable source copies. No shell, credentials, symlinks or live-service writes."""
 import difflib
+import asyncio
+import base64
 from pathlib import Path
 from engine.tools import ToolSpec, ToolError, _obj, _s
 
@@ -10,6 +12,8 @@ EXTENSIONS = {'.py','.sql','.md','.txt','.json','.toml','.yaml','.yml','.swift',
 
 class Workspace:
     def __init__(self, root=ROOT):
+        self.remote = None
+        self.base_sha = None
         self.original = {}
         for directory in ALLOWED:
             for path in (root/directory).rglob('*'):
@@ -23,6 +27,20 @@ class Workspace:
             if path.is_file() and not path.is_symlink():self.original[name]=path.read_text()
         self.files = dict(self.original)
 
+    async def checkout(self, development, saved=None):
+        self.remote = development
+        self.base_sha = (await development.status({}))['base_sha']
+        if saved and saved.get('base_sha') != self.base_sha:
+            raise ToolError('Main changed since this draft. Rebase the saved patch before publishing.')
+        self.original = dict((saved or {}).get('original', {}))
+        self.files = dict((saved or {}).get('files', {}))
+        tree=await asyncio.to_thread(development.github,'git/trees/'+self.base_sha+'?recursive=1')
+        if tree.get('truncated'):raise ToolError('Repository listing is incomplete.')
+        self.tracked={item['path'] for item in tree['tree'] if item['type']=='blob'}
+
+    def checkpoint(self):
+        return {'base_sha':self.base_sha, 'original':self.original, 'files':self.files}
+
     def path(self, value):
         if value in ROOT_FILES:return value
         p = Path(value)
@@ -32,14 +50,39 @@ class Workspace:
 
     async def read(self, args):
         if not args.get('path'):
+            if self.remote:
+                tree=await asyncio.to_thread(self.remote.github,'git/trees/'+self.base_sha+'?recursive=1')
+                files=[]
+                for item in tree.get('tree',[]):
+                    if item['type']!='blob':continue
+                    try: files.append(self.path(item['path']))
+                    except ToolError: pass
+                return {'files':files,'base_sha':self.base_sha,'truncated':tree.get('truncated',False)}
             return {'files':sorted(self.files)}
         name = self.path(args['path'])
+        if self.remote and name not in self.files:
+            data=await asyncio.to_thread(self.remote.github,'contents/'+name+'?ref='+self.base_sha)
+            if data.get('encoding')!='base64':raise ToolError('Source is not an editable text file.')
+            content=base64.b64decode(data['content']).decode()
+            if len(content)>200000:raise ToolError('Source file exceeds the editing limit.')
+            self.original[name]=self.files[name]=content
         if name not in self.files: raise ToolError('File not found.')
         offset = args.get('offset',0)
-        return {'path':name, 'text':self.files[name][offset:offset+20000], 'length':len(self.files[name])}
+        return {'path':name, 'text':self.files[name][offset:offset+20000], 'length':len(self.files[name]),
+                'next_offset':offset+20000 if offset+20000<len(self.files[name]) else None,'base_sha':self.base_sha}
+
+    async def edit(self,args):
+        name=self.path(args['path'])
+        if name not in self.files:await self.read({'path':name})
+        old=args['old_text']
+        if not old or self.files[name].count(old)!=1:
+            raise ToolError('The old text must match exactly once. Read the relevant source and retry.')
+        return await self.write({'path':name,'content':self.files[name].replace(old,args['new_text'],1)})
 
     async def write(self, args):
         name = self.path(args['path'])
+        if self.remote and name in self.tracked and name not in self.original:
+            await self.read({'path':name})
         self.files[name] = args['content']
         if len(self.patch()) > 300000:
             if name in self.original: self.files[name] = self.original[name]
@@ -54,7 +97,9 @@ class Workspace:
 
     def specs(self):
         from engine.tools import _i
-        return [ToolSpec('workspace_read','Read the deployed assistant source snapshot or list its files.',
+        return [ToolSpec('workspace_read','Read source at the pinned repository revision or list its files. Follow next_offset for more text; workspace_edit preserves the complete file.',
                 _obj({'path':_s('source path'),'offset':_i('character offset',minimum=0)},[]), self.read),
+                ToolSpec('workspace_edit','Replace one exact source snippet in the draft. The server preserves the rest of the full file, even when the read response was paginated.',
+                _obj({'path':_s('source path'),'old_text':_s('unique exact text',minLength=1),'new_text':_s('replacement text')},['path','old_text','new_text']),self.edit),
                 ToolSpec('workspace_write','Save a complete source file in this isolated draft. Does not deploy or execute it.',
                 _obj({'path':_s('source path'),'content':_s('complete file',maxLength=200000)},['path','content']),self.write)]

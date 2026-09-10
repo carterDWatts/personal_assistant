@@ -52,7 +52,7 @@ against the same map. The Pi interface is planned.
 | Mail triage | The two-minute Gmail scan finds unprocessed messages | Incoming and sent mail, standing preferences and matching facts. Relevant memory jobs and eligible incoming-email alerts. |
 | Nightly maintenance | After 03:00 local time, once per day when idle | Current map plus deeper retrieval. Evidence-linked inferences, duplicate-rule cleanup and clarification questions. |
 | Proactive attention | Memory/work/day changes, subject to a 30-minute cooldown | Bounded current evidence and prior alerts. A useful nudge or queued research; reminder timing belongs to the scheduler. |
-| Research / code worker | A durable job is queued | Scoped tools, task and saved checkpoints. Research results or proposed source changes, returned through the inbox. |
+| Research / code worker | A durable job is queued | Scoped tools, task and saved checkpoints. Research results or durable source edits. Submitted code continues through deterministic delivery checks; verified outcomes reach the inbox. |
 | Automatic developer | New chat evidence passes review eligibility | Astra inspects software defects and current source. A restricted PR or a review note; no automatic merge. |
 
 Memory, mail, nightly and attention use the configurable background runtime factory.
