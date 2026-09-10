@@ -16,6 +16,13 @@ class inbox_test(MapTest):
     def request(self,action,args=None):
         return self.map.value('select public.assistant_client(%s,%s,%s,%s)',(self.owner,self.device,action,jsonb(args or {})))
 
+    def test_bootstrap_includes_durable_inbox_for_missed_proactive_messages(self):
+        original=post(self.map,'example','Your report is ready.',{'kind':'notice','id':str(uuid.uuid4())})
+        boot=self.request('bootstrap')
+        self.assertEqual(boot['history'],[])
+        self.assertEqual([m['id'] for m in boot['inbox']],[original])
+        self.assertIsNone(boot['inbox'][0]['opened_at'])
+
     def test_inbox_only_enters_history_when_opened_and_retry_is_idempotent(self):
         original=post(self.map,'example','Your report is ready.',{'kind':'notice','id':str(uuid.uuid4())})
         self.assertEqual(len(self.request('inbox')['messages']),1)
@@ -58,6 +65,6 @@ class inbox_test(MapTest):
         conv=Conversation(self.map,'test','codex')
         conv.record(new['conversation_id'],'user','Tell me more.')
         self.assertFalse(self.request('inbox_cancel',{'message_id':str(new['id'])})['cancelled'])
-        self.assertEqual(len(self.request('bootstrap')['history']),2)
+        self.assertEqual(len(self.request('bootstrap')['history'],),2)
         with self.assertRaisesRegex(psycopg.Error,'invalid_request'):
             self.request('inbox_cancel',{'message_id':str(original)})
