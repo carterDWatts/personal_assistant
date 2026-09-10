@@ -299,6 +299,12 @@ struct SettingsView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var preview = AVSpeechSynthesizer()
     @StateObject private var hostedPreview = VoicePreview()
+    private var appVersion: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "Unknown"
+    }
+    private var appBuild: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "Unknown"
+    }
     var body: some View {
         NavigationStack {
             List {
@@ -354,6 +360,10 @@ struct SettingsView: View {
                     Toggle("Recognize speech on this phone", isOn: $onDevice)
                 } footer: {
                     Text("On-device recognition avoids network delays. Turn this off to try network recognition. Applies when you next start Talk.")
+                }
+                Section("About") {
+                    LabeledContent("Version", value: appVersion)
+                    LabeledContent("Build", value: appBuild)
                 }
             }
             .scrollContentBackground(.hidden)
