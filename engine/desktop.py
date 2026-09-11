@@ -110,7 +110,7 @@ async def main():
                 emit("memory", text=text)
                 emit("map",
                      calendar=map_.value("select payload || jsonb_build_object('error',last_error) from assistant.source_items where source='calendar-view' and id='current'") or {},
-                     plans=map_.rows("select item, status from memory.plans where day = current_date order by id"),
+                     plans=map_.rows("select * from memory.plan_notes(current_date)"),
                      questions=map_.value("select count(*) from memory.questions where closed_at is null"),
                      pending=counts['pending'], errors=counts['errors'])
             except Exception:

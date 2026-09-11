@@ -142,7 +142,7 @@ class relay_test(MapTest):
             self.map.execute("insert into memory.plans(day,item,origin,created_by)"
                              " values((now() at time zone 'Pacific/Kiritimati')::date,'Go for a walk','user','test')")
             day = self.client('bootstrap')['day']
-            self.assertEqual(day['plans'], [{'item': 'Go for a walk', 'status': 'planned'}])
+            self.assertEqual([(p['item'],p['status'],p['section']) for p in day['plans']], [('Go for a walk','planned','current')])
             relay_map = Map(self.map.url)
             relay = Relay(relay_map)
             relay.acquire()

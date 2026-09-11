@@ -167,25 +167,9 @@ struct DayPanel: View {
                         }.frame(maxHeight: 180)
                     }.padding(.bottom, 12)
                 }
-                DisclosureGroup("Plan notes") {
-                    if chat.plans.isEmpty {
-                        Text("Nothing planned. Tell me what you’re doing and I’ll keep track.")
-                        .font(.callout).foregroundStyle(palette.muted).fixedSize(horizontal: false, vertical: true)
-                    }
-                    VStack(alignment: .leading, spacing: 10) {
-                        ForEach(chat.plans) { plan in
-                            HStack(alignment: .top, spacing: 8) {
-                                Image(systemName: plan.status == "done" ? "checkmark.square.fill" : plan.status == "proposed" ? "square.dashed" : "square")
-                                .foregroundStyle(plan.status == "done" || plan.status == "proposed" ? palette.accent : palette.muted)
-                                .padding(.top, 1)
-                                VStack(alignment: .leading, spacing: 1) {
-                                    Text(plan.item).font(.callout).foregroundStyle(plan.status == "skipped" || plan.status == "dropped" ? palette.muted : palette.ink)
-                                    .strikethrough(plan.status == "skipped" || plan.status == "dropped").lineLimit(2)
-                                    if plan.status == "proposed" { Text("Suggested").font(.caption).foregroundStyle(palette.accent) }
-                                }
-                            }
-                        }
-                    }
+                PlanNotes(plans: chat.plans, canReview: chat.connected && !chat.busy && chat.draft.isEmpty) {
+                    chat.draft = "Let’s review my plan notes. Check newer updates first, then help me resolve what is done, changed, or still relevant."
+                    chat.send()
                 }
                 HStack(spacing: 6) {
                     Circle().fill(chat.memoryErrors > 0 ? Color.orange : chat.memoryPending > 0 ? palette.accent : palette.muted).frame(width: 6, height: 6)

@@ -64,7 +64,7 @@ class tools_test(MapTest):
     def test_errors_come_back_as_text(self):
         result = self.call("fact_assert", entity_id="00000000-0000-0000-0000-000000000000", attribute="nope", value="x")
         self.assertIn("no changes were saved", result["error"])
-        result = self.call("plan_update", plan_id=999, status="done")
+        result = self.call("plan_update", plan_id=999, version=1, note="Confirmed", status="done")
         self.assertIn("no plan 999", result["error"])
         result = self.call("question_update", question_id=1, action="fly")
         self.assertIn("Invalid tool arguments", result["error"])
@@ -101,7 +101,7 @@ class tools_test(MapTest):
         p = self.call("plan_add", day="today", item="gym", category="gym")
         proposal = self.call("plan_add", day="tomorrow", item="move the car", origin="map", status="proposed", rationale="street cleaning")
         self.assertEqual(proposal["status"], "proposed")
-        done = self.call("plan_update", plan_id=p["id"], status="done", note="short one")
+        done = self.call("plan_update", plan_id=p["id"], version=p["version"], status="done", note="short one")
         self.assertIsNotNone(done["resolved_at"])
         self.assertEqual([x["item"] for x in self.call("plans_list", day="today")], ["gym"])
 

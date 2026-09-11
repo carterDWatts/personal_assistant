@@ -20,7 +20,7 @@ def evidence(map_, refs):
         elif kind=='reminders':
             row=map_.row("select * from memory.reminders where id=%s and status='open'",(ref['id'],))
         else:
-            row=map_.row("select * from memory.plans where id=%s and status in ('planned','proposed','partial')",(int(ref['id']),))
+            row=map_.row("select * from memory.plans where id=%s and superseded_by is null and status in ('planned','proposed','partial')",(int(ref['id']),))
         if not row: raise ToolError('Evidence is no longer current.')
         rows.append(row)
     return rows

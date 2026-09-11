@@ -27,7 +27,7 @@ class ToolSpec:
     fn: object  # async (args: dict) -> object
 
 
-READ_TOOLS = frozenset({"map_search", "entity_view", "fact_history", "plans_list", "conversation_history", "context_import_search", "reminders_list", "attention_list", "records_read", "records_totals"})
+READ_TOOLS = frozenset({"map_search", "entity_view", "fact_history", "plans_list", "plan_history", "conversation_history", "context_import_search", "reminders_list", "attention_list", "records_read", "records_totals"})
 
 
 class ToolError(Exception):
@@ -270,33 +270,31 @@ class Tools:
         """Add something to a day's plan. origin is user when they said it, agent when you suggested it in
         conversation, map when you derived it from the map on your own (then give a rationale and status proposed),
         unplanned for something that already happened without a plan (then status done)."""
-        day=_day(args.get('day'),today=self.event_time().date())
-        if self.message_id:
-            existing=self.map.row('select p.* from memory.plans p join memory.observations o on o.id=p.source_observation_id where o.message_id=%s and p.day=%s and p.item=%s',
-                (self.message_id,day,args['item']))
-            if existing: return existing
-        obs = self.observe("plan", args.get("statement") or args["item"])
-        return self.map.row(
-            "insert into memory.plans (day, item, category, entity_id, status, origin, rationale, source_observation_id, created_by)"
-            " values (%s, %s, %s, %s, %s, %s, %s, %s, %s) returning *",
-            (day, args["item"], args.get("category"), args.get("entity_id"),
-             args.get("status") or ("proposed" if args.get("origin") in ("map", "agent") else "planned"), args.get("origin") or "user", args.get("rationale"), obs, self.device))
+        from engine.plans import Plans
+        return await Plans(self).add(args)
 
     async def plan_update(self, args):
-        """Set what happened to a plan: planned (accepting a proposal), done, partial, skipped or dropped."""
-        status = args["status"]
-        self.observe("outcome", args.get("note") or f"plan {args['plan_id']} {status}")
-        resolved = self.event_time() if status in ("done", "partial", "skipped", "dropped") else None
-        row = self.map.row(
-            "update memory.plans set status = %s, outcome_note = coalesce(%s, outcome_note), resolved_at = %s"
-            " where id = %s returning *", (status, args.get("note"), resolved, args["plan_id"]))
-        if not row:
-            raise ToolError(f"no plan {args['plan_id']}")
-        return row
+        """Maintain an existing plan: record a supported outcome, revise wording, or reschedule the same commitment. Read its current version first. Explain the user statement or verified evidence in note. Time passing is not completion. Resolve uncertain outcomes with the user. Preserve distinct repeated occurrences."""
+        from engine.plans import Plans
+        return await Plans(self).update(args)
+
+    async def plan_merge(self, args):
+        """Merge a duplicate into the canonical plan for the SAME occurrence. Read both versions and cite evidence in note. The target's status is preserved, not inferred. Never merge recurring occurrences on different days."""
+        from engine.plans import Plans
+        return await Plans(self).merge(args)
 
     async def plans_list(self, args):
-        """The plan for a day with each item's status."""
-        return self.map.rows("select * from memory.plans where day = %s order by id", (_day(args.get("day"), today=self.observed_at.date() if self.observed_at else None),))
+        """Read plans with IDs and versions. Use scope=open to find unresolved commitments across ALL dates; use query to locate an older task. Otherwise read a particular day. Offset pages through results. Superseded duplicates are excluded; history is available with plan_history."""
+        clauses=['superseded_by is null']; values=[]
+        if args.get('scope') == 'open': clauses.append("status in ('planned','partial','proposed')")
+        else:
+            clauses.append('day=%s'); values.append(_day(args.get('day'),today=self.event_time().date()))
+        if args.get('query'): clauses.append('item ilike %s'); values.append('%'+args['query']+'%')
+        return self.map.rows('select * from memory.plans where '+' and '.join(clauses)+' order by day,id limit 50 offset %s',(*values,args.get('offset',0)))
+
+    async def plan_history(self,args):
+        """Read prior versions of a plan, including original dates and the evidence for later corrections."""
+        return self.map.rows('select * from memory.plan_revisions where plan_id=%s order by id desc limit 50 offset %s',(args['plan_id'],args.get('offset',0)))
 
     # --- rules and tuning ----------------------------------------------------------------
 
@@ -336,6 +334,9 @@ class Tools:
     async def question_add(self, args):
         """Queue something worth asking on a later morning. score is 1 to 3 by how much the answer would change
         what you do. kind merge for an uncertain entity match, proposal for an action you want to suggest."""
+        if args.get('ref_table') == 'plans' and args.get('ref_id'):
+            existing = self.map.row("select * from memory.questions where ref_table='plans' and ref_id=%s and closed_at is null order by id limit 1",(str(args['ref_id']),))
+            if existing: return existing
         return self.map.row(
             "insert into memory.questions (kind, text, ref_table, ref_id, score, created_by) values (%s, %s, %s, %s, %s, %s) returning *",
             (args.get("kind") or "open", args["text"], args.get("ref_table"), args.get("ref_id"),
@@ -349,7 +350,7 @@ class Tools:
             row = self.map.row("update memory.questions set times_asked = times_asked + 1, asked_at = now(), asked_in = %s"
                                " where id = %s and closed_at is null returning *", (args.get("conversation_id"), qid))
         elif action == "answered":
-            if self.map.value("select ref_table in ('assertions','relationships') from memory.questions where id=%s",(qid,)):
+            if self.map.value("select ref_table in ('assertions','relationships','plans') from memory.questions where id=%s",(qid,)):
                 raise ToolError('Use memory_clarify to resolve the linked records and the question together.')
             row = self.map.row("update memory.questions set closed_at = now(), closed_reason = 'answered', answer = %s"
                                " where id = %s and closed_at is null returning *", (args.get("answer"), qid))
@@ -400,7 +401,7 @@ class Tools:
         from engine.development import Development
         from engine.reconciliation import Reconciliation
         from engine.integrations import read_specs
-        return [spec for spec in self.specs() if spec.name in READ_TOOLS | {'record_save','plan_add','plan_update'}] + read_specs(spotify_control) + Reminders(self).specs() + Reconciliation(self).conversation_specs() + Jobs(self).specs() + Development(self).specs() + Drafts(self).specs() + Images(self.map).specs()
+        return [spec for spec in self.specs() if spec.name in READ_TOOLS | {'record_save','plan_add','plan_update','plan_merge'}] + read_specs(spotify_control) + Reminders(self).specs() + Reconciliation(self).conversation_specs() + Jobs(self).specs() + Development(self).specs() + Drafts(self).specs() + Images(self.map).specs()
 
     def specs(self):
         from engine.records import Records
@@ -459,9 +460,17 @@ class Tools:
                 "status": _s("planned, proposed or done", enum=["planned", "proposed", "done"]),
                 "rationale": _s("why, for proposals"), "statement": _s("the user's words")}, ["day", "item"]), self.plan_add),
             ToolSpec("plan_update", _doc(self.plan_update), _obj({
-                "plan_id": _i("plan id"), "status": _s("planned, done, partial, skipped or dropped", enum=["planned", "done", "partial", "skipped", "dropped"]),
-                "note": _s("what happened")}, ["plan_id", "status"]), self.plan_update),
-            ToolSpec("plans_list", _doc(self.plans_list), _obj({"day": _s("today, tomorrow, yesterday or YYYY-MM-DD")}, []), self.plans_list),
+                "plan_id": _i("plan id"), "version": _i("current version",minimum=1),
+                "status": _s("supported outcome",enum=["planned","proposed","done","partial","skipped","dropped"]),
+                "item": _s("revised wording",minLength=1), "day": _s("new day only if rescheduled"),
+                "note": _s("evidence and reason for this change",minLength=1)}, ["plan_id","version","note"]), self.plan_update),
+            ToolSpec("plan_merge", _doc(self.plan_merge), _obj({
+                "plan_id": _i("duplicate plan id"),"version": _i("duplicate version",minimum=1),
+                "into_id": _i("canonical plan id"),"into_version": _i("canonical version",minimum=1),
+                "note": _s("why these are the same occurrence",minLength=1)},["plan_id","version","into_id","into_version","note"]),self.plan_merge),
+            ToolSpec("plans_list", _doc(self.plans_list), _obj({"day": _s("today, tomorrow, yesterday or YYYY-MM-DD"),
+                "scope": _s("day or open",enum=["day","open"]),"query": _s("task wording to find"),"offset": _i("result offset",minimum=0)}, []), self.plans_list),
+            ToolSpec("plan_history", _doc(self.plan_history), _obj({"plan_id":_i("plan id"),"offset":_i("result offset",minimum=0)},["plan_id"]),self.plan_history),
             ToolSpec("rule_add", _doc(self.rule_add), _obj({
                 "kind": _s("mandate or preference", enum=["mandate", "preference"]), "text": _s("the rule, plainly"),
                 "status": _s("active or proposed", enum=["active", "proposed"]), "entity_id": _s("scope, if about one thing"),

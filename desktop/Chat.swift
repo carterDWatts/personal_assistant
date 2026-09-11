@@ -13,10 +13,7 @@ struct ChatMessage: Identifiable {
     var emailDrafts: [String] = []
 }
 
-struct PlanItem: Identifiable {
-    let id = UUID()
-    let item, status: String
-}
+
 
 private let isoFractional: ISO8601DateFormatter = { let f = ISO8601DateFormatter(); f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]; return f }()
 private let isoPlain = ISO8601DateFormatter()
@@ -317,7 +314,7 @@ final class Chat: ObservableObject {
             }
         case "map":
             calendar = event["calendar"] as? [String: Any] ?? [:]
-            plans = (event["plans"] as? [[String: Any]] ?? []).map { PlanItem(item: plain($0["item"]), status: plain($0["status"])) }
+            plans = (event["plans"] as? [[String: Any]] ?? []).map(PlanItem.init)
             openQuestions = (event["questions"] as? NSNumber)?.intValue ?? 0
             memoryPending = (event["pending"] as? NSNumber)?.intValue ?? 0
             memoryErrors = (event["errors"] as? NSNumber)?.intValue ?? 0

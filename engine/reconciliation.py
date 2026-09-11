@@ -52,7 +52,7 @@ class Reconciliation:
     def nightly_specs(self):
         specs={s.name:s for s in self.tools.specs()}
         # Registration permits new vocabulary; it cannot mutate existing definitions.
-        return [specs[n] for n in ('attribute_register','relation_register','map_search','entity_view','fact_history')]+[
+        return [specs[n] for n in ('attribute_register','relation_register','map_search','entity_view','fact_history','plans_list','plan_history','conversation_history')]+[
             ToolSpec('derive_memory','Build a new inferred fact or relationship from at least two current stated/synced records. Never overwrite a belief. Register new vocabulary first.',
                 _obj({'tool':_s('operation',enum=['fact_assert','relationship_assert']), 'arguments':{'type':'object'},
                       'evidence':{'type':'array','minItems':2,'maxItems':8,'items':REF},'rationale':_s('Explain the connection and its limitations.')},['tool','arguments','evidence','rationale']),self.infer)]
@@ -63,7 +63,7 @@ class Reconciliation:
         if not message or message['role']!='user' or (message['payload'] or {}).get('external'):
             raise ToolError('A clarification requires a direct user answer, not an external source or nightly inference.')
         specs={s.name:s for s in self.tools.specs()}
-        allowed={'fact_assert','fact_deprecate','fact_retract','fact_confirm','relationship_assert','relationship_retract','relationship_deprecate','attribute_register','relation_register','record_save'}
+        allowed={'fact_assert','fact_deprecate','fact_retract','fact_confirm','relationship_assert','relationship_retract','relationship_deprecate','attribute_register','relation_register','record_save','plan_update','plan_merge'}
         with self.map.conn.transaction():
             question=self.map.row('select * from memory.questions where id=%s for update',(args['question_id'],)) if args.get('question_id') else None
             if args.get('question_id') and not question: raise ToolError('Unknown question.')

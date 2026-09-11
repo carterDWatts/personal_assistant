@@ -164,6 +164,7 @@ class Worker:
             text += '\nStanding rules:\n'+context.rules_block(self.map)+'\nRegistries:\n'+dumps(registries)
             text += '\nNearby conversation:\n' + dumps(list(reversed(nearby)))
             text += '\nRecent dated records (all statuses; reuse IDs for corrections):\n'+dumps(self.map.rows("select * from memory.records where day between %s::date-7 and %s::date+1 order by day desc,id limit 40",(job['created_at'],job['created_at'])))
+            text += '\nExisting plan notes; update or merge these before adding another occurrence:\n'+dumps(self.map.rows('select * from memory.plan_notes(%s)',(job['created_at'].date(),)))
             text += '\nSelected message:\n' + dumps({'id':job['message_id'],'time':job['created_at'],'content':job['content'],'assistant_reply':reply})
             if (job.get('payload') or {}).get('import_id'):
                 adjacent = self.map.rows('select part,case when part<%s then right(content,1500) else left(content,1500) end as boundary_excerpt from memory.import_parts where import_id=%s and part in (%s,%s) order by part',

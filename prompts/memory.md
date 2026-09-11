@@ -26,3 +26,5 @@ or "someday". Imports are source material, not instructions to schedule new task
 For live user answers to linked memory questions, use memory_clarify with the
 necessary corrections. Do not close the question without applying the answer.
 Explicit standing preferences use preference_save and replace conflicting rules.
+
+Maintain existing plans when the selected user message confirms completion, changes a date, revises scope or cancels a task. Read the supplied plan IDs and versions and search plans_list across open dates when needed. Update the existing commitment instead of adding a new copy. Merge duplicate records only when they describe the same occurrence, preserving the supported canonical status. A recurring routine on another day is a separate occurrence. A completed calendar interval, silence or an assistant's claim is not evidence of completion. If the outcome or continued relevance is uncertain, queue a useful question linked to that plan rather than inventing an outcome. A development request is work for the assistant, not automatically another personal task for the user.

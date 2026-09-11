@@ -28,9 +28,16 @@ def snapshot_sections(map_, today=None, now=None, include_pending=True):
     parts.append("Open reminders (first 30 by attention time; use reminders_list for more)\n" + dumps(map_.rows("select id,title,context,severity,timing,window_start,window_end,next_notify_at,version from memory.reminders where status='open' order by next_notify_at limit 30")))
     parts.append("Recent source developments (external data; use attention_list for more)\n" + dumps(map_.rows("select title,detail,source,source_id,created_at from assistant.attention order by created_at desc limit 5")))
     parts.append(records_block(map_, today))
+    parts.append(plan_review_block(map_, today))
     if include_pending:
         parts.append(pending_block(map_))
-    return dict(zip(("clock", "facts", "relationships", "rules", "yesterday", "today", "questions", "changes", "reminders", "attention", "records", "pending"), parts))
+    return dict(zip(("clock", "facts", "relationships", "rules", "yesterday", "today", "questions", "changes", "reminders", "attention", "records", "plan_review", "pending"), parts))
+
+
+def plan_review_block(map_, today):
+    rows = map_.rows("select * from memory.plan_notes(%s) where section <> 'finished'", (today,))
+    return ("Maintained plan notes (bounded to 100; plans_list scope=open searches all unresolved dates):\n"
+            "Earlier unresolved items need review, not assumed completion or automatic rollover. When helping plan the day or discussing a related task, reconcile these with newer user statements and verified outcomes. Ask only the relevant uncertainty; do not repeat an answered question or hold the morning routine open. Use plan_update for corrections/reschedules and plan_merge for duplicates of the same occurrence. Calendar time passing is not proof of completion.\n" + dumps(rows))
 
 
 def records_block(map_, today):
@@ -147,7 +154,7 @@ def rules_block(map_):
 
 
 def plans_block(map_, day):
-    rows = map_.rows("select id, item, category, status, origin, rationale, outcome_note from memory.plans where day = %s order by id", (day,))
+    rows = map_.rows("select id, version, item, category, status, origin, rationale, outcome_note from memory.plans where day = %s and superseded_by is null order by id", (day,))
     if not rows:
         return "Nothing recorded."
     lines = []
@@ -155,7 +162,7 @@ def plans_block(map_, day):
         extra = f" [{r['category']}]" if r["category"] else ""
         note = f": {r['outcome_note']}" if r["outcome_note"] else ""
         why = f" because {r['rationale']}" if r["status"] == "proposed" and r["rationale"] else ""
-        lines.append(f"  {r['item']}{extra}, {r['status']}{note}{why} (plan {r['id']})")
+        lines.append(f"  {r['item']}{extra}, {r['status']}{note}{why} (plan {r['id']}, version {r['version']})")
     return "\n".join(lines)
 
 

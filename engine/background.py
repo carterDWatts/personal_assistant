@@ -153,7 +153,7 @@ need not become durable memory. Sent mail must not notify the user about their o
                 if organized: return {'saved':True}
                 with self.map.conn.transaction():
                     for proposal in args['questions']:
-                        if not self.map.value('select exists(select 1 from memory.questions where closed_at is null and text=%s)',(proposal['text'],)):
+                        if not self.map.value("select exists(select 1 from memory.questions where closed_at is null and (text=%s or (%s='plans' and ref_table='plans' and ref_id=%s)))",(proposal['text'],proposal.get('ref_table'),proposal.get('ref_id'))):
                             result,failed=await run(questions,proposal)
                             if failed: raise ValueError('Invalid maintenance proposal')
                 organized=True
@@ -170,6 +170,7 @@ Do not infer current truth from old states. For conflicting or uncertain beliefs
 referencing the affected assertions or relationships. Ask whether the information was never true or
 changed, and when/why if relevant. The main model will resolve the answer transactionally.
 You may queue at most five useful questions/proposals per maintenance pass; never rewrite facts or merge identities on a guess. Prefer no questions over repetitive or low-value ones.
+For unresolved or apparently duplicate plan notes, read related conversation evidence and queue a question with ref_table=plans and the plan ID when its outcome or relevance needs the user’s answer. Never assume an elapsed task is done.
 Existing open questions are already queued. Propose a next step from emerging context when useful.
 Call organize once, including an empty list if nothing is needed.''',[ToolSpec('organize','Queue useful memory reconciliation questions.',schema,propose)] + Reconciliation(tools).nightly_specs())
             async def consume():

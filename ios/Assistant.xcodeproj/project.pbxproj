@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		A89C34B15FD8470CBE930201 /* PlanNotes.swift in Sources */ = {isa = PBXBuildFile; fileRef = A89C34B15FD8470CBE930202 /* PlanNotes.swift */; };
 		0046B9359FD9A79E7BF42619 /* VoiceTurn.swift in Sources */ = {isa = PBXBuildFile; fileRef = C85DAEEEE55F2BFC90BE3CC9 /* VoiceTurn.swift */; };
 		0C3FD95CC5D35890D472ECD1 /* Connections.swift in Sources */ = {isa = PBXBuildFile; fileRef = 943C7F4182F35505F7A0B412 /* Connections.swift */; };
 		20CB022D16C16345828B8930 /* Transport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 19166F88EC58DDC6BF56BDD6 /* Transport.swift */; };
@@ -67,6 +68,7 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		A89C34B15FD8470CBE930202 /* PlanNotes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlanNotes.swift; sourceTree = "<group>"; };
 		0497070F1E94B926A14D5A01 /* Voice.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Voice.swift; sourceTree = "<group>"; };
 		09916F194DDAA79391C8ABED /* Chat.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Chat.swift; sourceTree = "<group>"; };
 		0A20A9483B2B64425BF1A36D /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
@@ -149,6 +151,7 @@
 			isa = PBXGroup;
 			children = (
 				7CC96A9E009EAD7BE04002B7 /* ChatImages.swift */,
+				A89C34B15FD8470CBE930202 /* PlanNotes.swift */,
 				B74AEEBF9820A26218CCD184 /* ContextImport.swift */,
 				B9D3ECC060FC904FB576920A /* DaySchedule.swift */,
 				D729529CD2A52BA170865A77 /* EmailDrafts.swift */,
@@ -417,6 +420,7 @@
 				CA24510F1F5E93FDAE862DA4 /* App.swift in Sources */,
 				DE85CB8159AB83773B5C0DA4 /* Chat.swift in Sources */,
 				435A748B8312FA4153388598 /* ChatImages.swift in Sources */,
+				A89C34B15FD8470CBE930201 /* PlanNotes.swift in Sources */,
 				0C3FD95CC5D35890D472ECD1 /* Connections.swift in Sources */,
 				8C0AE429407B4881090F61C2 /* ContextImport.swift in Sources */,
 				484497CADF48A954A2DF3006 /* DaySchedule.swift in Sources */,
