@@ -29,6 +29,7 @@ def emit(kind, **values):
 
 
 class DesktopIO:
+    waiting = None
     def input_saved(self, images): emit("images_saved", images=images)
     def start_turn(self): emit("start")
     def delta(self, text): emit("delta", text=text)
@@ -47,6 +48,7 @@ class DesktopIO:
         if isinstance(data,dict) and data.get('needs_review') and data.get('draft',{}).get('id'):
             emit('email_draft',draft_id=data['draft']['id'])
         if payload.get("is_error") and isinstance(data, dict) and data.get("connection_action") in CONNECTION_ACTIONS | SERVICE_ACTIONS:
+            self.waiting = data["connection_action"]
             emit("connection_required", action=data["connection_action"], **{k:data[k] for k in ("session_id", "provider") if data.get(k)})
     def close(self): pass
 
@@ -70,6 +72,14 @@ async def main():
         google_status, service_status = await asyncio.gather(asyncio.to_thread(google.status), asyncio.to_thread(services.status))
         return {**google_status, "services": service_status}
 
+    async def resume_connection(action):
+        nonlocal active
+        if not session or session.io.waiting!=action:return
+        if active and not active.done():await asyncio.shield(active)
+        if not session or session.io.waiting!=action:return
+        session.io.waiting=None
+        active=asyncio.create_task(reply('Connection confirmed for '+action+'. Continue the waiting step of the previous request. Do not repeat actions already performed; existing send confirmations still apply.',role='system'))
+
     async def service_action(action, provider, token=None):
         emit("connections", **(await connection_status()), connecting=True)
         try:
@@ -79,6 +89,7 @@ async def main():
                 await asyncio.to_thread(services.connect, provider, token)
             emit("connections", **(await connection_status()), connecting=False,
                  completed=action == "service_connect", action=f"{provider}_connect")
+            if action=="service_connect":await resume_connection(f"{provider}_connect")
         except Exception:
             emit("connections", **(await connection_status()), connecting=False,
                  error="Sign-in wasn’t completed. Please try again." if provider in OAUTH_PROVIDERS else "Could not connect. Check the token and its permissions.")
@@ -88,6 +99,7 @@ async def main():
         try:
             await asyncio.to_thread(google.disconnect if action == "google_disconnect" else google.connect, connection)
             emit("connections", **(await connection_status()), connecting=False, completed=action != "google_disconnect", action=connection)
+            if action!="google_disconnect":await resume_connection(connection)
         except Exception:
             emit("connections", **(await connection_status()), connecting=False,
                  error="Google wasn’t connected. Try again and approve the requested access.")
@@ -120,12 +132,12 @@ async def main():
 
     interrupted = False
 
-    async def reply(text, reference=None, images=None):
+    async def reply(text, reference=None, images=None, role="user"):
         nonlocal interrupted
         interrupted = False
         try:
             from engine.notifications import discussion_context
-            await session.send(text, extra_context=discussion_context(map_,reference) if reference else "",images=images)
+            await session.send(text, role=role, extra_context=discussion_context(map_,reference) if reference else "",images=images)
         except RuntimeError as error:
             if interrupted:
                 emit("ready")
@@ -214,11 +226,18 @@ async def main():
                     jobs_task = asyncio.create_task(run_jobs(map_.url))
                     from engine.integrations.email import run as send_mail
                     email_task = asyncio.create_task(send_mail(map_.url))
+                elif action == "review" and session:
+                    if active and not active.done():raise ValueError("Wait for the current reply")
+                    await session.close()
+                    session = Session(map_, load(session.runtime.name)(), DesktopIO(), config.DEVICE, spotify_control=spotify_control)
+                    await session.open('review', begin_morning=False)
+                    active = asyncio.create_task(reply('Open a review of unfinished commitments and outcomes.',role='system'))
                 elif action == "send" and session:
                     if active and not active.done():
                         raise ValueError("Wait for the current reply")
                     text = message.get("text", "").strip()
                     if text:
+                        session.io.waiting=None
                         active = asyncio.create_task(reply(text, message.get("notification"), message.get("images")))
                 elif action == "stop" and session:
                     interrupted = bool(active and not active.done())

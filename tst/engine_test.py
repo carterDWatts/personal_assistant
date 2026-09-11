@@ -180,3 +180,22 @@ class identity_test(unittest.TestCase):
         self.assertIn("You are Another name,", persona)
         self.assertNotIn("{{assistant_name}}", persona)
         self.assertNotIn(config.ASSISTANT_NAME, persona)
+
+
+class runtime_recovery_test(MapTest):
+    def test_large_runtime_context_reseeds_without_losing_the_conversation(self):
+        from engine.engine import Session
+        from unittest.mock import AsyncMock
+        rt=FakeRuntime([[say('Still here.')]])
+        rt.context_tokens=100000
+        rt.restart=AsyncMock()
+        async def use():
+            session=Session(self.map,rt,FakeTerminal([]),'test',auto_memory=False)
+            await session.open()
+            previous=session.conv.record(session.segment_id,'user','Keep the existing task in mind.')
+            await session.send('Continue')
+            self.assertEqual(rt.restart.await_count,1)
+            self.assertIn('Keep the existing task in mind.',rt.sent[0])
+            self.assertTrue(self.map.value('select exists(select 1 from memory.messages where id=%s)',(previous,)))
+            await session.close()
+        self.run_async(use())

@@ -63,7 +63,12 @@ class Stream:
             self.pending.append({'type':'email_draft','draft_id':result['draft']['id']})
             self.changed.set()
         if payload.get('is_error') and isinstance(result, dict) and result.get('connection_action') in CONNECTION_ACTIONS | SERVICE_ACTIONS:
-            self.pending.append({'type': 'connection_required', 'action': result['connection_action'], 'session_id':result.get('session_id'), 'provider':result.get('provider'),
+            from engine.integrations.catalog import GOOGLE_GRANTS, ACCOUNT_PROVIDERS
+            action=result['connection_action']
+            grant=next((g for g in GOOGLE_GRANTS.values() if g['action']==action),None)
+            provider=next((p for p in ACCOUNT_PROVIDERS.values() if p['action']==action),None)
+            access={'slot':grant['slot'],'scopes':grant['scopes']} if grant else {'slot':provider['id'],'scopes':[]} if provider else {}
+            self.pending.append({**access,'type': 'connection_required' , 'action': result['connection_action'], 'session_id':result.get('session_id'), 'provider':result.get('provider'),
                                  'message': 'This service needs to be connected on this host.'})
 
     def end_turn(self):
@@ -120,7 +125,7 @@ class Host:
             await self.call(self.relay.publish, self.active, batch)
 
     async def prepare_session(self, model=None, mode="talk"):
-        if mode == "morning":
+        if mode in ("morning", "review"):
             await self.close_session()
         if config.RUNTIME == 'codex' and model == 'codex/' + os.environ.get('ASSISTANT_OPENAI_MODEL', ''):
             model = None
@@ -143,17 +148,20 @@ class Host:
         return await phone_control(self, args)
 
     async def answer(self, turn):
-        await self.prepare_session(turn.get('model'), turn.get('mode', 'talk'))
+        await self.prepare_session(turn.get('model'), turn.get('invocation') if turn.get('invocation') in ('morning','review') else turn.get('mode', 'talk'))
         extra = ("Reply mode: live voice. Speak naturally in plain sentences, with a short complete opening thought. "
                  "No headings, tables, Markdown or spoken URLs. Keep the requested substance."
                  if turn.get('speech') else "Reply mode: written chat. Use natural paragraphs; add structure only where useful.")
+        if turn.get('invocation')=='connection':
+            original=self.map.value('select t.text from assistant.connection_waits w join assistant.turns t on t.id=w.turn_id where w.resumed_turn=%s',(turn['id'],))
+            extra+='\nOriginal waiting request (context, not a request to replay completed actions):\n'+(original or '')
         if turn.get('notification'):
             from engine.notifications import discussion_context
             extra += '\n\n' + discussion_context(self.map,turn['notification'])
         if turn.get('mode') == 'morning':
             from engine.morning import prepare
             extra += "\n\n" + await prepare(self.stream)
-        await self.session.send(turn['text'], extra_context=extra, **({'images':turn['images']} if turn.get('images') else {}))
+        await self.session.send(turn['text'], role='system' if turn.get('invocation') or turn.get('mode')=='morning' else 'user', extra_context=extra, **({'images':turn['images']} if turn.get('images') else {}))
 
     async def interrupt(self, task):
         if self.session:
@@ -295,6 +303,10 @@ async def memory_loop(url, host):
                 return host.active is None and (not host.speech or not host.speech.task or host.speech.task.done())
             async def maintain():
                 await worker.drain(on_processed=host.refresh_day, can_process=lambda: not host.stopping.is_set())
+                if idle() and not worker.oldest():
+                    from engine.plan_review import PlanReview
+                    await PlanReview(map_).run()
+                    await host.refresh_day()
                 if idle(): await background.nightly()
             host.memory_work = asyncio.create_task(maintain())
             try:

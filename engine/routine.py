@@ -5,7 +5,7 @@ from engine.tools import ToolError, ToolSpec, _obj, _s, _i
 
 def active(map_):
     """The morning belongs to the day, even if its first reply was interrupted."""
-    return map_.value("select c.id from memory.conversations c where c.agent='morning'"
+    return map_.value("select c.id from memory.conversations c where c.agent in ('morning','review')"
         " and c.started_at::date=current_date and c.started_at >= coalesce("
         "(select created_at from memory.messages where role='system' and payload->>'event'='chat_cleared'"
         " order by id desc limit 1), '-infinity'::timestamptz) order by c.started_at desc limit 1")
@@ -54,7 +54,7 @@ def spec(tools,conversation):
                     raise ToolError('Only the current section can be completed or skipped.')
                 tools.map.execute('update memory.routine_progress set position=position+1,updated_at=clock_timestamp() where conversation_id=%s',(conversation,))
             return progress(tools.map,conversation)
-    return ToolSpec('routine_progress','Read/set this morning’s agenda from saved preferences. Mark the current section completed after covering it or when the user asks to move on; then use the returned next section. Repeated completion is idempotent. Do not revisit completed sections unless the user explicitly returns to them. This progress is not a standing preference; save routine changes separately with preference_save.',
+    return ToolSpec('routine_progress','Read/set this review’s agenda from saved preferences. Mark the current section completed after covering it or when the user asks to move on; then use the returned next section. Repeated completion is idempotent. Do not revisit completed sections unless the user explicitly returns to them. This progress is not a standing preference; save routine changes separately with preference_save.',
         _obj({'steps':{'type':'array','minItems':1,'maxItems':30,'items':_s('One concise section name',minLength=1,maxLength=120)},
               'rule_ids':{'type':'array','items':_i('Active preference rule ID')},'completed_step':_s('Exact current section name'),
               'change_reason':_s('User-requested change when revising remaining steps; preserve the completed prefix')},[]),update)

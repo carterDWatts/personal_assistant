@@ -228,3 +228,33 @@ class reminders_test(MapTest):
         self.assertEqual(push.calls,1)
         self.assertTrue(self.map.value('select cancelled_at is not null from assistant.reminder_deliveries'))
         self.assertEqual(self.map.value('select status from memory.reminders'),'open')
+
+    def test_reworded_duplicate_needs_resolution_and_can_be_merged(self):
+        first=self.make()
+        args={'title':'Call the dentist for a cleaning','context':'Before travel','kind':'task','timing':'exact','window_start':first['window_start'].isoformat()}
+        from engine.tools import ToolError
+        with self.assertRaisesRegex(ToolError,'Possible existing reminder'):
+            self.run_async(self.api.save(args))
+        second=self.run_async(self.api.save({**args,'distinct_from':[str(first['id'])]}))
+        merged=self.run_async(self.api.merge({'id':str(second['id']),'version':1,'into':str(first['id']),'into_version':1,'context':'Book a cleaning before travel.','reason':'Same cleaning appointment.'}))
+        self.assertEqual(merged['version'],2)
+        self.assertEqual(len(self.run_async(self.api.list({}))),1)
+        old=self.map.row('select * from memory.reminders where id=%s',(second['id'],))
+        self.assertEqual(old['merged_into'],first['id'])
+        self.assertEqual(old['status'],'cancelled')
+        self.assertEqual(old['title'],args['title'])
+
+    def test_distinct_occurrences_and_closed_replay(self):
+        first=self.make()
+        self.run_async(self.api.act({'id':str(first['id']),'version':1,'action':'done'}))
+        self.assertEqual(self.make()['status'],'completed')
+        args={'title':'Call the dentist','context':'Another occurrence','kind':'task','timing':'day','window_start':(datetime.now(timezone.utc)+timedelta(days=2)).isoformat()}
+        args['title']='Call the dentist next week'
+        self.assertEqual(self.run_async(self.api.save(args))['status'],'open')
+
+    def test_expired_checkins_leave_active_list_without_completing_tasks(self):
+        self.check_in(expired=True);self.make()
+        self.assertEqual([r['kind'] for r in self.run_async(self.api.list({}))],['task'])
+        day=self.map.value('select assistant.day_snapshot()')
+        self.assertEqual([r['kind'] for r in day['reminders']],['task'])
+        self.assertEqual(len(self.run_async(self.api.list({'include_inactive':True}))),2)

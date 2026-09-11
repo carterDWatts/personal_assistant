@@ -1,6 +1,20 @@
 import XCTest
 
 final class EmailReviewTests: XCTestCase {
+    func testLongDraftRemainsEditableAndScrolls() {
+        let app = XCUIApplication(); app.launchArguments = ["--sample"]; app.launch()
+        let input = app.textViews["Message"]
+        XCTAssertTrue(input.waitForExistence(timeout: 15))
+        input.tap()
+        let draft = (1...20).map { "Line \($0) of this longer message." }.joined(separator: "\n")
+        input.typeText(draft)
+        XCTAssertEqual(input.value as? String, draft)
+        XCTAssertLessThan(input.frame.height, 200)
+        input.swipeDown(); input.swipeUp()
+        XCTAssertEqual(input.value as? String, draft)
+        XCTAssertTrue(app.buttons["Send message"].isEnabled)
+    }
+
     func testInboxAddsOnlySelectedMessageToChat() {
         let app = XCUIApplication(); app.launchArguments = ["--sample"]; app.launch()
         XCTAssertTrue(app.buttons["Open inbox"].waitForExistence(timeout: 15))
@@ -50,7 +64,7 @@ final class EmailReviewTests: XCTestCase {
         app.launch()
         XCTAssertTrue(app.buttons["Attach photos"].waitForExistence(timeout: 15))
         XCTAssertFalse(app.buttons["Email drafts"].exists)
-        let input = app.textFields["Reply"]
+        let input = app.textViews["Message"]
         input.tap(); input.typeText("Write an email")
         app.buttons["Send message"].tap()
         XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 5))

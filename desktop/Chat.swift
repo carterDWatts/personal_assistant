@@ -371,6 +371,12 @@ final class Chat: ObservableObject {
         replyingTo = nil
     }
 
+    func startReview() {
+        guard connected, !busy else { return }
+        busy = true; status = "Opening review…"
+        write(["type": "review"])
+    }
+
     private func interruptForSpeech() {
         liveVoice.silencePlayback(); speechBuffer = ""
         voiceTurn.pausePlayback(busy: busy)

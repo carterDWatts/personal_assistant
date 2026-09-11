@@ -171,6 +171,7 @@ func plain(_ value: Any?) -> String {
     private var voiceTurn = VoiceTurn()
     private var registeredPush: String?
     private var flushingReminders = false
+    @Published var pendingReminderIDs: Set<String> = Set((UserDefaults.standard.array(forKey: "reminderActions") as? [[String: Any]] ?? []).compactMap { $0["id"] as? String })
     func registerPush(_ token: String) {
         guard connected, registeredPush != token else { return }
         Task {
@@ -186,6 +187,8 @@ func plain(_ value: Any?) -> String {
         }
     }
     func reminderAction(_ item: ReminderItem, action: String) {
+        guard !pendingReminderIDs.contains(item.id) else { return }
+        pendingReminderIDs.insert(item.id)
         var pending = UserDefaults.standard.array(forKey: "reminderActions") as? [[String: Any]] ?? []
         var args: [String: Any] = ["id":item.id,"version":item.version,"action":action,"request_id":UUID().uuidString]
         if action == "snooze" { args["until"] = isoDate(Date().addingTimeInterval(3600)) }
@@ -199,6 +202,7 @@ func plain(_ value: Any?) -> String {
             return $0["id"] as? String == args["id"] as? String && $0["version"] as? Int == args["version"] as? Int && $0["action"] as? String == args["action"] as? String
         }) { latest.remove(at: index) }
         UserDefaults.standard.set(latest, forKey: "reminderActions")
+        pendingReminderIDs = Set(latest.compactMap { $0["id"] as? String })
     }
     func flushReminderActions() {
         guard !flushingReminders else { return }
@@ -325,6 +329,8 @@ func plain(_ value: Any?) -> String {
         case "end":
             guard replyState.end(turn, messages: &messages) else { return }
             if !hostSpeaks && !voiceTurn.interrupted { speakSentences(flush: true); liveVoice.finishReplyAudio() }
+        case "connection_resumed":
+            if connectionPrompt?.action == event["action"] as? String { connectionPrompt = nil }
         case "connection_required":
             connectionPrompt = ConnectionPrompt(event: event)
         case "spotify_control":
@@ -388,14 +394,19 @@ func plain(_ value: Any?) -> String {
         speechBuffer = ""
         if speak && voice { liveVoice.prepareReply() }
         selectedInboxMessageID = nil
-        messages.append(ChatMessage(role: "user", text: text)); busy = true
+        if mode == "talk" { messages.append(ChatMessage(role: "user", text: text)) }; busy = true
         transport.send(text, id: UUID(), speech: speak && voice && hostSpeaks, model: selectedModel.isEmpty ? nil : selectedModel, mode: mode, notification: notificationDiscussion.map { $0.filter { ["kind", "id", "message_id"].contains($0.key) } })
         clearNotificationDiscussion()
     }
 
     func startMorning() {
         guard connected, !busy else { return }
-        submit("Let’s plan my day.", mode: "morning")
+        submit("", mode: "morning")
+    }
+
+    func startReview() {
+        guard connected, !busy else { return }
+        submit("", mode: "review")
     }
 
     private func interruptForSpeech() {

@@ -37,6 +37,9 @@ class CodexRuntime:
         self.tools = {}
         self.usage_baseline = None
         self.latest_usage = {}
+        self.context_tokens = 0
+        self.needs_reseed = False
+        self.carried_metrics = Metrics()
 
     async def _write(self, message):
         self.process.stdin.write((json.dumps(message) + "\n").encode())
@@ -131,7 +134,23 @@ class CodexRuntime:
         self.session_id = result["thread"]["id"]
         manifest(self.session_id).write_text(signature)
 
+    async def restart(self, system_prompt, tools):
+        previous=self.metrics
+        await self.close()
+        self.__init__(self.executable,self.model,self.effort)
+        self.carried_metrics=previous
+        self.metrics=Metrics(**previous.as_dict())
+        await self.open(system_prompt,tools)
+
     async def send(self, text, images=None):
+        try:
+            async for event in self._send(text,images):yield event
+        finally:
+            # An interrupted/failed generator may never consume turn/completed.
+            self.turn_id=None
+            self.interrupt_requested=False
+
+    async def _send(self, text, images=None):
         params = {"threadId": self.session_id, "input": [{"type": "text", "text": text}]+[{"type":"image","url":"data:"+image["mime"]+";base64,"+image["data"]} for image in (images or [])], "environments": [], "effort": self.effort}
         if self.model: params["model"] = self.model
         result = await self.request("turn/start", params)
@@ -143,6 +162,7 @@ class CodexRuntime:
             try:
                 message = await asyncio.wait_for(self.events.get(), 90)
             except asyncio.TimeoutError:
+                self.needs_reseed=True
                 try:
                     await self.interrupt()
                 except Exception:
@@ -151,6 +171,7 @@ class CodexRuntime:
             if isinstance(message, Exception):
                 raise message
             if asyncio.get_running_loop().time() - started > 300:
+                self.needs_reseed=True
                 await self.interrupt()
                 raise TimeoutError("The reply took too long. Please try again.")
             method, params = message.get("method"), message.get("params", {})
@@ -178,8 +199,10 @@ class CodexRuntime:
                     last = params["tokenUsage"]["last"]
                     self.usage_baseline = {k: usage.get(k, 0) - last.get(k, 0) for k in usage}
                 self.latest_usage = usage
+                last=params['tokenUsage'].get('last',{})
+                self.context_tokens=last.get('totalTokens',last.get('inputTokens',0)+last.get('outputTokens',0))
                 for field, key in (("input_tokens", "inputTokens"), ("output_tokens", "outputTokens"), ("cache_read_tokens", "cachedInputTokens"), ("cache_write_tokens", "cacheWriteInputTokens")):
-                    setattr(self.metrics, field, max(0, usage.get(key, 0) - self.usage_baseline.get(key, 0)))
+                    setattr(self.metrics, field, getattr(self.carried_metrics,field)+max(0, usage.get(key, 0) - self.usage_baseline.get(key, 0)))
             elif method == "item/agentMessage/delta":
                 yield Event("text", text=params["delta"])
             elif method == "item/completed" and params.get("item", {}).get("type") == "agentMessage":
@@ -188,6 +211,7 @@ class CodexRuntime:
                 self.turn_id = None
                 self.interrupt_requested = False
                 if params["turn"].get("status") != "completed":
+                    self.needs_reseed=params["turn"].get("status")=="failed"
                     raise RuntimeError("The reply was interrupted or failed. You can continue the conversation.")
                 self.metrics.turns += 1
                 yield Event("done", payload=Metrics(turns=1).as_dict())

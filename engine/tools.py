@@ -334,8 +334,8 @@ class Tools:
     async def question_add(self, args):
         """Queue something worth asking on a later morning. score is 1 to 3 by how much the answer would change
         what you do. kind merge for an uncertain entity match, proposal for an action you want to suggest."""
-        if args.get('ref_table') == 'plans' and args.get('ref_id'):
-            existing = self.map.row("select * from memory.questions where ref_table='plans' and ref_id=%s and closed_at is null order by id limit 1",(str(args['ref_id']),))
+        if args.get('ref_table') in ('plans','reminders') and args.get('ref_id'):
+            existing = self.map.row("select * from memory.questions where ref_table=%s and ref_id=%s and closed_at is null order by id limit 1",(args['ref_table'],str(args['ref_id'])))
             if existing: return existing
         return self.map.row(
             "insert into memory.questions (kind, text, ref_table, ref_id, score, created_by) values (%s, %s, %s, %s, %s, %s) returning *",
@@ -350,7 +350,7 @@ class Tools:
             row = self.map.row("update memory.questions set times_asked = times_asked + 1, asked_at = now(), asked_in = %s"
                                " where id = %s and closed_at is null returning *", (args.get("conversation_id"), qid))
         elif action == "answered":
-            if self.map.value("select ref_table in ('assertions','relationships','plans') from memory.questions where id=%s",(qid,)):
+            if self.map.value("select ref_table in ('assertions','relationships','plans','reminders') from memory.questions where id=%s",(qid,)):
                 raise ToolError('Use memory_clarify to resolve the linked records and the question together.')
             row = self.map.row("update memory.questions set closed_at = now(), closed_reason = 'answered', answer = %s"
                                " where id = %s and closed_at is null returning *", (args.get("answer"), qid))

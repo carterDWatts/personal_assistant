@@ -56,3 +56,42 @@ class cloud_connections_test(MapTest):
             credentials.set_password(service,'prod','stale refresh')
             self.assertEqual(self.map.value('select ciphertext from assistant.credentials'),'reconnected')
             self.assertNotIn('ciphertext', self.store('list')[0])
+
+    def waiting_request(self, action='notion_connect', slot='notion', scopes=None):
+        turn=self.map.value("insert into assistant.turns(user_id,device_id,client_message_id,text,status) values(%s,%s,%s,'Read the project page','completed') returning id",(self.owner,self.device,uuid.uuid4()))
+        self.map.execute('select assistant.emit(%s,%s,%s)',(self.owner,turn,jsonb({'type':'connection_required','action':action,'slot':slot,'scopes':scopes or []})))
+        return turn
+
+    def test_verified_connection_resumes_waiting_step_once_without_user_message(self):
+        turn=self.waiting_request()
+        intent=self.store('begin',{'slot':'notion','state_hash':'resume','verifier':'sealed'})
+        self.store('claim',{'state_hash':'resume'})
+        self.store('complete',{**intent,'ciphertext':'sealed','metadata':{'account':'test'}})
+        self.map.execute('select assistant.resume_connection()')
+        self.map.execute('select assistant.resume_connection()')
+        resumed=self.map.row("select * from assistant.turns where status='queued'")
+        self.assertEqual(resumed['invocation'],'connection')
+        self.assertEqual(self.map.value('select resumed_turn from assistant.connection_waits where turn_id=%s',(turn,)),resumed['id'])
+        self.assertEqual(self.map.value('select count(*) from assistant.turns'),2)
+        self.assertEqual(self.map.value("select count(*) from memory.messages where role='user'"),0)
+
+    def test_wrong_grant_and_changed_request_do_not_resume(self):
+        self.waiting_request('google_calendar_write','google_connect',['calendar.write'])
+        self.store('save',{'slot':'google_connect','ciphertext':'sealed','metadata':{'scopes':['calendar.read']}})
+        self.map.execute('select assistant.resume_connection()')
+        self.assertFalse(self.map.value('select ready from assistant.connection_waits'))
+        self.store('save',{'slot':'google_connect','ciphertext':'sealed','metadata':{'scopes':['calendar.read','calendar.write']}})
+        self.map.execute("insert into assistant.turns(user_id,device_id,client_message_id,text,status) values(%s,%s,%s,'Do something else','completed')",(self.owner,self.device,uuid.uuid4()))
+        self.map.execute('select assistant.resume_connection()')
+        self.assertEqual(self.map.value("select count(*) from assistant.turns where invocation='connection'"),0)
+
+    def test_failed_or_cancelled_setup_cannot_resume(self):
+        turn=self.waiting_request()
+        intent=self.store('begin',{'slot':'notion','state_hash':'cancel','verifier':'sealed'})
+        self.store('fail',intent)
+        self.map.execute('select assistant.resume_connection()')
+        self.assertFalse(self.map.value('select ready from assistant.connection_waits'))
+        self.map.execute("update assistant.turns set status='cancelled' where id=%s",(turn,))
+        self.store('save',{'slot':'notion','ciphertext':'sealed','metadata':{}})
+        self.map.execute('select assistant.resume_connection()')
+        self.assertEqual(self.map.value('select count(*) from assistant.turns'),1)

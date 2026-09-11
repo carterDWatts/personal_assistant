@@ -1,7 +1,7 @@
 """Conversation lifecycle shared by terminal and desktop clients."""
 
 import time
-from engine import context
+from engine import config, context
 from engine.config import prompt
 from engine.conversation import Conversation
 from engine.tools import Tools
@@ -33,7 +33,7 @@ class Session:
     async def open(self, mode="talk", *, begin_morning=True):
         self.segment_id, resume, self.seed = self.conv.resolve(mode)
         from engine.routine import active
-        self.routine_id = self.segment_id if mode == 'morning' else active(self.map)
+        self.routine_id = self.segment_id if mode in ('morning','review') else active(self.map)
         self.morning = self.routine_id is not None
         self.locked = bool(self.map.value("select pg_try_advisory_lock(hashtextextended(%s, 0))", ("conversation:" + str(self.segment_id),)))
         if not self.locked:
@@ -42,7 +42,8 @@ class Session:
         self.seen_message = self.map.value("select coalesce(max(id),0) from memory.messages")
         system = prompt("persona")
         if self.morning:
-            system += "\n\n" + prompt("morning")
+            kind=self.map.value('select agent from memory.conversations where id=%s',(self.routine_id,))
+            system += "\n\n" + prompt('review' if kind=='review' else 'morning')
         specs = self.tools.read_specs(self.spotify_control)
         if self.morning:
             from engine.routine import spec
@@ -55,6 +56,7 @@ class Session:
                     return await fn(args)
                 return call
             specs = [replace(spec, fn=guarded(spec.fn)) for spec in specs]
+        self.system_prompt,self.runtime_specs=system,specs
         await self.runtime.open(system, specs, resume=resume)
         if resume and not getattr(self.runtime, "resumed", True):
             self.seed = self.conv.seed_text(self.conv.tail(30))
@@ -69,6 +71,11 @@ class Session:
     async def send(self, text, role="user", *, extra_context="", images=None):
         # Refresh on every turn, including resumed sessions. Model context is a cache.
         started = time.monotonic()
+        if callable(getattr(self.runtime,'restart',None)) and (getattr(self.runtime,'needs_reseed',False) or getattr(self.runtime,'context_tokens',0)>90000):
+            await self.runtime.restart(self.system_prompt,self.runtime_specs)
+            self.seed=self.conv.seed_text(self.conv.tail(config.SEED_MESSAGES))
+            self.sent_snapshot=None
+            self.conv.set_runtime_session(self.segment_id,self.runtime.session_id)
         sections = self.prepared.read()
         revision = getattr(self.runtime, 'context_revision', 0)
         if revision != self.context_revision:
@@ -81,7 +88,7 @@ class Session:
                 if self.before_tool:
                     await self.before_tool()
                 await steer(self.tools,self.routine_id,text)
-            opening += '\n\nMorning progress (authoritative; resume here, not at the greeting):\n'+dumps(progress(self.map,self.routine_id))
+            opening += '\n\nRoutine progress (authoritative; resume here, not at the greeting):\n'+dumps(progress(self.map,self.routine_id))
         recent = self.map.rows(
             "select id, role, content, created_at from memory.messages where id > %s and conversation_id <> %s"
             " and role in ('user','assistant') and content is not null order by id limit 100",
@@ -106,7 +113,7 @@ class Session:
             timing("context_seconds", time.monotonic() - started)
         try:
             await turn(self.runtime, self.conv, self.tools, self.io, self.segment_id, mid,
-                       f"{opening}\n\n{extra_context}\n\nThe user says:\n{text}", images=image_content)
+                       f"{opening}\n\n{extra_context}\n\n" + ("The user says:" if role=="user" else "System event (not a user message):") + f"\n{text}", images=image_content)
             self.sent_snapshot = sections if getattr(self.runtime, 'context_revision', 0) == revision else None
             self.context_revision = getattr(self.runtime, 'context_revision', 0)
         except BaseException:

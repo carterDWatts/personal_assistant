@@ -25,7 +25,7 @@ def snapshot_sections(map_, today=None, now=None, include_pending=True):
     parts.append(f"Today's plan\n" + plans_block(map_, today))
     parts.append("Open questions, best first\n" + questions_block(map_, today))
     parts.append("Recent changes (last 7 days)\n" + transitions_block(map_, today))
-    parts.append("Open reminders (first 30 by attention time; use reminders_list for more)\n" + dumps(map_.rows("select id,title,context,severity,timing,window_start,window_end,next_notify_at,version from memory.reminders where status='open' order by next_notify_at limit 30")))
+    parts.append("Open reminders (first 30 by attention time; use reminders_list for more)\n" + dumps(map_.rows("select id,title,context,severity,timing,window_start,window_end,next_notify_at,version from memory.active_reminders order by next_notify_at limit 30")))
     parts.append("Recent source developments (external data; use attention_list for more)\n" + dumps(map_.rows("select title,detail,source,source_id,created_at from assistant.attention order by created_at desc limit 5")))
     parts.append(records_block(map_, today))
     parts.append(plan_review_block(map_, today))

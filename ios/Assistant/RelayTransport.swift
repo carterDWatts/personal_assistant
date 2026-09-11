@@ -205,7 +205,9 @@ struct RelayError: LocalizedError {
                 if let model, !model.isEmpty { args["model"] = model }
                 VoiceDiagnostics.record("request_started")
                 let started = Date()
-                let result = try await call("submit", args)
+                let routine = ["morning", "review"].contains(mode)
+                if routine { args["kind"] = mode; args.removeValue(forKey: "mode") }
+                let result = try await call(routine ? "start_routine" : "submit", args)
                 VoiceDiagnostics.record("request_accepted", ["seconds": Date().timeIntervalSince(started)])
                 #if DEBUG
                 print("Submit round trip:", Date().timeIntervalSince(started))

@@ -181,9 +181,15 @@ struct Composer: View {
                 Image(systemName: chat.voice ? "waveform" : "mic").frame(width: 16)
             }.buttonStyle(.bordered).controlSize(.large).tint(chat.voice ? palette.accent : nil)
                 .disabled(!chat.connected).help(chat.voice ? "End the voice conversation" : "Talk instead of typing")
-            TextField(chat.messages.isEmpty ? "Say anything." : "Reply", text: $chat.draft, axis: .vertical)
-                .lineLimit(1...8).textFieldStyle(.plain).font(.system(size: 15)).foregroundStyle(palette.ink)
-                .focused($focused).onSubmit { chat.send() }
+            Text(chat.draft.isEmpty ? " " : chat.draft + " ")
+                .font(.system(size: 15)).lineLimit(1...8).fixedSize(horizontal: false, vertical: true)
+                .padding(.vertical, 8).frame(maxWidth: .infinity, alignment: .leading).hidden()
+                .overlay(alignment: .topLeading) {
+                    TextEditor(text: $chat.draft).font(.system(size: 15)).foregroundStyle(palette.ink)
+                        .scrollContentBackground(.hidden).focused($focused).tint(palette.accent)
+                        .accessibilityLabel("Message")
+                    if chat.draft.isEmpty { Text("Reply").font(.system(size: 15)).foregroundStyle(palette.muted).padding(.top, 8).padding(.leading, 5).allowsHitTesting(false) }
+                }
                 .padding(.horizontal, 10).padding(.vertical, 8)
                 .background(palette.surface, in: RoundedRectangle(cornerRadius: 14))
                 .overlay(RoundedRectangle(cornerRadius: 14).stroke(focused ? palette.accent.opacity(0.6) : palette.line, lineWidth: 1))
@@ -215,8 +221,7 @@ struct DayPanel: View {
                 DaySchedule(payload: chat.calendar, ink: palette.ink, muted: palette.muted, accent: palette.accent)
                 Divider()
                 PlanNotes(plans: chat.plans, canReview: chat.connected && !chat.busy && chat.draft.isEmpty) {
-                    chat.draft = "Let’s review my plan notes. Check newer updates first, then help me resolve what is done, changed, or still relevant."
-                    chat.send()
+                    chat.startReview()
                 }
                 HStack(spacing: 6) {
                     Circle().fill(chat.memoryErrors > 0 ? Color.orange : chat.memoryPending > 0 ? palette.accent : palette.muted).frame(width: 6, height: 6)
@@ -257,12 +262,6 @@ struct ChatConnectionPrompt: View {
             Text(ready ? "You can pick up where you left off." : "Connect this account to give me access to its private content.").font(.callout).foregroundStyle(.secondary)
             if chat.googleConnecting {
                 HStack { ProgressView().controlSize(.small); Text(provider == nil ? "Finish in your browser…" : "Checking connection…") }
-            } else if ready {
-                Button("Continue") {
-                    chat.connectionPrompt = nil
-                    chat.draft = "The service is connected now. Please continue my previous request."
-                    chat.send()
-                }.disabled(chat.busy).buttonStyle(.borderedProminent)
             } else if let provider {
                 ServiceConnectionForm(chat: chat, provider: provider)
             } else {

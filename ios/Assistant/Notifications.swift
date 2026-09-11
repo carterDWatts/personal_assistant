@@ -74,6 +74,13 @@ struct ReminderItem: Identifiable {
     let title, context, severity: String
     let version: Int
     let next: Date?
+    let start, end: Date?
+    var section: String {
+        if let end, end < Date() { return "Needs review" }
+        if let start, start < Calendar.current.startOfDay(for: Date()) { return "Needs review" }
+        if let start, start >= Calendar.current.startOfDay(for: Date().addingTimeInterval(86400)) { return "Later" }
+        return "Today"
+    }
     let alarmAt: Date?
     init(_ row: [String: Any]) {
         id = row["id"] as? String ?? ""
@@ -83,5 +90,6 @@ struct ReminderItem: Identifiable {
         version = row["version"] as? Int ?? 1
         alarmAt = parseDate(row["alarm_at"])
         next = parseDate(row["next_notify_at"])
+        start = parseDate(row["window_start"]); end = parseDate(row["window_end"])
     }
 }

@@ -63,7 +63,9 @@ class Reconciliation:
         if not message or message['role']!='user' or (message['payload'] or {}).get('external'):
             raise ToolError('A clarification requires a direct user answer, not an external source or nightly inference.')
         specs={s.name:s for s in self.tools.specs()}
-        allowed={'fact_assert','fact_deprecate','fact_retract','fact_confirm','relationship_assert','relationship_retract','relationship_deprecate','attribute_register','relation_register','record_save','plan_update','plan_merge'}
+        from engine.reminders import Reminders
+        specs.update({s.name:s for s in Reminders(self.tools).specs()})
+        allowed={'fact_assert','fact_deprecate','fact_retract','fact_confirm','relationship_assert','relationship_retract','relationship_deprecate','attribute_register','relation_register','record_save','plan_update','plan_merge','reminder_save','reminder_action','reminder_merge'}
         with self.map.conn.transaction():
             question=self.map.row('select * from memory.questions where id=%s for update',(args['question_id'],)) if args.get('question_id') else None
             if args.get('question_id') and not question: raise ToolError('Unknown question.')

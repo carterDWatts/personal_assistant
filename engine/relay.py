@@ -97,6 +97,7 @@ class Relay:
         with self.map.conn.transaction():
             owner = self.owner_lock()
             self.check()
+            self.map.execute('select assistant.resume_connection()')
             turn = self.map.row("update assistant.turns set status='running',worker_id=%s"
                                 " where id=(select id from assistant.turns where status='queued' order by created_at limit 1)"
                                 " returning *", (self.worker_id,))

@@ -26,7 +26,7 @@ class Conversation:
             self.record(segment, "system", None, {"event": "chat_cleared"})
             return segment, None, None
         latest = self.latest_segment()
-        if mode != "morning" and latest and not self.spoken_elsewhere_since(latest["id"]):
+        if mode not in ("morning", "review") and latest and not self.spoken_elsewhere_since(latest["id"]):
             return latest["id"], latest["runtime_session_id"], None
         seed = self.seed_text(self.tail(config.SEED_MESSAGES))
         return self.open_segment(mode), None, seed

@@ -419,3 +419,23 @@ class relay_test(MapTest):
         with self.assertRaises(psycopg.Error): self.client('submit',{**args,'notification':None})
         from engine.notifications import discussion_context
         self.assertIn('Context to discuss',discussion_context(self.map,args['notification']))
+
+    def test_review_action_is_idempotent_and_not_a_fabricated_user_message(self):
+        args={'kind':'review','client_message_id':str(uuid.uuid4())}
+        first=self.client('start_routine',args)
+        self.assertEqual(first,self.client('start_routine',args))
+        with self.assertRaisesRegex(psycopg.Error,'idempotency_conflict'):
+            self.client('start_routine',{**args,'kind':'morning'})
+        self.relay.acquire()
+        turn=self.relay.claim()
+        rt=FakeRuntime([[say('How did your outstanding task go?')]])
+        async def run_review():
+            host=Host(self.relay,self.map,runtime_factory=lambda:rt)
+            await host.answer(turn)
+            self.assertIn('The user opened a review',rt.opened['system_prompt'])
+            self.assertIn('routine_progress',rt.tools)
+            await host.close_session()
+        self.run_async(run_review())
+        self.assertEqual(self.map.value("select count(*) from memory.messages where role='user'"),0)
+        self.assertEqual(self.map.value("select count(*) from memory.messages where role='system'"),1)
+        self.assertIn('System event (not a user message)',rt.sent[0])

@@ -81,3 +81,25 @@ class codex_test(unittest.IsolatedAsyncioTestCase):
             async for _ in runtime.send('test'): pass
         self.assertEqual(requested, ['turn/start', 'turn/interrupt'])
         self.assertFalse(runtime.interrupt_requested)
+
+    async def test_timeout_does_not_interrupt_the_next_turn(self):
+        runtime=CodexRuntime();runtime.session_id='thread'
+        requests=[];number=0
+        async def request(method,params):
+            nonlocal number
+            requests.append(method)
+            if method=='turn/start':
+                number+=1;return {'turn':{'id':str(number)}}
+            return {}
+        class TimeoutQueue:
+            async def get(self):raise asyncio.TimeoutError()
+        runtime.request=request;runtime.events=TimeoutQueue()
+        with self.assertRaisesRegex(RuntimeError,'timed out'):
+            async for _ in runtime.send('First'):pass
+        self.assertFalse(runtime.interrupt_requested)
+        self.assertTrue(runtime.needs_reseed)
+        self.assertIsNone(runtime.turn_id)
+        runtime.events=asyncio.Queue()
+        await runtime.events.put({'method':'turn/completed','params':{'threadId':'thread','turn':{'id':'2','status':'completed'}}})
+        async for _ in runtime.send('Next'):pass
+        self.assertEqual(requests,['turn/start','turn/interrupt','turn/start'])

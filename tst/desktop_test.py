@@ -68,7 +68,7 @@ class desktop_voice_test(unittest.IsolatedAsyncioTestCase):
         class Conversation:
             def tail(self, n): return []
         class Session:
-            def __init__(self, map_, runtime, io, device, **options): self.runtime=runtime; self.conv=Conversation()
+            def __init__(self, map_, runtime, io, device, **options): self.runtime=runtime; self.conv=Conversation(); self.io=io
             async def open(self, mode): pass
             async def send(self, text, **kwargs):
                 incoming.put(json.dumps({'type':'stop'}))

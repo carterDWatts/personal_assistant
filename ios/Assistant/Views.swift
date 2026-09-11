@@ -113,9 +113,15 @@ struct Composer: View {
                 Button { focused = false; chat.toggleVoice() } label: { Image(systemName: "mic") }
                     .buttonStyle(SquareButton(palette: palette)).disabled(!chat.connected).accessibilityLabel("Talk instead of typing")
             }
-            TextField(chat.messages.isEmpty ? "Say anything." : "Reply", text: $chat.draft, axis: .vertical)
-                .lineLimit(1...6).font(.body).foregroundStyle(palette.ink).tint(palette.accent)
-                .focused($focused)
+            Text(chat.draft.isEmpty ? " " : chat.draft + " ")
+                .font(.body).lineLimit(1...6).fixedSize(horizontal: false, vertical: true)
+                .padding(.vertical, 8).frame(maxWidth: .infinity, alignment: .leading).hidden()
+                .overlay(alignment: .topLeading) {
+                    TextEditor(text: $chat.draft).font(.body).foregroundStyle(palette.ink)
+                        .scrollContentBackground(.hidden).focused($focused).tint(palette.accent)
+                        .accessibilityLabel("Message")
+                    if chat.draft.isEmpty { Text("Reply").font(.body).foregroundStyle(palette.muted).padding(.top, 8).padding(.leading, 5).allowsHitTesting(false) }
+                }
                 .padding(.horizontal, 12).padding(.vertical, 11)
                 .background(palette.surface, in: RoundedRectangle(cornerRadius: 14))
                 .overlay(RoundedRectangle(cornerRadius: 14).stroke(focused ? palette.accent.opacity(0.6) : palette.line, lineWidth: 1))
@@ -168,8 +174,7 @@ struct DayPanel: View {
                     }.padding(.bottom, 12)
                 }
                 PlanNotes(plans: chat.plans, canReview: chat.connected && !chat.busy && chat.draft.isEmpty) {
-                    chat.draft = "Let’s review my plan notes. Check newer updates first, then help me resolve what is done, changed, or still relevant."
-                    chat.send()
+                    chat.startReview(); dismiss()
                 }
                 HStack(spacing: 6) {
                     Circle().fill(chat.memoryErrors > 0 ? Color.orange : chat.memoryPending > 0 ? palette.accent : palette.muted).frame(width: 6, height: 6)
@@ -711,11 +716,16 @@ struct ConnectionsView: View {
 }
 
 struct ReminderPanel: View {
+    @Environment(\.dismiss) private var dismiss
     @ObservedObject var chat: Chat
     @State private var notificationStatus = "Enable reminder notifications"
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Reminders").font(.headline)
+            HStack {
+                Text("Reminders").font(.headline)
+                Spacer()
+                Button("Review day") { chat.startReview(); dismiss() }.font(.caption).disabled(!chat.connected || chat.busy)
+            }
             Button(notificationStatus) {
                 if notificationStatus.contains("Settings"), let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) }
                 else { Notifications.shared?.enable() }
@@ -724,21 +734,27 @@ struct ReminderPanel: View {
             if !chat.reminderStatus.isEmpty { Text(chat.reminderStatus).font(.caption).foregroundStyle(.secondary) }
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
-                    ForEach(chat.reminders) { item in
+                    if chat.reminders.isEmpty { Text("Nothing open right now.").foregroundStyle(.secondary) }
+                    ForEach(["Needs review", "Today", "Later"], id: \.self) { section in
+                        let items = chat.reminders.filter { $0.section == section }
+                        if !items.isEmpty { Text(section).font(.subheadline).foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .leading) }
+                        ForEach(items) { item in
                         VStack(alignment: .leading, spacing: 4) {
                             Text(item.title).font(.callout)
                             if item.alarmAt != nil { AlarmStatusView(alarms: chat.alarms, reminderID: item.id, retry: chat.syncAlarms) }
                             if item.severity != "normal" { Text(item.severity.capitalized + " importance").font(.caption2).foregroundStyle(.secondary) }
-                            if !item.context.isEmpty { Text(item.context).font(.caption).foregroundStyle(.secondary) }
+                            if !item.context.isEmpty { DisclosureGroup("Details") { Text(item.context).font(.caption).foregroundStyle(.secondary) }.font(.caption) }
                             if let next = item.next { Text("Next check: " + next.formatted(date: .abbreviated, time: .shortened)).font(.caption2) }
                             HStack {
                                 Button("Done") { chat.reminderAction(item, action: "done") }
                                 Button("In an hour") { chat.reminderAction(item, action: "snooze") }
-                            }.font(.caption).buttonStyle(.bordered)
+                                Button("Dismiss") { chat.reminderAction(item, action: "cancel") }
+                            }.font(.caption).buttonStyle(.bordered).disabled(chat.pendingReminderIDs.contains(item.id))
+                        }
                         }
                     }
                 }.frame(maxWidth: .infinity, alignment: .leading)
-            }.frame(maxHeight: 200)
+            }.frame(maxHeight: 360)
         }.task {
             await Notifications.shared?.refresh()
             while !Task.isCancelled {
