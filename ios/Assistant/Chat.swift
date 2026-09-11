@@ -77,6 +77,12 @@ func plain(_ value: Any?) -> String {
     }
     @Published var showInbox = false
     func inboxRequest(_ args: [String: Any]) async throws -> [String: Any] { try await transport.clientRequest("inbox", args) }
+    func receiveWorkUpdates() async {
+        guard connected, !busy else { return }
+        if let result = try? await transport.clientRequest("work_updates", [:]) {
+            for row in result["messages"] as? [[String: Any]] ?? [] { appendDiscussion(row) }
+        }
+    }
     func openInbox(_ row: [String: Any], requestID: String) async throws {
         guard connected, !busy, let source = row["id"] else { throw ConnectionFailure("Finish the current reply first.") }
         let result = try await transport.clientRequest("inbox_open", ["message_id": String(describing: source), "request_id": requestID])
@@ -279,7 +285,7 @@ func plain(_ value: Any?) -> String {
         case "proactive": break
         case "inbox_cancelled":
             if let id = event["message_id"] as? String { messages.removeAll { $0.databaseID == id } }
-        case "inbox_opened":
+        case "inbox_opened", "work_update":
             if let row = event["message"] as? [String: Any] { appendDiscussion(row) }
         case "ready":
             Task { @MainActor in

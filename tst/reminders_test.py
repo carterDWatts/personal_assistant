@@ -9,6 +9,7 @@ from tst.helpers import MapTest
 class reminders_test(MapTest):
     def setUp(self):
         super().setUp()
+        self.map.execute('truncate assistant.attention cascade')
         self.map.execute('truncate assistant.owner cascade')
         owner,device=uuid.uuid4(),uuid.uuid4()
         self.map.execute('insert into assistant.owner(user_id) values(%s)',(owner,))
@@ -29,6 +30,19 @@ class reminders_test(MapTest):
         self.assertEqual(self.map.value('select count(*) from assistant.reminder_deliveries where sent_at is not null'),1)
         self.assertFalse(self.run_async(dispatcher.deliver()))
         self.assertTrue(self.map.value('select next_notify_at>now() from memory.reminders'))
+
+    def test_new_task_result_supersedes_undelivered_progress(self):
+        task=str(uuid.uuid4())
+        old=self.map.value("insert into assistant.attention(source,source_id,title,detail,notify,created_at) values('job',%s,'Update','Still researching',true,now()-interval '1 minute') returning id",(task+':progress:one',))
+        self.map.execute("insert into assistant.attention(source,source_id,title,detail,notify) values('job',%s,'Update','Finished research',true)",(task+':1',))
+        class Push:
+            sent=[]
+            async def send(self,row):
+                self.sent.append(row['title']);return 200,''
+        push=Push();dispatcher=Dispatcher(self.map,push)
+        self.run_async(dispatcher.attention());self.run_async(dispatcher.attention())
+        self.assertEqual(push.sent,['Finished research'])
+        self.assertTrue(self.map.value('select cancelled_at is not null from assistant.attention_deliveries where notice_id=%s',(old,)))
 
     def test_done_cancels_unsent_push_and_replay_is_safe(self):
         item=self.make();dispatcher=Dispatcher(self.map);dispatcher.queue()
@@ -77,6 +91,25 @@ class reminders_test(MapTest):
         with patch('engine.integrations.google._get',return_value={'labelIds':['INBOX']}):
             self.assertTrue(self.run_async(Dispatcher(self.map,Push()).attention()))
         self.assertEqual(self.map.value('select count(*) from assistant.attention_deliveries where sent_at is not null'),1)
+
+    def test_eligible_notices_deliver_without_a_cooldown(self):
+        self.map.execute("insert into assistant.attention(source,source_id,title,detail,notify) values('test','one','First','Important first update',true),('test','two','Second','Important second update',true)")
+        class Push:
+            async def send(self,row):return 200,''
+        dispatcher=Dispatcher(self.map,Push())
+        self.assertTrue(self.run_async(dispatcher.attention()))
+        self.assertTrue(self.run_async(dispatcher.attention()))
+        self.assertEqual(self.map.value('select count(*) from assistant.attention_deliveries where sent_at is not null'),2)
+
+    def test_already_read_notice_does_not_push(self):
+        from engine.outbound import post
+        notice=self.map.value("insert into assistant.attention(source,source_id,title,detail,notify) values('test','read','Read','Already in the chat',true) returning id")
+        post(self.map,'notice:'+str(notice),'Already in the chat',{'kind':'notice','id':str(notice)})
+        self.map.execute('update assistant.outbound set opened_at=now()')
+        class Push:
+            async def send(self,row):raise AssertionError('Must not alert after receipt in app')
+        self.assertTrue(self.run_async(Dispatcher(self.map,Push()).attention()))
+        self.assertEqual(self.map.value('select count(*) from assistant.attention_deliveries where cancelled_at is not null'),1)
 
     def test_internal_context_is_composed_before_delivery(self):
         item=self.make()

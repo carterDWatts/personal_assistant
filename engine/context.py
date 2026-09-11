@@ -95,6 +95,7 @@ class PreparedContext:
         result['clock'] = f"Map snapshot. Today is {now.strftime('%A')} {now.date().isoformat()}, {now.strftime('%H:%M')} local."
         result['pending'] = pending_block(self.map)
         result['monitoring'] = monitoring_block(self.map)
+        result['work'] = 'Background work now (use jobs_list for full findings; queued is not running, failed may have useful partial work):\n'+dumps(self.map.rows("select id,task_key,status,artifacts->>'progress' progress,artifacts->'failure' failure from assistant.jobs where status in ('queued','running') or finished_at>now()-interval '1 day' order by created_at desc limit 6"))
         return result
 
 

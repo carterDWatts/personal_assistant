@@ -494,6 +494,12 @@ struct SettingsPopover: View {
         .background(Concrete(palette: palette))
         .frame(minWidth: 860, minHeight: 580)
         .navigationTitle(AssistantIdentity.name)
+        .task {
+            while !Task.isCancelled {
+                if NSApplication.shared.isActive && !showSettings && !showConnections && !showImport && !chat.showInbox { await chat.receiveWorkUpdates() }
+                do { try await Task.sleep(for: .seconds(3)) } catch { return }
+            }
+        }
         .toolbar {
             ToolbarItem(placement: .navigation) {
                 HStack(spacing: 8) {

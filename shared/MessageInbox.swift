@@ -68,14 +68,27 @@ struct MessageInbox: View {
                 }
             }
             Button("Refresh") { Task { await load() } }.disabled(loading || opening != nil)
-        }.padding(22).background(palette.background.ignoresSafeArea()).tint(palette.accent).task { await load() }
+        }.padding(22).background(palette.background.ignoresSafeArea()).tint(palette.accent).task {
+            await load()
+            while !Task.isCancelled {
+                do { try await Task.sleep(for: .seconds(5)) } catch { return }
+                if !loading && opening == nil { await load(refresh: true) }
+            }
+        }
     }
-    private func load(older: Bool = false) async {
+    private func load(older: Bool = false, refresh: Bool = false) async {
         loading = true; defer { loading = false }
         do {
             let result = try await request(older ? ["before_id": messages.last?.id ?? ""] : [:])
             let page = (result["messages"] as? [[String: Any]] ?? []).compactMap(InboxMessage.init)
-            messages = older ? messages + page : page; more = page.count == 100; error = ""
+            if refresh {
+                let ids = Set(page.map(\.id))
+                messages = page + messages.filter { !ids.contains($0.id) }
+            } else {
+                messages = older ? messages + page : page
+                more = page.count == 100
+            }
+            error = ""
         } catch { self.error = "I couldn’t load your inbox. Please try again." }
     }
 }

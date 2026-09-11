@@ -16,6 +16,21 @@ test('unverified callers never reach the database', async () => {
   assert.equal(calls, 1);
 });
 
+test('foreground work updates use the authenticated client boundary', async () => {
+  let calls = 0;
+  const run = handler(config, async (_url, options) => {
+    if (++calls === 1) return Response.json({ id: owner });
+    const body = JSON.parse(String(options?.body));
+    assert.equal(body.p_user, owner);
+    assert.equal(body.p_device, device);
+    assert.equal(body.p_action, 'work_updates');
+    return Response.json({ messages: [] });
+  });
+  const response = await run(request({ action: 'work_updates', device_id: device, user_id: device }));
+  assert.equal(response.status, 200);
+  assert.equal(calls, 2);
+});
+
 test('identity comes from Auth, never from the request', async () => {
   let calls = 0;
   const run = handler(config, async (url, options) => {

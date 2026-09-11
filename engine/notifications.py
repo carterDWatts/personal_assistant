@@ -39,6 +39,7 @@ class Push:
                    'reminder_id':str(row['reminder_id']),'version':row['version']}
         if row.get('notice'):
             payload = {'aps':{'alert':{'title':config.ASSISTANT_NAME,'body':row['title']},'sound':'default','thread-id':'attention'}, 'notice_id':str(row['reminder_id'])}
+        if row.get('source')=='job': payload['task_update']=True
         if row.get('message_id'): payload['message_id']=str(row['message_id'])
         expiration=int(time.time()+3600)
         if row.get('kind')=='check_in':
@@ -127,12 +128,24 @@ class Dispatcher:
 
 
     async def attention(self):
-        # Pace unsolicited alerts independently of time-specific reminders.
-        if self.map.value("select exists(select 1 from assistant.attention_deliveries where sent_at>now()-interval '15 minutes')"): return False
+        # Relevance is decided before enqueueing; eligible notices deliver promptly.
         self.map.execute("insert into assistant.attention_deliveries(notice_id,device_id) select a.id,p.device_id from assistant.attention a cross join assistant.push_devices p join assistant.devices d on d.id=p.device_id where a.notify and a.created_at>now()-interval '1 day' and p.enabled and d.revoked_at is null on conflict do nothing")
         with self.map.conn.transaction():
-            row=self.map.row("select n.id,n.notice_id as reminder_id,n.device_id,p.token,p.environment,a.title,a.detail,a.source,a.source_id from assistant.attention_deliveries n join assistant.attention a on a.id=n.notice_id join assistant.push_devices p on p.device_id=n.device_id join assistant.devices d on d.id=n.device_id where a.notify and n.sent_at is null and n.cancelled_at is null and n.retry_at<=now() and p.enabled and d.revoked_at is null order by n.retry_at for update of n skip locked limit 1")
+            row=self.map.row("""select n.id,n.notice_id as reminder_id,n.device_id,p.token,p.environment,a.title,a.detail,a.source,a.source_id
+                from assistant.attention_deliveries n join assistant.attention a on a.id=n.notice_id
+                join assistant.push_devices p on p.device_id=n.device_id join assistant.devices d on d.id=n.device_id
+                where a.notify and n.sent_at is null and n.cancelled_at is null and n.retry_at<=now() and p.enabled and d.revoked_at is null
+                order by n.retry_at for update of n skip locked limit 1""")
             if not row: return False
+            if self.map.value("select exists(select 1 from assistant.outbound where key=%s and opened_at is not null)",('notice:'+str(row['reminder_id']),)):
+                self.map.execute("update assistant.attention_deliveries set cancelled_at=now(),last_error='Already received in the app' where id=%s",(row['id'],))
+                return True
+            if row['source']=='job' and self.map.value("""select exists(select 1 from assistant.attention newer
+                join assistant.attention current on current.id=%s
+                where newer.source='job' and split_part(newer.source_id,':',1)=split_part(current.source_id,':',1)
+                and newer.created_at>current.created_at)""",(row['reminder_id'],)):
+                self.map.execute("update assistant.attention_deliveries set cancelled_at=now(),last_error='Superseded by a newer task update' where id=%s",(row['id'],))
+                return True
             try:
                 if row['source']=='gmail':
                     from engine.integrations.google import _get, GoogleRequestError
@@ -195,6 +208,8 @@ async def run(url, host):
 def discussion_context(map_, reference):
     if reference['kind']=='notice':
         row=map_.row('select id,title,detail,source,source_id,created_at from assistant.attention where id=%s',(reference['id'],))
+        if row and row['source']=='job':
+            row['current_task']=map_.row("select id,status,left(result,4000) result,artifacts->>'progress' progress,artifacts->'failure' failure,artifacts->'research' coverage from assistant.jobs where id::text=%s",(row['source_id'].split(':')[0],))
     else:
         row=map_.row('select id,title,context,status,severity,window_start,window_end from memory.reminders where id=%s',(reference['id'],))
     if reference.get('message_id') and row:

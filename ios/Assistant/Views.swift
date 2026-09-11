@@ -462,6 +462,12 @@ struct ConversationView: View {
             if !Spotify.shared.receive(url), !WebAuth.shared.receive(url) { Task { await account.open(url) } }
         }
         .onChange(of: phase) { _, now in chat.foreground(now == .active) }
+        .task {
+            while !Task.isCancelled {
+                if phase == .active && !showSettings && !showConnections && !showImport && !chat.showInbox { await chat.receiveWorkUpdates() }
+                do { try await Task.sleep(for: .seconds(3)) } catch { return }
+            }
+        }
         .preferredColorScheme(.light)
     }
 

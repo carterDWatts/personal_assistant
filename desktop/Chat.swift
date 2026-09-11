@@ -77,6 +77,12 @@ final class Chat: ObservableObject {
     @Published var focusedMessage: UUID?
     private var notificationReference: [String: String]?
     func inboxRequest(_ args: [String: Any]) async throws -> [String: Any] { try await clientRequest("inbox", args) }
+    func receiveWorkUpdates() async {
+        guard connected, !busy else { return }
+        if let result = try? await clientRequest("work_updates", [:]) {
+            for row in result["messages"] as? [[String: Any]] ?? [] { appendDiscussion(row) }
+        }
+    }
     func openInbox(_ row: [String: Any], requestID: String) async throws {
         guard connected, !busy, let source = row["id"] else { throw NSError(domain: "Inbox", code: 1) }
         let result = try await clientRequest("inbox_open", ["message_id": String(describing: source), "request_id": requestID])
@@ -289,7 +295,7 @@ final class Chat: ObservableObject {
         case "proactive": break
         case "inbox_cancelled":
             if let id = event["message_id"] as? String { messages.removeAll { $0.databaseID == id } }
-        case "inbox_opened":
+        case "inbox_opened", "work_update":
             if let row = event["message"] as? [String: Any] { appendDiscussion(row) }
         case "ready":
             connected = true; busy = false; status = "Connected"
