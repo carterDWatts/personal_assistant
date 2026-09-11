@@ -270,7 +270,7 @@ struct ChatConnectionPrompt: View {
                 Spacer()
                 Button { chat.connectionPrompt = nil } label: { Image(systemName: "xmark") }.help("Dismiss connection")
             }
-            Text(ready ? "You can pick up where you left off." : "Approve access in your browser, then continue here.").font(.callout).foregroundStyle(.secondary)
+            Text(ready ? "You can pick up where you left off." : "Connect this account to give me access to its private content.").font(.callout).foregroundStyle(.secondary)
             if chat.googleConnecting {
                 HStack { ProgressView().controlSize(.small); Text(provider == nil ? "Finish in your browser…" : "Checking connection…") }
             } else if ready {
@@ -307,8 +307,10 @@ struct ServiceConnectionForm: View {
     let provider: String
     @State private var token = ""
     var body: some View {
-        if chat.serviceConfigured[provider] == false {
-            Text("Sign-in for this service has not been configured yet.").font(.callout).foregroundStyle(.secondary)
+        if chat.serviceConfigured[provider] == nil {
+            ProgressView("Checking sign-in availability…").controlSize(.small)
+        } else if chat.serviceConfigured[provider] == false {
+            Text("I can’t open \(ServiceSetup.entries[provider]?.name ?? provider) sign-in yet. The app’s developer registration needs to be completed first. There’s nothing to approve in your browser.").font(.callout).foregroundStyle(.secondary)
         } else if IntegrationCatalog.find(provider)?.auth == "oauth" {
             Button("Sign in to \(ServiceSetup.entries[provider]?.name ?? provider)") { chat.connectService(provider) }.buttonStyle(.borderedProminent).disabled(chat.googleConnecting)
         } else if let setup = ServiceSetup.entries[provider] {
