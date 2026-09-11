@@ -44,6 +44,16 @@ class public_notion_test(unittest.TestCase):
         self.assertFalse(result['incomplete'])
         self.assertNotIn('connection_action', result)
 
+    def test_named_page_properties_are_included_without_unpublished_fields(self):
+        root = block('page', 'Company')['value']
+        root.update(parent_id='companies', properties={'title': [['Company']], 'role': [['Engineer']], 'hidden': [['Unlabeled internal field']]})
+        payload = {'recordMap': {'block': {ROOT: {'value': root}}, 'collection': {
+            'companies': {'value': {'schema': {'title': {'name': 'Name'}, 'role': {'name': 'Available Roles'}}}}
+        }}}
+        with network(response(json.dumps(payload).encode(), 'application/json')):
+            result = fetch(URL)
+        self.assertEqual(result['text'], 'Company\n\nAvailable Roles: Engineer')
+
     def test_cursor_pages_and_text_offsets(self):
         replies = lambda: (page({ROOT: block('page', 'Title', ['body'])}, {'stack': [['more']]}),
                             page({'body': block('text', 'Long text. ' * 2000)}))

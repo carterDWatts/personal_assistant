@@ -25,7 +25,7 @@ def read_page(url):
     root = page_id(url)
     host = urlsplit(url).hostname
     endpoint = f'https://{host}/api/v3/loadPageChunk'
-    blocks, cursor, downloaded = {}, {'stack': []}, 0
+    blocks, collections, cursor, downloaded = {}, {}, {'stack': []}, 0
     for chunk in range(5):
         # POST is the site's read protocol. No generic method or endpoint is
         # exposed to the agent, and no session credentials are sent.
@@ -40,6 +40,9 @@ def read_page(url):
         for id, entry in result.get('recordMap', {}).get('block', {}).items():
             value = entry.get('value', {})
             blocks[id] = value.get('value', value)
+        for id, entry in result.get('recordMap', {}).get('collection', {}).items():
+            value = entry.get('value', {})
+            collections[id] = value.get('value', value)
         cursor = result.get('cursor', {})
         if not cursor.get('stack'): break
     if root not in blocks or blocks[root].get('alive') is False:
@@ -71,6 +74,12 @@ def read_page(url):
         if block.get('alive') is False: return
         title = rich_text(block.get('properties', {}).get('title'))
         if title: lines.append(title)
+        if id == root:
+            schema = collections.get(block.get('parent_id'), {}).get('schema', {})
+            for key, definition in schema.items():
+                if key == 'title': continue
+                value = rich_text(block.get('properties', {}).get(key))
+                if value: lines.append(f"{definition.get('name', key)}: {value}")
         if id != root and block.get('type') == 'page':
             link(f'https://{host}/{id.replace("-", "")}', title)
             return
