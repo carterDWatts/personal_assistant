@@ -490,7 +490,6 @@ struct SettingsPopover: View {
 
 @MainActor struct ConversationView: View {
     @StateObject private var chat = Chat()
-    @State private var followConversation = true
     @State private var showMemory = true
     @State private var showSettings = false
     @State private var showConnections = false
@@ -570,9 +569,9 @@ struct SettingsPopover: View {
 
     private var conversation: some View {
         VStack(spacing: 0) {
-            ScrollViewReader { proxy in
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 22) {
+            ChatScrollView(latestInput: chat.messages.last(where: { $0.role == "user" })?.id,
+                           focusedMessage: chat.focusedMessage) {
+                    VStack(alignment: .leading, spacing: 22) {
                         if chat.messages.isEmpty {
                             VStack(alignment: .leading, spacing: 8) {
                                 Text("I’m \(AssistantIdentity.name). What’s on your mind?").font(.title2).foregroundStyle(palette.ink)
@@ -600,25 +599,8 @@ struct SettingsPopover: View {
                         }
                         }
                         if chat.connectionPrompt != nil { ChatConnectionPrompt(chat: chat) }
-                        Color.clear.frame(height: 1).id("bottom")
-                            .onAppear { followConversation = true }
-                            .onDisappear { followConversation = false }
                     }.padding(.horizontal, 32).padding(.top, 16).padding(.bottom, 14)
                         .frame(maxWidth: column).frame(maxWidth: .infinity)
-                }
-                .onChange(of: chat.messages.last?.text) { _ in
-                    if followConversation { proxy.scrollTo("bottom", anchor: .bottom) }
-                }
-                .onChange(of: chat.focusedMessage) { if let id = chat.focusedMessage { proxy.scrollTo(id, anchor: .bottom) } }
-                .onChange(of: chat.messages.count) { _ in
-                    if followConversation || chat.messages.last?.role == "user" { proxy.scrollTo("bottom", anchor: .bottom) }
-                }
-                .overlay(alignment: .bottom) {
-                    if !followConversation {
-                        Button { proxy.scrollTo("bottom", anchor: .bottom); followConversation = true } label: { Image(systemName: "arrow.down") }
-                            .buttonStyle(.bordered).padding(.bottom, 8).accessibilityLabel("Scroll to latest")
-                    }
-                }
             }
             PendingImageStrip(images: $chat.pendingImages, error: chat.imageError)
             Composer(chat: chat, palette: palette)

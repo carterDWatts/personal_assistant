@@ -121,6 +121,14 @@ import Darwin
         precondition((command["notification"] as? [String: String])?["message_id"] == "25")
         precondition(chat.draft.isEmpty && chat.replyingTo == nil)
 
+        for text in ["Second message", "Third message"] {
+            chat.draft = text
+            chat.send()
+            precondition(chat.busy && chat.draft.isEmpty)
+            try await wait("next reply") { !chat.busy }
+            precondition(chat.messages.last?.text == text)
+        }
+
         var importCancelled = false
         let pending = Task { @MainActor in
             do { _ = try await chat.imports(); preconditionFailure("The old import cannot complete after reconnect") }

@@ -360,7 +360,7 @@ final class Chat: ObservableObject {
         liveVoice.silencePlayback()
         speechBuffer = ""
         selectedInboxMessageID = nil
-        messages.append(ChatMessage(role: "user", text: text)); busy = true
+        messages.append(ChatMessage(role: "user", text: text)); busy = true; status = "Thinking…"
         var command: [String: Any] = ["type": "send", "text": text]
         if let reference = notificationReference { command["notification"] = reference }
         notificationReference = nil
