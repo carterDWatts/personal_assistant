@@ -10,7 +10,7 @@ The Mac app offers connection buttons in the conversation when a relevant tool n
 | Drive, Docs and Sheets | File search, Google Docs/plain text, spreadsheet cell ranges | Separate Google read permission |
 | Google Contacts | Names, contact details, organizations, birthdays | Separate Google read permission |
 | Todoist | Active tasks, due dates, deadlines | Token from Integrations → Developer |
-| Notion | Search page titles and read nested page blocks | Internal connection with Read content; share selected pages with it |
+| Notion | Search page titles and read nested page blocks | Notion sign-in and page picker |
 | GitHub | Repositories, source files, issues, PR changes, commits and comments | Browser sign-in |
 | Supabase | Account projects, project status, schema types and deployed functions | Browser sign-in and organization approval |
 | Spotify | Find music and podcast episodes; play, pause, resume, skip and seek in Spotify | Spotify sign-in; installed app for local playback |
@@ -21,7 +21,7 @@ Calendar and event mutations use the Calendar changes grant. Creating, renaming 
 
 Google scopes are `tasks.readonly`, `drive.readonly` and `contacts.readonly`. Drive read access includes spreadsheet reads. The developer Google Cloud project must enable Tasks, Drive, Sheets and People APIs; users only approve the requested Google permission. OAuth consent remains subject to the project's testing/verification settings.
 
-Notion and Todoist still use guided token setup. GitHub and Supabase use OAuth with PKCE, expiring credentials and automatic refresh. Tokens can have wider privileges at the provider; these ordinary account tools expose read operations. Owner-development tools have separate gates. Notion uses POST for its search endpoint, which does not modify pages. No additional paid inference service is involved.
+Todoist still uses guided token setup. Notion uses OAuth with a page picker. GitHub and Supabase use OAuth with PKCE, expiring credentials and automatic refresh. Tokens can have wider privileges at the provider; these ordinary account tools expose read operations. Owner-development tools have separate gates. Notion uses POST for its search endpoint, which does not modify pages. No additional paid inference service is involved.
 
 ## Connection architecture
 
@@ -46,7 +46,7 @@ Spotify audio plays in Spotify. The iPhone uses Spotify's official App Remote SD
 
 GitHub, Supabase, Notion and Todoist are on-demand readers. Gmail is polled every two minutes and classified by a separate subscription worker, even during conversation. Failed items retry independently; classification decisions are retained, and a prolonged backlog produces one monitoring warning per incident. Reading a source does not import its entire account into memory. A cached excerpt is not current truth: tools must read again when a decision depends on current state. Search indexes can lag; pagination and nested blocks can contain more information. Google Tasks due dates are dates rather than appointment times. Notion searches titles only. Drive's text reader does not parse PDFs, images or binary attachments. GitHub comments, commits and code diffs use separate paginated reads.
 
-On the phone, open Connections from the conversation menu. Google, GitHub and Supabase use the system sign-in sheet; Notion and Todoist use a secure token form. Cloud credentials are encrypted with AES-GCM in private Supabase tables, bound to the owner and service, and decrypted only by the hosted worker. OAuth intents expire after ten minutes and can be redeemed once. Disconnect invalidates pending sign-ins and removes the stored credential. Mac Keychain connections remain local.
+On the phone, open Connections from the conversation menu. Google, GitHub, Supabase and Notion use the system sign-in sheet; Todoist uses a secure token form. Cloud credentials are encrypted with AES-GCM in private Supabase tables, bound to the owner and service, and decrypted only by the hosted worker. OAuth intents expire after ten minutes and can be redeemed once. Disconnect invalidates pending sign-ins and removes the stored credential. Mac Keychain connections remain local.
 
 Start morning is available in the day panel and conversation menu. It starts a fresh morning session, loads the knowledge map, and fetches current calendar and email data before planning. Follow-up messages continue that session. Weather is fetched for the location in memory when relevant.
 
@@ -119,3 +119,20 @@ The model only has prepare/read tools. The client approves through a separate au
 ## LinkedIn access
 
 `linkedin_read` reads public pages when LinkedIn serves them; `linkedin_notifications` searches LinkedIn emails through connected Gmail. Shared text, exports, and screenshots can also provide context. These do not constitute live access to the personal feed, inbox, or saved posts. Standard LinkedIn sign-in only grants identity data. Its broader member portability API is restricted to eligible EU/EEA and Swiss members. See [LinkedIn API access](https://learn.microsoft.com/en-us/linkedin/shared/authentication/getting-access) and [member portability eligibility](https://www.linkedin.com/help/linkedin/answer/a6214075).
+
+## Notion registration
+
+Create an OAuth connection in the Notion developer portal with Read content and these exact redirects:
+
+- `https://koauvyfxewczcajnlrfp.supabase.co/functions/v1/assistant/notion/callback`
+- `http://127.0.0.1:8766/notion/callback`
+
+Install its client ID and secret with `python scripts/cloud.py account notion /private/path/client.json`.
+The registration belongs to a workspace where the developer can create connections.
+Users then sign in and choose pages; they never create an internal connection or copy tokens.
+Existing saved internal tokens continue working until disconnected. Notion uses HTTP Basic
+client authentication and JSON token requests; its documented flow does not use PKCE.
+Single-use state still binds callbacks to the owner, device and Notion intent.
+Refresh tokens stay encrypted and are rotated under the existing credential lock.
+
+[Notion OAuth authorization](https://developers.notion.com/guides/get-started/authorization)

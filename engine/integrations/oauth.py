@@ -26,14 +26,14 @@ def configured(provider):
         return False
 
 
-def access_token(provider, service, account, stored):
+def access_token(provider, service, account, stored, *, force=False):
     if not stored.startswith('{'):
         return stored  # Previously connected personal tokens still work.
     try:
         value = json.loads(stored)
         token = value['token']
         expiry = value.get('expiry')
-        if not expiry or datetime.fromisoformat(expiry.replace('Z', '+00:00')) > datetime.now(timezone.utc) + timedelta(seconds=60):
+        if not force and (not expiry or datetime.fromisoformat(expiry.replace('Z', '+00:00')) > datetime.now(timezone.utc) + timedelta(seconds=60)):
             return token
         if not value.get('refresh_token'):
             raise ValueError('No refresh token')
@@ -46,7 +46,7 @@ def access_token(provider, service, account, stored):
             data['client_id'] = value['client_id']
         else:
             data.update(client_id=value['client_id'], client_secret=value['client_secret'])
-        response = requests.post(endpoint, data=data, auth=auth, headers={'Accept':'application/json'}, timeout=15, allow_redirects=False)
+        response = token_request(provider, data, auth)
         if response.status_code >= 500 or response.status_code == 429:
             raise ToolError('The sign-in service is temporarily unavailable. Try again shortly.')
         if response.status_code != 200:
@@ -57,6 +57,7 @@ def access_token(provider, service, account, stored):
         value['token'] = refreshed['access_token']
         value['refresh_token'] = refreshed.get('refresh_token', value['refresh_token'])
         value['expiry'] = (datetime.now(timezone.utc) + timedelta(seconds=refreshed.get('expires_in', 3600))).isoformat()
+        if provider == 'notion' and not refreshed.get('expires_in'): value['expiry'] = None
         credentials.set_password(service, account, json.dumps(value))
         return value['token']
     except requests.RequestException:
@@ -94,6 +95,8 @@ def connect_local(provider, service, account):
     with HTTPServer(('127.0.0.1',8766),Callback) as server:
         server.timeout=1
         params={'client_id':client['client_id'],'redirect_uri':callback,'response_type':'code','state':state,'code_challenge':challenge,'code_challenge_method':'S256'}
+        if OAUTH_PROVIDERS[provider]['oauth'].get('pkce') is False:
+            params.pop('code_challenge'); params.pop('code_challenge_method')
         params.update(OAUTH_PROVIDERS[provider]["oauth"]["parameters"])
         authorize=OAUTH_PROVIDERS[provider]["oauth"]["authorize"]
         webbrowser.open(authorize+'?'+urlencode(params))
@@ -101,11 +104,12 @@ def connect_local(provider, service, account):
         while not received and time.monotonic()<deadline:server.handle_request()
     if not received.get('code') or received.get('error'):raise ToolError('Sign-in was not completed.')
     data={'grant_type':'authorization_code','code':received['code'],'redirect_uri':callback,'code_verifier':verifier}
+    if OAUTH_PROVIDERS[provider]['oauth'].get('pkce') is False: data.pop('code_verifier')
     auth=None
     if OAUTH_PROVIDERS[provider]["oauth"]["clientAuth"] == "basic":auth=(client['client_id'],client['client_secret'])
     elif OAUTH_PROVIDERS[provider]['oauth']['clientAuth'] == 'pkce':data['client_id']=client['client_id']
     else:data.update(client_id=client['client_id'],client_secret=client['client_secret'])
-    response=requests.post(ENDPOINTS[provider],data=data,auth=auth,headers={'Accept':'application/json'},timeout=15,allow_redirects=False)
+    response=token_request(provider, data, auth)
     if response.status_code!=200:raise ToolError('Sign-in was not completed.')
     token=response.json()
     if not token.get('access_token') or token.get('error'):raise ToolError('Sign-in was not completed.')
@@ -116,3 +120,9 @@ def connect_local(provider, service, account):
     from engine.integrations.accounts import _request, PROVIDERS
     _request(provider,PROVIDERS[provider][2],token=value['token'])
     credentials.set_password(service,account,json.dumps(value))
+
+
+def token_request(provider, data, auth):
+    encoding = 'json' if OAUTH_PROVIDERS[provider]['oauth'].get('tokenEncoding') == 'json' else 'data'
+    return requests.post(ENDPOINTS[provider], **{encoding:data}, auth=auth,
+                         headers={'Accept':'application/json'}, timeout=15, allow_redirects=False)

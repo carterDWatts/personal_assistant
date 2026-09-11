@@ -109,6 +109,40 @@ class connections_test(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(result['blocks'][0]['has_children'])
         self.assertTrue(result['has_more'])
 
+    def test_notion_unauthorized_refreshes_once_with_json_and_preserves_rotation(self):
+        stored = json.dumps({'token':'old', 'refresh_token':'refresh', 'client_id':'client', 'client_secret':'secret'})
+        denied = Mock(status_code=401)
+        success = Mock(status_code=200)
+        success.iter_content.return_value = [b'{"results":[]}']
+        for response in (denied, success):
+            response.__enter__ = Mock(return_value=response); response.__exit__ = Mock(return_value=False)
+        refreshed = Mock(status_code=200)
+        refreshed.json.return_value = {'access_token':'new','refresh_token':'rotated'}
+        with patch.object(accounts.keyring, 'get_password', return_value=stored), \
+             patch.object(accounts.keyring, 'set_password') as save, \
+             patch.object(accounts.requests, 'request', side_effect=[denied,success]) as request, \
+             patch('engine.integrations.oauth.requests.post', return_value=refreshed) as renew:
+            self.assertEqual(accounts._request('notion','search',body={}), {'results':[]})
+        self.assertEqual(renew.call_args.kwargs['json'], {'grant_type':'refresh_token','refresh_token':'refresh'})
+        self.assertNotIn('data', renew.call_args.kwargs)
+        self.assertEqual(renew.call_args.kwargs['auth'], ('client','secret'))
+        self.assertEqual(json.loads(save.call_args.args[2])['refresh_token'], 'rotated')
+        self.assertEqual(request.call_count, 2)
+        self.assertEqual(request.call_args.kwargs['headers']['Authorization'], 'Bearer new')
+
+    def test_notion_refresh_failure_requires_sign_in_without_replacing_access(self):
+        from engine.integrations.oauth import access_token
+        stored = json.dumps({'token':'old','refresh_token':'refresh','client_id':'client','client_secret':'secret'})
+        with patch('engine.integrations.oauth.requests.post', return_value=Mock(status_code=400)), \
+             patch.object(accounts.keyring, 'set_password') as save:
+            with self.assertRaises(ConnectionRequired): access_token('notion','service','account',stored,force=True)
+        save.assert_not_called()
+
+    def test_notion_connect_uses_sign_in_instead_of_requesting_a_token(self):
+        with patch('engine.integrations.oauth.connect_local') as login, patch.object(accounts, 'status', return_value={'notion':{}}):
+            accounts.connect('notion', None)
+        login.assert_called_once_with('notion', accounts.SERVICE, accounts.config.ENV + ':notion')
+
     def test_todoist_preserves_deadlines_and_pagination(self):
         with patch.object(todoist, '_request', return_value={'results':[{'id':'1','content':'Work','deadline':{'date':'2026-09-08'}}], 'next_cursor':'next'}):
             result = todoist._todoist({})

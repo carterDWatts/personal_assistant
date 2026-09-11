@@ -1,7 +1,7 @@
 import catalog from '../../../shared/integrations.json' with { type: 'json' };
 import type { Config } from './handler.ts';
 
-type OAuth = {authorize: string; token: string; clientAuth: string; parameters: Record<string,string>; clientIdEnv: string; clientSecretEnv: string};
+type OAuth = {authorize: string; token: string; clientAuth: string; pkce?: boolean; tokenEncoding?: string; parameters: Record<string,string>; clientIdEnv: string; clientSecretEnv: string};
 type Grant = {id: string; action: string; slot: string; name: string; description: string; scopes: string[]};
 type Provider = {id: string; name: string; auth: string; action: string; capabilities: string[]; grants: Grant[]; apiBase?: string; profile?: string; headers?: Record<string,string>; oauth?: OAuth};
 if (catalog.version !== 1) throw new Error('Unsupported integration catalog version');

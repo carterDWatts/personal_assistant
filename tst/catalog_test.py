@@ -35,7 +35,7 @@ class catalog_test(TestCase):
     def test_local_registration_status_is_separate_from_saved_access(self):
         with patch.dict('os.environ', {}, clear=True), patch('keyring.get_password', return_value=None):
             self.assertFalse(oauth.configured('github'))
-            self.assertTrue(oauth.configured('notion'))
+            self.assertFalse(oauth.configured('notion'))
         with patch.dict('os.environ', {}, clear=True), patch('keyring.get_password', return_value='{"client_id":"test", "client_secret":"test"}'):
             self.assertTrue(oauth.configured('github'))
 

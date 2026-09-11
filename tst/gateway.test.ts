@@ -164,9 +164,9 @@ test('revoked connections cannot contact providers and rejected tokens are not s
 });
 
 import { accountCallback, unseal } from '../supabase/functions/assistant/connections.ts';
-for (const provider of ['github','supabase','spotify'] as const) {
+for (const provider of ['github','supabase','spotify','notion'] as const) {
   test(`${provider} account sign-in binds PKCE, provider, owner and device`, async () => {
-    const settings={...connectedConfig,oauthApps:{...connectedConfig.oauthApps,github:{id:'github-client',secret:'github-secret'},supabase:{id:'supabase-client',secret:'supabase-secret'},spotify:{id:'spotify-client'}}};
+    const settings={...connectedConfig,oauthApps:{...connectedConfig.oauthApps,github:{id:'github-client',secret:'github-secret'},supabase:{id:'supabase-client',secret:'supabase-secret'},spotify:{id:'spotify-client'},notion:{id:'notion-client',secret:'notion-secret'}}};
     let intent:any, saved:any, consumed=false, state='';
     const fetcher:typeof fetch=async (url,options) => {
       if (String(url).includes('/rpc/')) {
@@ -182,8 +182,12 @@ for (const provider of ['github','supabase','spotify'] as const) {
         throw Error('Unexpected action');
       }
       if (String(url).includes('/token') || String(url).endsWith('/access_token')) {
-        const form=new URLSearchParams(String(options?.body));
-        assert.ok(form.get('code_verifier'));
+        const form=new URLSearchParams(provider==='notion'?JSON.parse(String(options?.body)):String(options?.body));
+        if (provider==='notion') {
+          assert.equal(form.get('code_verifier'),null);
+          assert.equal(new Headers(options?.headers).get('content-type'),'application/json');
+          assert.equal(new Headers(options?.headers).get('authorization'),'Basic '+btoa('notion-client:notion-secret'));
+        } else assert.ok(form.get('code_verifier'));
         assert.equal(form.get('redirect_uri'),`https://example.invalid/functions/v1/assistant/${provider}/callback`);
         if (provider==='supabase') assert.equal(new Headers(options?.headers).get('authorization'),'Basic '+btoa('supabase-client:supabase-secret'));
         if(provider==='spotify') { assert.equal(form.get('client_id'),'spotify-client'); assert.equal(form.get('client_secret'),null); assert.equal(new Headers(options?.headers).get('authorization'),null); }
@@ -193,7 +197,8 @@ for (const provider of ['github','supabase','spotify'] as const) {
     };
     const start=await connection(settings,owner,{device_id:device,action:'connection_start',args:{provider}},fetcher);
     const url=new URL(start.url);state=url.searchParams.get('state')!;
-    assert.equal(url.searchParams.get('code_challenge_method'),'S256');
+    assert.equal(url.searchParams.get('code_challenge_method'),provider==='notion'?null:'S256');
+    if (provider==='notion') assert.equal(url.searchParams.get('owner'),'user');
     assert.ok(!url.toString().includes('secret'));
     const req=new Request(`https://example.invalid?state=${state}&code=code`);
     assert.match((await accountCallback(req,settings,provider,fetcher)).headers.get('location')!,/connected/);
@@ -231,8 +236,8 @@ test('connection listing distinguishes saved access from configured sign-in', as
   assert.equal(github.configured, false);
   assert.equal(github.kind, 'oauth');
   const notion = result.providers.find((item:any) => item.id === 'notion');
-  assert.equal(notion.kind, 'token');
-  assert.equal(notion.configured, true);
+  assert.equal(notion.kind, 'oauth');
+  assert.equal(notion.configured, false);
   assert.equal(notion.state, 'absent');
   assert.ok(notion.capabilities.includes('pages.read'));
 });

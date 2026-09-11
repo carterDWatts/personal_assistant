@@ -136,6 +136,7 @@ async function startAccount(config: Config, user: string, device: string, provid
   url.search=new URLSearchParams({client_id:details.id,redirect_uri:accountCallbackURL(config,provider),response_type:'code',
     state,code_challenge:await hash(verifier),code_challenge_method:'S256',
     ...details.parameters}).toString();
+  if (details.pkce === false) { url.searchParams.delete('code_challenge'); url.searchParams.delete('code_challenge_method'); }
   return {...intent,url:url.toString()};
 }
 
@@ -155,7 +156,10 @@ export async function accountCallback(req: Request, config: Config, provider: Ac
     if (details.clientAuth==='basic') headers.Authorization='Basic '+btoa(details.id+':'+details.secret);
     else if (details.clientAuth==='pkce') body.set('client_id',details.id);
     else { body.set('client_id',details.id); body.set('client_secret',details.secret); }
-    const response=await fetcher(details.token,{method:'POST',headers,body,redirect:'error',signal:AbortSignal.timeout(15000)});
+    if (details.pkce === false) body.delete('code_verifier');
+    const payload = details.tokenEncoding === 'json' ? JSON.stringify(Object.fromEntries(body)) : body;
+    if (details.tokenEncoding === 'json') headers['Content-Type']='application/json';
+    const response=await fetcher(details.token,{method:'POST',headers,body:payload,redirect:'error',signal:AbortSignal.timeout(15000)});
     if (!response.ok) throw new Error('connection_rejected');
     const token=await response.json();
     if (!token.access_token || token.error || (['supabase','spotify'].includes(provider) && !token.refresh_token)) throw new Error('connection_rejected');
@@ -163,7 +167,7 @@ export async function accountCallback(req: Request, config: Config, provider: Ac
     const profile=await fetcher(providers[provider].url,{headers:{Authorization:'Bearer '+token.access_token,...providers[provider].headers},redirect:'error',signal:AbortSignal.timeout(10000)});
     if (!profile.ok) throw new Error('connection_rejected');
     const info=await profile.json();
-    const account=provider==='github'?String(info.login):provider==='spotify'?String(info.display_name || info.id):'Supabase account';
+    const account=provider==='github'?String(info.login):provider==='spotify'?String(info.display_name || info.id):provider==='notion'?String(token.workspace_name || info.name || 'Notion workspace'):'Supabase account';
     const credential=JSON.stringify({token:token.access_token,refresh_token:token.refresh_token,token_uri:details.token,
       client_id:details.id,client_secret:details.secret,provider,
       expiry:token.expires_in?new Date(Date.now()+token.expires_in*1000).toISOString():null});

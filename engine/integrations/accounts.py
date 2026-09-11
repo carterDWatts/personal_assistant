@@ -39,6 +39,7 @@ def status():
 
 def _request(provider, path, *, params=None, body=None, token=None, method=None):
     label, base, _ = PROVIDERS[provider]
+    saved_access = token is None
     if token is None:
         with _LOCK, keyring.refresh_lock(SERVICE, _account(provider)):
             try:
@@ -60,6 +61,16 @@ def _request(provider, path, *, params=None, body=None, token=None, method=None)
                               headers=headers, params=params, json=body, timeout=10,
                               allow_redirects=False, stream=True) as response:
             if response.status_code == 401:
+                if provider == 'notion' and saved_access:
+                    from engine.integrations.oauth import access_token
+                    renewed = None
+                    with _LOCK, keyring.refresh_lock(SERVICE, _account(provider)):
+                        stored = keyring.get_password(SERVICE, _account(provider))
+                        if stored and stored.startswith('{') and json.loads(stored).get('refresh_token'):
+                            renewed = access_token(provider, SERVICE, _account(provider), stored,
+                                                   force=json.loads(stored).get('token') == token)
+                    if renewed:
+                        return _request(provider, path, params=params, body=body, token=renewed, method=method)
                 raise ConnectionRequired(f"{label} rejected the credential. Reconnect in the chat.", f"{provider}_connect")
             if response.status_code == 403:
                 if provider == 'spotify':
