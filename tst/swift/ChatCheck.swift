@@ -144,8 +144,9 @@ import Darwin
         let notice: [String: Any] = ["type": "proactive", "message": ["id": 99, "content": "A new update"]]
         chat.receive(notice); chat.receive(notice)
         precondition(chat.messages.filter { $0.databaseID == "99" }.isEmpty)
+        chat.receive(["type": "connection_required", "action": "notion_connect"])
         chat.receive(["type": "connections", "error": "Sign-in failed", "connecting": false])
-        precondition(chat.connectionPrompt == nil)
+        precondition(chat.connectionPrompt == "notion_connect" && chat.connectionError == "Sign-in failed")
         chat.receive(["type": "start"])
         chat.receive(["type": "start"])
         precondition(chat.messages.filter { $0.text.isEmpty }.count == 1)

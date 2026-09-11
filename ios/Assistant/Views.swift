@@ -589,17 +589,20 @@ struct ConnectionCard: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
                 Image(systemName: "link").foregroundStyle(palette.accent)
+                Text("Connect \(service)")
+                    .font(.subheadline.weight(.semibold)).foregroundStyle(palette.ink)
                 Spacer()
                 Button { chat.connectionPrompt = nil } label: { Image(systemName: "xmark") }.accessibilityLabel("Dismiss connection")
-                Text("\(service) needs your permission")
-                    .font(.subheadline.weight(.semibold)).foregroundStyle(palette.ink)
             }
             Text(detail).font(.callout).foregroundStyle({ if case .failed = prompt.phase { return Color.orange } else { return palette.muted } }())
                 .fixedSize(horizontal: false, vertical: true)
             HStack(spacing: 12) {
                 switch prompt.phase {
-                case .needed, .failed:
+                case .needed:
                     Button { chat.connectService() } label: { Text("Connect \(Service.name(prompt.provider))").padding(.horizontal, 10) }
+                        .buttonStyle(SquareButton(palette: palette, prominent: true))
+                case .failed:
+                    Button("Try again") { chat.connectService() }
                         .buttonStyle(SquareButton(palette: palette, prominent: true))
                 case .connecting:
                     ProgressView().tint(palette.accent)

@@ -283,7 +283,7 @@ final class Chat: ObservableObject {
             googleCalendarWrite = event["calendar_write"] as? Bool ?? false
             googleConnecting = event["connecting"] as? Bool ?? false
             connectionError = event["error"] as? String ?? event["message"] as? String ?? ""
-            if !connectionError.isEmpty && !googleConnecting { connectionPrompt = nil; status = connectionError }
+            if !connectionError.isEmpty && !googleConnecting { status = connectionError }
         case "history":
             messages = (event["messages"] as? [[String: Any]] ?? []).compactMap { row in
                 guard (row["payload"] as? [String: Any])?["proactive"] as? Bool != true, (row["payload"] as? [String: Any])?["inbox_cancelled"] as? Bool != true, let role = row["role"] as? String, let content = row["content"] as? String else { return nil }

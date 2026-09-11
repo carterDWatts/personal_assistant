@@ -440,25 +440,33 @@ func plain(_ value: Any?) -> String {
     func connectService() {
         guard var prompt = connectionPrompt, prompt.phase != .connecting else { return }
         guard IntegrationCatalog.find(prompt.provider) != nil else { finish(.failed("This service does not have an integration yet.")); return }
-        if connections.first(where: { $0.id == prompt.provider })?.configured == false {
-            finish(.failed("Sign-in for this service has not been configured yet.")); return
-        }
-        if Service.usesToken(prompt.provider) { tokenForm = prompt.provider; return }
         prompt.phase = .connecting; connectionPrompt = prompt
         Task {
             do {
-                try await authorize(provider: prompt.provider, grant: prompt.grant)
+                connections = try await transport.connections().map(Connection.init)
+                guard connectionPrompt?.id == prompt.id else { return }
+                if connections.first(where: { $0.id == prompt.provider })?.configured == false {
+                    finish(.failed("I can’t open \(Service.name(prompt.provider)) sign-in yet. The app’s developer registration still needs to be completed."), id: prompt.id)
+                    return
+                }
+                if Service.usesToken(prompt.provider) {
+                    tokenForm = prompt.provider
+                    finish(.needed, id: prompt.id)
+                    return
+                }
+                try await authorize(provider: prompt.provider, grant: prompt.grant, promptID: prompt.id)
             } catch let error as ASWebAuthenticationSessionError where error.code == .canceledLogin {
-                connectionPrompt = nil
+                finish(.failed("Sign-in was cancelled. You can try again."), id: prompt.id)
             } catch {
-                finish(.failed(error.localizedDescription))
+                finish(.failed(error.localizedDescription), id: prompt.id)
             }
         }
     }
 
     /// The host's authorization for one grant: open its sheet, then confirm with the host, never from the callback alone.
-    func authorize(provider: String, grant: String?) async throws {
+    func authorize(provider: String, grant: String?, promptID: UUID? = nil) async throws {
         let started = try await transport.startConnection(provider: provider, grant: grant)
+        if let promptID, connectionPrompt?.id != promptID { return }
         if let url = started.url { _ = try await WebAuth.shared.run(url) }
         var state = try await transport.connectionState(intent: started.intent)
         var waited = 0
@@ -467,7 +475,7 @@ func plain(_ value: Any?) -> String {
             state = try await transport.connectionState(intent: started.intent)
         }
         guard state.state == "connected" else { throw ConnectionFailure(state.error ?? "The connection wasn’t completed.") }
-        if let prompt = connectionPrompt, prompt.provider == provider,
+        if let prompt = connectionPrompt, (promptID == nil || prompt.id == promptID), prompt.provider == provider,
            prompt.grant == grant || (grant == "calendar_write" && prompt.grant == "calendar") {
             connectionPrompt = nil
         }
@@ -490,14 +498,10 @@ func plain(_ value: Any?) -> String {
         Task { try? await transport.removeConnection(provider: provider, grant: grant); refreshConnections() }
     }
 
-    private func finish(_ phase: ConnectionPrompt.Phase) {
-        guard var prompt = connectionPrompt else { return }
-        if case .failed(let message) = phase {
-            connectionPrompt = nil
-            connectionError = message
-            status = "I couldn’t connect. You can retry from Connections."
-        } else { prompt.phase = phase; connectionPrompt = prompt }
-        refreshConnections()
+    private func finish(_ phase: ConnectionPrompt.Phase, id: UUID? = nil) {
+        guard var prompt = connectionPrompt, id == nil || prompt.id == id else { return }
+        prompt.phase = phase
+        connectionPrompt = prompt
     }
 
     func toggleVoice() {

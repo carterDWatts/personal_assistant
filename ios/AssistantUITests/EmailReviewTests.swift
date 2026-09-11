@@ -18,11 +18,31 @@ final class EmailReviewTests: XCTestCase {
         let screenshot = XCTAttachment(screenshot: app.screenshot())
         screenshot.name = "Inbox"; screenshot.lifetime = .keepAlways; add(screenshot)
     }
-    func testFailedConnectionDisappears() {
+    func testFailedConnectionShowsRetryAndCanBeDismissed() {
         let app = XCUIApplication(); app.launchArguments = ["--sample", "--connection", "--connection-failure"]; app.launch()
         let connect = app.buttons["Connect Google"]
         XCTAssertTrue(connect.waitForExistence(timeout: 15)); connect.tap()
-        XCTAssertTrue(connect.waitForNonExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["Google sign-in failed."].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["Try again"].exists)
+        app.buttons["Try again"].tap()
+        XCTAssertTrue(app.staticTexts["Google sign-in failed."].waitForExistence(timeout: 5))
+        app.buttons["Dismiss connection"].tap()
+        XCTAssertTrue(app.buttons["Try again"].waitForNonExistence(timeout: 5))
+    }
+    func testUnconfiguredNotionExplainsWhyNoBrowserOpened() {
+        let app = XCUIApplication(); app.launchArguments = ["--sample", "--connection", "--connection-unconfigured"]; app.launch()
+        let connect = app.buttons["Connect Notion"]
+        XCTAssertTrue(connect.waitForExistence(timeout: 15)); connect.tap()
+        XCTAssertTrue(app.staticTexts["I can’t open Notion sign-in yet. The app’s developer registration still needs to be completed."].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["Try again"].exists)
+        XCTAssertTrue(app.buttons["Dismiss connection"].exists)
+        XCTAssertFalse(app.secureTextFields.firstMatch.exists)
+    }
+    func testSuccessfulConnectionClosesTheCard() {
+        let app = XCUIApplication(); app.launchArguments = ["--sample", "--connection"]; app.launch()
+        let connect = app.buttons["Connect Google"]
+        XCTAssertTrue(connect.waitForExistence(timeout: 15)); connect.tap()
+        XCTAssertTrue(app.buttons["Dismiss connection"].waitForNonExistence(timeout: 5))
     }
     func testDraftShowsRecipientsAndRequiresSendButton() {
         let app = XCUIApplication()

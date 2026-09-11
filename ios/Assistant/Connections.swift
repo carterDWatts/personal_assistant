@@ -25,6 +25,7 @@ struct Connection: Identifiable {
 
 /// A missing connection offered directly in the conversation.
 struct ConnectionPrompt {
+    let id = UUID()
     let action: String
     let provider: String
     let grant: String?

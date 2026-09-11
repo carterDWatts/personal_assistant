@@ -86,7 +86,8 @@ func isoDate(_ date: Date) -> String {
             emit(["type": "ready"])
             emit(map())
             if ProcessInfo.processInfo.arguments.contains("--connection") {
-                emit(["type": "connection_required", "action": "google_connect", "message": "This service needs to be connected on this host."])
+                let provider = ProcessInfo.processInfo.arguments.contains("--connection-unconfigured") ? "notion" : "google"
+                emit(["type": "connection_required", "action": provider + "_connect", "message": "This service needs to be connected on this host."])
             }
         }
     }
@@ -141,7 +142,8 @@ func isoDate(_ date: Date) -> String {
 
     func connections() async throws -> [[String: Any]] {
         ["google", "todoist", "notion", "github"].map { provider in
-            ["id": provider, "kind": provider == "google" ? "google" : "token",
+            ["id": provider, "kind": IntegrationCatalog.find(provider)?.auth ?? "unavailable",
+             "configured": !(provider == "notion" && ProcessInfo.processInfo.arguments.contains("--connection-unconfigured")),
              "state": (linked[provider] ?? []).isEmpty ? "absent" : "connected", "grants": linked[provider] ?? [],
              "account": (linked[provider] ?? []).isEmpty ? nil : "sample account"] as [String: Any]
         }
