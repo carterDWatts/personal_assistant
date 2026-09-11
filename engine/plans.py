@@ -2,6 +2,14 @@
 from engine.tools import ToolError, _day
 
 
+def merge_questions(map_,table,old,target,*,resolved=False,note='Duplicate commitment merged'):
+    map_.execute('update memory.questions set ref_id=%s where ref_table=%s and ref_id=%s and closed_at is null',(str(target),table,str(old)))
+    if resolved:
+        map_.execute("update memory.questions set closed_at=now(),closed_reason='Canonical commitment resolved',answer=%s where ref_table=%s and ref_id=%s and closed_at is null",(note,table,str(target)))
+    else:
+        map_.execute("update memory.questions set closed_at=now(),closed_reason='Duplicate question merged' where ref_table=%s and ref_id=%s and closed_at is null and id<>(select min(id) from memory.questions where ref_table=%s and ref_id=%s and closed_at is null)",(table,str(target),table,str(target)))
+
+
 class Plans:
     def __init__(self, tools):
         self.tools, self.map = tools, tools.map
@@ -38,8 +46,8 @@ class Plans:
                 raise ToolError('A future occurrence cannot be completed already. Correct its date or status.')
             obs = self.tools.observe('outcome', args['note'])
             status = args.get('status', row['status'])
-            result = self.map.row('update memory.plans set status=%s,item=%s,day=%s,outcome_note=%s,resolved_at=%s,last_observation_id=%s where id=%s returning *',
-                (status,args.get('item',row['item']),day,args['note'],
+            result = self.map.row('update memory.plans set status=%s,item=%s,day=%s,entity_id=%s,outcome_note=%s,resolved_at=%s,last_observation_id=%s where id=%s returning *',
+                (status,args.get('item',row['item']),day,args.get('entity_id',row['entity_id']),args['note'],
                  self.tools.event_time() if status in ('done','skipped','dropped') else None,obs,row['id']))
             if status in ('done','skipped','dropped'):
                 self.map.execute("update memory.questions set closed_at=now(),closed_reason='Plan updated with evidence',answer=%s where ref_table='plans' and ref_id=%s and closed_at is null", (args['note'],str(row['id'])))
@@ -57,5 +65,5 @@ class Plans:
             if old['day']!=target['day']: raise ToolError('Different days may be distinct occurrences. Correct dates explicitly before merging.')
             obs = self.tools.observe('outcome',args['note'])
             self.map.execute('update memory.plans set superseded_by=%s,last_observation_id=%s where id=%s',(target['id'],obs,old['id']))
-            self.map.execute("update memory.questions set ref_id=%s where ref_table='plans' and ref_id=%s and closed_at is null",(str(target['id']),str(old['id'])))
+            merge_questions(self.map,'plans',old['id'],target['id'],resolved=target['status'] in ('done','skipped','dropped'),note=args['note'])
             return {'merged':old['id'],'into':target['id'],'status':target['status']}

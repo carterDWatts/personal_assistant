@@ -84,6 +84,8 @@ class Reminders:
                 raise ToolError('Reminder changed. Read both again before merging.')
             if source['kind']!=target['kind'] or source['alarm_at']!=target['alarm_at']:
                 raise ToolError('Different reminder kinds or alarms need explicit reconciliation before merging.')
+            from engine.plans import merge_questions
+            merge_questions(self.map,'reminders',args['id'],args['into'])
             self.map.value('select memory.reminder_action(%s)',(jsonb({'id':args['id'],'version':args['version'],'action':'cancel','message_id':self.tools.message_id}),))
             self.map.execute('update memory.reminders set merged_into=%s,merge_reason=%s where id=%s',(args['into'],args['reason'],args['id']))
             result=self.map.row('update memory.reminders set context=%s,version=version+1,updated_at=now() where id=%s returning *',(args['context'],args['into']))

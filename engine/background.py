@@ -141,6 +141,8 @@ need not become durable memory. Sent mail must not notify the user about their o
         row=self.map.row('select * from assistant.maintenance_runs where day=%s',(day,))
         if row and (row['completed_at'] or row['available_at']>now): return
         self.map.execute('insert into assistant.maintenance_runs(day) values(%s) on conflict do nothing',(day,))
+        if not row:
+            self.map.execute("insert into memory.plan_reviews(plan_id) select id from memory.plans where superseded_by is null and status in ('planned','partial','proposed') on conflict(plan_id) do update set requested_at=clock_timestamp()")
         runtime=None
         try:
             # Exact duplicate preferences lose no information when retired. Keep all provenance.

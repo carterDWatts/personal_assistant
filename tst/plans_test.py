@@ -71,3 +71,17 @@ class plans_test(MapTest):
         self.tools.observed_at=datetime(2020,1,1,tzinfo=timezone.utc)
         self.assertIn('error',self.call('plan_update',plan_id=p['id'],version=2,status='planned',note='An earlier statement'))
         self.assertEqual(self.map.value('select status from memory.plans where id=%s',(p['id'],)),'done')
+
+    def test_merging_into_completed_plan_closes_obsolete_questions(self):
+        a=self.call('plan_add',day='today',item='Phone dentist')
+        b=self.call('plan_add',day='today',item='Book dentist',status='done')
+        q=self.call('question_add',text='Did you call?',ref_table='plans',ref_id=str(a['id']))
+        self.call('plan_merge',plan_id=a['id'],version=1,into_id=b['id'],into_version=1,note='Same call, already confirmed')
+        self.assertIsNotNone(self.map.value('select closed_at from memory.questions where id=%s',(q['id'],)))
+
+    def test_merging_open_plans_keeps_only_one_outcome_question(self):
+        a=self.call('plan_add',day='today',item='Phone dentist')
+        b=self.call('plan_add',day='today',item='Book dentist')
+        for p in (a,b): self.call('question_add',text='Did you call?',ref_table='plans',ref_id=str(p['id']))
+        self.call('plan_merge',plan_id=a['id'],version=1,into_id=b['id'],into_version=1,note='Same call')
+        self.assertEqual(self.map.value("select count(*) from memory.questions where closed_at is null and ref_table='plans' and ref_id=%s",(str(b['id']),)),1)

@@ -463,6 +463,7 @@ class Tools:
                 "plan_id": _i("plan id"), "version": _i("current version",minimum=1),
                 "status": _s("supported outcome",enum=["planned","proposed","done","partial","skipped","dropped"]),
                 "item": _s("revised wording",minLength=1), "day": _s("new day only if rescheduled"),
+                "entity_id": _s("canonical entity this commitment concerns; connect an unlinked plan to the map"),
                 "note": _s("evidence and reason for this change",minLength=1)}, ["plan_id","version","note"]), self.plan_update),
             ToolSpec("plan_merge", _doc(self.plan_merge), _obj({
                 "plan_id": _i("duplicate plan id"),"version": _i("duplicate version",minimum=1),
