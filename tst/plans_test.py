@@ -57,6 +57,12 @@ class plans_test(MapTest):
         self.call('plan_add',day='today',item='Call')
         self.assertIn('error',self.call('plan_add',day='today',item='Call',status='done'))
 
+    def test_rewording_does_not_answer_an_outcome_question(self):
+        p=self.call('plan_add',day='yesterday',item='Call')
+        q=self.call('question_add',text='Did the call happen?',ref_table='plans',ref_id=str(p['id']))
+        self.call('plan_update',plan_id=p['id'],version=1,item='Call the dentist',note='Clarified who the call is with')
+        self.assertIsNone(self.map.value('select closed_at from memory.questions where id=%s',(q['id'],)))
+
     def test_future_completion_and_late_extraction_cannot_overwrite_truth(self):
         self.assertIn('error',self.call('plan_add',day='tomorrow',item='Workout',status='done'))
         p=self.call('plan_add',day='today',item='Call')

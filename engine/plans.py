@@ -41,7 +41,8 @@ class Plans:
             result = self.map.row('update memory.plans set status=%s,item=%s,day=%s,outcome_note=%s,resolved_at=%s,last_observation_id=%s where id=%s returning *',
                 (status,args.get('item',row['item']),day,args['note'],
                  self.tools.event_time() if status in ('done','skipped','dropped') else None,obs,row['id']))
-            self.map.execute("update memory.questions set closed_at=now(),closed_reason='Plan updated with evidence',answer=%s where ref_table='plans' and ref_id=%s and closed_at is null", (args['note'],str(row['id'])))
+            if status in ('done','skipped','dropped'):
+                self.map.execute("update memory.questions set closed_at=now(),closed_reason='Plan updated with evidence',answer=%s where ref_table='plans' and ref_id=%s and closed_at is null", (args['note'],str(row['id'])))
             return result
 
     async def merge(self, args):
