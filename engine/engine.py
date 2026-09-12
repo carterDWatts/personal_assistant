@@ -197,8 +197,10 @@ async def turn(runtime, conv, tools, io, segment_id, message_id, text, images=No
     finally:
         if pending:
             completed.append(pending)
-        if completed or shown_images or email_drafts:
-            final_text = "\n\n".join(completed) or ("I’ve prepared the email for your review." if email_drafts else "Image")
+        # Empty completion events are silence, not image-only replies.
+        final_text = "\n\n".join(part for part in completed if part.strip())
+        if final_text or shown_images or email_drafts:
+            final_text = final_text or ("I’ve prepared the email for your review." if email_drafts else "Image")
             conv.record(segment_id, "assistant", final_text, {"interrupted": failed, "images":list(dict.fromkeys(shown_images)), "email_drafts":list(dict.fromkeys(email_drafts))})
             if replace := getattr(io, "replace_text", None):
                 replace(final_text)
