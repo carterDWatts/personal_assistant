@@ -6,12 +6,14 @@ import os
 import uuid
 import unittest
 from unittest.mock import patch, MagicMock
+from contextlib import contextmanager
 import psycopg
 from PIL import Image, ImageDraw
 from engine.db import jsonb
 from engine.images import Images, normalized, tool_content
 from engine.tools import ToolError, Tools
 from engine.engine import Session
+from engine.runtime import Event
 from engine.conversation import Conversation
 from tst.helpers import MapTest, FakeRuntime, FakeTerminal, say
 
@@ -79,6 +81,42 @@ class images_test(MapTest):
             rows=await session.tools.conversation_history({'query':'What is here?'})
             self.assertEqual(rows[0]['images'],[image['id']])
         self.run_async(check())
+
+    def test_sent_image_is_streamed_and_persisted_without_a_text_reply(self):
+        from engine.desktop import DesktopIO
+        from engine.host import Stream
+        async def show(runtime):
+            from engine.tools import run
+            content, failed = await run(runtime.tools['image_show'], {'url': 'https://example.com/photo.png', 'caption': 'Blue rectangle'})
+            self.assertFalse(failed)
+            return Event('tool_result', name='image_show', payload={'content': content, 'is_error': failed})
+        @contextmanager
+        def public(url, **kwargs):
+            self.assertTrue(kwargs['https_only'])
+            yield url, MagicMock(status=200, read=MagicMock(return_value=picture()))
+        async def check():
+            runtime = FakeRuntime([[show]])
+            io_ = FakeTerminal([])
+            receipts = []
+            io_.tool_result = receipts.append
+            session = Session(self.map, runtime, io_, 'image-test', auto_memory=False)
+            await session.open()
+            await session.send('Send me the picture.')
+            await session.close()
+            image = json.loads(receipts[0]['content'])['image']
+            tail = session.conv.tail(10)
+            reply = next(row for row in reversed(tail) if row['role'] == 'assistant')
+            self.assertEqual(reply['payload']['images'], [image['id']])
+            self.assertEqual(self.images.row(image['id'])['source_url'], 'https://example.com/photo.png')
+            self.assertEqual(self.images.preview(image['id'])['url'], self.storage.signed.return_value)
+            with patch('engine.desktop.emit') as emit:
+                DesktopIO().tool_result(receipts[0])
+                emit.assert_called_once_with('image', image=image, caption='Blue rectangle')
+            stream = Stream()
+            stream.tool_result(receipts[0])
+            self.assertEqual(stream.pending, [{'type': 'image', 'image': image, 'caption': 'Blue rectangle'}])
+        with patch('engine.images.open_public', public):
+            self.run_async(check())
 
     @unittest.skipUnless(os.environ.get('ASSISTANT_LIVE_IMAGE_TEST')=='1','Opt-in subscription vision test')
     def test_subscription_models_read_actual_image_pixels(self):

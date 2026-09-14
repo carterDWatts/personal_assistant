@@ -1,4 +1,5 @@
 import unittest
+import gzip
 from contextlib import contextmanager
 from email.message import Message
 from io import BytesIO
@@ -41,6 +42,42 @@ class web_test(unittest.TestCase):
         self.assertNotIn('ignore the user',''.join(p.text))
         self.assertNotIn('menu',''.join(p.text))
         self.assertEqual(p.links,[{'url':'https://example.com/b','text':'details'}])
+
+    def test_page_exposes_bounded_image_candidates_without_fetching_them(self):
+        page = Page('https://example.com/products/helmet')
+        page.feed('''<meta property="og:image" content="/photos/helmet.jpg">
+            <img src="/photos/helmet.jpg" alt="Blue helmet">
+            <img src="placeholder.png" data-src="//cdn.example.com/side.webp" alt="Side view">
+            <script><img src="/hidden.jpg"></script><nav><img src="/logo.png"></nav>
+            <img src="data:image/png;base64,abc"><img src="http://example.com/insecure.jpg">
+            <img src="https://user:secret@example.com/private.jpg">''')
+        self.assertEqual(page.images, [
+            {'url': 'https://example.com/photos/helmet.jpg', 'alt': 'Blue helmet'},
+            {'url': 'https://cdn.example.com/side.webp', 'alt': 'Side view'},
+        ])
+        page.feed(''.join(f'<img src="/{i}.jpg">' for i in range(40)))
+        self.assertEqual(len(page.images), 12)
+
+    def test_image_only_pages_and_direct_images_can_be_sent(self):
+        with network(response(b'<img src="/photo.png" alt="Photo">')):
+            result = fetch('https://example.com')
+            self.assertNotIn('error', result)
+            self.assertEqual(result['images'], [{'url': 'https://example.com/photo.png', 'alt': 'Photo'}])
+        reply = response(mime='image/png')
+        with network(reply):
+            result = fetch('https://example.com/photo.png')
+            self.assertEqual(result['images'][0]['url'], 'https://example.com/photo.png')
+            reply.read.assert_not_called()
+
+    def test_compressed_pages_expose_images_and_obey_decoded_size_limit(self):
+        for body in (b'<img src="/photo.png">', b'x' * (MAX_BYTES + 1)):
+            reply = response(gzip.compress(body))
+            reply.headers['Content-Encoding'] = 'gzip'
+            with network(reply):
+                if len(body) > MAX_BYTES:
+                    with self.assertRaisesRegex(ValueError, 'download limit'): fetch('https://example.com')
+                else:
+                    self.assertEqual(fetch('https://example.com')['images'][0]['url'], 'https://example.com/photo.png')
 
     def test_redirects_are_validated_before_second_connection(self):
         class Response:
@@ -118,9 +155,9 @@ class web_test(unittest.TestCase):
                 self.assertEqual(reader('https://example.com')['status'], 403)
                 reply.read.assert_not_called()
                 connections[0].close.assert_called_once()
-        reply = response(mime='image/png')
+        reply = response(mime='application/pdf')
         with network(reply):
-            self.assertEqual(fetch('https://example.com')['content_type'], 'image/png')
+            self.assertEqual(fetch('https://example.com')['content_type'], 'application/pdf')
             reply.read.assert_not_called()
 
     def test_page_offset_and_declared_encoding_are_preserved(self):
