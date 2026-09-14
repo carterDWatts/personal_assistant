@@ -99,7 +99,7 @@ import Darwin
             UserDefaults.standard.set(oldTest, forKey: "testMemory")
             UserDefaults.standard.set(oldDraft, forKey: "draft")
         }
-        let chat = Chat(connection: connection)
+        let chat = Chat(connection: connection, monitorNetwork: false)
         defer { chat.disconnect() }
         var command: [String: Any] = [:]
         let receive = connection.onEvent
@@ -128,6 +128,47 @@ import Darwin
             try await wait("next reply") { !chat.busy }
             precondition(chat.messages.last?.text == text)
         }
+
+        chat.draft = "Keep this unsent draft 🐇"
+        let countBeforeOffline = chat.messages.count
+        chat.networkChanged(available: false)
+        chat.send()
+        precondition(!chat.connected && !chat.busy)
+        precondition(chat.composerNotice?.contains("offline") == true)
+        precondition(chat.messages.count == countBeforeOffline && chat.draft == "Keep this unsent draft 🐇")
+        chat.networkChanged(available: true)
+        try await wait("automatic reconnect") { chat.connected }
+        precondition(chat.composerNotice == nil && chat.draft == "Keep this unsent draft 🐇")
+        precondition(chat.messages.count == 1, "Reconnect must not send the saved draft")
+
+        connection.close() // A stale ready flag must not discard a draft when the pipe rejects send.
+        chat.send()
+        precondition(!chat.connected && !chat.busy && chat.messages.count == 1)
+        precondition(chat.draft == "Keep this unsent draft 🐇" && chat.composerNotice != nil)
+        chat.connect()
+        try await wait("reconnect after failed write") { chat.connected }
+
+        chat.receive(["type": "error", "text": "The reply failed. Reconnect to continue."])
+        chat.receive(["type": "ready"])
+        precondition(chat.composerNotice?.contains("reply failed") == true, "Ready must not hide an unsuccessful reply")
+        chat.send()
+        try await wait("send after recovery") { !chat.busy }
+        precondition(chat.draft.isEmpty && chat.composerNotice == nil)
+
+        // Ignore ready to simulate a host that never completes startup.
+        let stalledConnection = EngineConnection(settings: settings)
+        let timedOut = Chat(connection: stalledConnection, monitorNetwork: false, connectionTimeout: .milliseconds(30))
+        stalledConnection.onEvent = nil
+        timedOut.connect()
+        try await wait("connection timeout") { !timedOut.busy }
+        precondition(!timedOut.connected && timedOut.composerNotice?.contains("couldn’t connect") == true)
+        timedOut.disconnect()
+
+        chat.disconnect()
+        chat.networkChanged(available: false); chat.networkChanged(available: true)
+        precondition(!chat.connected && !chat.busy, "Explicit disconnect must not trigger auto-reconnect")
+        chat.connect()
+        try await wait("reconnect before import checks") { chat.connected }
 
         var importCancelled = false
         let pending = Task { @MainActor in

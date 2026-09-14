@@ -174,32 +174,48 @@ struct Composer: View {
     @FocusState private var focused: Bool
     private var canSend: Bool { chat.connected && !chat.busy && (!chat.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !chat.pendingImages.isEmpty) }
     var body: some View {
-        HStack(alignment: .bottom, spacing: 8) {
-            ImageAttachmentPicker(images: $chat.pendingImages, error: $chat.imageError).disabled(chat.busy)
-
-            Button { chat.toggleVoice() } label: {
-                Image(systemName: chat.voice ? "waveform" : "mic").frame(width: 16)
-            }.buttonStyle(.bordered).controlSize(.large).tint(chat.voice ? palette.accent : nil)
-                .disabled(!chat.connected).help(chat.voice ? "End the voice conversation" : "Talk instead of typing")
-            Text(chat.draft.isEmpty ? " " : chat.draft + " ")
-                .font(.system(size: 15)).lineLimit(1...8).fixedSize(horizontal: false, vertical: true)
-                .padding(.vertical, 8).frame(maxWidth: .infinity, alignment: .leading).hidden()
-                .overlay(alignment: .topLeading) {
-                    TextEditor(text: $chat.draft).font(.system(size: 15)).foregroundStyle(palette.ink)
-                        .scrollContentBackground(.hidden).focused($focused).tint(palette.accent)
-                        .accessibilityLabel("Message")
-                    if chat.draft.isEmpty { Text("Reply").font(.system(size: 15)).foregroundStyle(palette.muted).padding(.top, 8).padding(.leading, 5).allowsHitTesting(false) }
+        VStack(alignment: .leading, spacing: 8) {
+            if let notice = chat.composerNotice {
+                HStack(alignment: .top, spacing: 8) {
+                    Image(systemName: chat.networkAvailable ? "exclamationmark.circle" : "wifi.slash")
+                    Text(notice).fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: 0)
+                    if chat.networkAvailable && !chat.connected && !chat.busy {
+                        Button("Reconnect") { chat.connect() }.buttonStyle(.borderless)
+                    }
                 }
-                .padding(.horizontal, 10).padding(.vertical, 8)
-                .background(palette.surface, in: RoundedRectangle(cornerRadius: 14))
-                .overlay(RoundedRectangle(cornerRadius: 14).stroke(focused ? palette.accent.opacity(0.6) : palette.line, lineWidth: 1))
-            if chat.busy {
-                Button { chat.stop() } label: { Image(systemName: "stop.fill").frame(width: 16) }
-                    .buttonStyle(.bordered).controlSize(.large).help("Stop").accessibilityLabel("Stop reply")
-            } else {
-                Button { chat.send() } label: { Image(systemName: "arrow.up").frame(width: 16) }
-                    .buttonStyle(.borderedProminent).controlSize(.large).tint(palette.accent)
-                    .disabled(!canSend).keyboardShortcut(.return, modifiers: .command).accessibilityLabel("Send message")
+                .font(.callout).foregroundStyle(palette.ink)
+                .padding(10).background(palette.surface, in: RoundedRectangle(cornerRadius: 10))
+                .accessibilityElement(children: .contain)
+            }
+            HStack(alignment: .bottom, spacing: 8) {
+                ImageAttachmentPicker(images: $chat.pendingImages, error: $chat.imageError).disabled(chat.busy)
+
+                Button { chat.toggleVoice() } label: {
+                    Image(systemName: chat.voice ? "waveform" : "mic").frame(width: 16)
+                }.buttonStyle(.bordered).controlSize(.large).tint(chat.voice ? palette.accent : nil)
+                    .disabled(!chat.connected).help(chat.voice ? "End the voice conversation" : "Talk instead of typing")
+                Text(chat.draft.isEmpty ? " " : chat.draft + " ")
+                    .font(.system(size: 15)).lineLimit(1...8).fixedSize(horizontal: false, vertical: true)
+                    .padding(.vertical, 8).frame(maxWidth: .infinity, alignment: .leading).hidden()
+                    .overlay(alignment: .topLeading) {
+                        TextEditor(text: $chat.draft).font(.system(size: 15)).foregroundStyle(palette.ink)
+                            .scrollContentBackground(.hidden).focused($focused).tint(palette.accent)
+                            .accessibilityLabel("Message")
+                        if chat.draft.isEmpty { Text("Reply").font(.system(size: 15)).foregroundStyle(palette.muted).padding(.top, 8).padding(.leading, 5).allowsHitTesting(false) }
+                    }
+                    .padding(.horizontal, 10).padding(.vertical, 8)
+                    .background(palette.surface, in: RoundedRectangle(cornerRadius: 14))
+                    .overlay(RoundedRectangle(cornerRadius: 14).stroke(focused ? palette.accent.opacity(0.6) : palette.line, lineWidth: 1))
+                if chat.busy && chat.connected {
+                    Button { chat.stop() } label: { Image(systemName: "stop.fill").frame(width: 16) }
+                        .buttonStyle(.bordered).controlSize(.large).help("Stop").accessibilityLabel("Stop reply")
+                } else {
+                    Button { chat.send() } label: { Image(systemName: "arrow.up").frame(width: 16) }
+                        .buttonStyle(.borderedProminent).controlSize(.large).tint(palette.accent)
+                        .disabled(!canSend).keyboardShortcut(.return, modifiers: .command).accessibilityLabel("Send message")
+                        .help(chat.composerNotice ?? "Send message (⌘Return)")
+                }
             }
         }
         .onAppear { focused = true }

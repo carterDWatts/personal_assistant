@@ -1,5 +1,6 @@
 import Foundation
 import Combine
+import Network
 
 struct ChatMessage: Identifiable {
     let id = UUID()
@@ -132,6 +133,18 @@ final class Chat: ObservableObject {
     @Published var memoryErrors = 0
     @Published var busy = false
     @Published var connected = false
+    @Published private(set) var networkAvailable = true
+    @Published private(set) var sendNotice: String?
+    private let networkMonitor = NWPathMonitor()
+    private var connectionRequested = false
+    private var connectionDeadline: Task<Void, Never>?
+    private let connectionTimeout: Duration
+    var composerNotice: String? {
+        if !networkAvailable { return "You’re offline. Your draft is saved on this Mac. I’ll reconnect when you’re back online." }
+        if let sendNotice { return sendNotice }
+        if !connected { return busy ? "Connecting… You can keep writing while I connect." : "I’m disconnected. Reconnect to send your message. Your draft is saved on this Mac." }
+        return nil
+    }
     @Published var voice = false
     var listening: Bool { liveVoice.active }
     let liveVoice = LiveVoice()
@@ -153,34 +166,71 @@ final class Chat: ObservableObject {
 
     convenience init() { self.init(connection: EngineConnection()) }
 
-    init(connection: EngineConnection) {
+    init(connection: EngineConnection, monitorNetwork: Bool = true, connectionTimeout: Duration = .seconds(45)) {
         self.connection = connection
+        self.connectionTimeout = connectionTimeout
         connection.onEvent = { [weak self] event in self?.receive(event) }
         connection.onClose = { [weak self] in self?.connectionClosed("Disconnected") }
         voiceSubscription = liveVoice.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }
         liveVoice.onSpeech = { [weak self] in self?.interruptForSpeech() }
         liveVoice.onUtterance = { [weak self] text in self?.sendVoice(text) }
         liveVoice.onError = { [weak self] text in self?.voice = false; self?.status = text }
+        if monitorNetwork {
+            networkMonitor.pathUpdateHandler = { [weak self] path in
+                let available = path.status == .satisfied
+                Task { @MainActor [weak self] in self?.networkChanged(available: available) }
+            }
+            networkMonitor.start(queue: DispatchQueue(label: "assistant.network"))
+        }
+    }
+
+    deinit { networkMonitor.cancel(); connectionDeadline?.cancel() }
+
+    func networkChanged(available: Bool) {
+        guard networkAvailable != available else { return }
+        networkAvailable = available
+        if !available {
+            connection.close()
+            connectionClosed("Offline")
+        } else if connectionRequested { connect() }
     }
 
     func connect(clear: Bool = false) {
         disconnect()
-        messages = []
+        connectionRequested = true
+        guard networkAvailable else { status = "Offline"; return }
+        if clear { messages = [] }
+        sendNotice = nil
         connectionPrompt = nil
         notificationReference = nil; focusedMessage = nil
         do {
             try connection.start(test: test)
             busy = true; status = "Connecting…"
-            write(["type": "connect", "runtime": runtime, "clear": clear])
-        } catch { status = "Could not start the engine. Rebuild the app." }
+            guard write(["type": "connect", "runtime": runtime, "clear": clear]) else { return }
+            connectionDeadline = Task { [weak self, connectionTimeout] in
+                do { try await Task.sleep(for: connectionTimeout) } catch { return }
+                guard let self, !self.connected else { return }
+                self.connection.close()
+                self.connectionClosed("Connection timed out")
+                self.sendNotice = "I couldn’t connect. Check your internet connection, then reconnect. Your draft is still here."
+            }
+        } catch {
+            status = "Could not start the engine"
+            sendNotice = "I couldn’t start. Try reopening the app. Your draft is still here."
+        }
     }
 
     func disconnect() {
+        connectionRequested = false
         connection.close()
         connectionClosed("Disconnected")
     }
 
     private func connectionClosed(_ message: String) {
+        connectionDeadline?.cancel(); connectionDeadline = nil
+        if connected && busy { sendNotice = "The connection dropped during your reply. Reconnect to check the conversation before sending again." }
+        let pending = clientPending; clientPending.removeAll()
+        for waiter in pending.values { waiter.resume(throwing: NSError(domain: "Client", code: 2, userInfo: [NSLocalizedDescriptionKey: "The connection closed. Reconnect and check the request’s status before trying again."])) }
         imageGeneration += 1
         liveVoice.stop(); voice = false; voiceTurn = VoiceTurn()
         finishImport(.failure(CancellationError()))
@@ -232,9 +282,9 @@ final class Chat: ObservableObject {
         waiter?.resume(with: result)
     }
 
-    private func write(_ value: [String: Any]) {
-        do { try connection.send(value) }
-        catch { connection.close(); connectionClosed("Connection closed") }
+    @discardableResult private func write(_ value: [String: Any]) -> Bool {
+        do { try connection.send(value); return true }
+        catch { connection.close(); connectionClosed("Connection closed"); return false }
     }
 
     func receive(_ event: [String: Any]) {
@@ -298,6 +348,8 @@ final class Chat: ObservableObject {
         case "inbox_opened", "work_update":
             if let row = event["message"] as? [String: Any] { appendDiscussion(row) }
         case "ready":
+            connectionDeadline?.cancel(); connectionDeadline = nil
+            if !connected { sendNotice = nil }
             connected = true; busy = false; status = "Connected"
             if let pending = voiceTurn.ready(), voice { submit(pending) }
         case "start":
@@ -325,7 +377,9 @@ final class Chat: ObservableObject {
             memoryPending = (event["pending"] as? NSNumber)?.intValue ?? 0
             memoryErrors = (event["errors"] as? NSNumber)?.intValue ?? 0
         case "status": status = text.replacingOccurrences(of: "_", with: " ")
-        case "error": busy = false; status = text; voice = false; liveVoice.stop(); voiceTurn = VoiceTurn(); finishStreaming()
+        case "error":
+            connectionDeadline?.cancel(); connectionDeadline = nil
+            sendNotice = text; busy = false; status = text; voice = false; liveVoice.stop(); voiceTurn = VoiceTurn(); finishStreaming()
         default: break
         }
     }
@@ -337,8 +391,9 @@ final class Chat: ObservableObject {
 
     func send() {
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard connected, !busy, !text.isEmpty || !pendingImages.isEmpty else { return }
-        if pendingImages.isEmpty { draft = ""; submit(text); return }
+        guard networkAvailable, connected, !busy, !text.isEmpty || !pendingImages.isEmpty else { return }
+        sendNotice = nil
+        if pendingImages.isEmpty { if submit(text) { draft = "" }; return }
         let photos = pendingImages
         let generation = imageGeneration
         busy = true; imageError = ""; status = "Uploading images…"
@@ -352,23 +407,24 @@ final class Chat: ObservableObject {
                 }
                 guard connected, generation == imageGeneration else { throw ImageError.invalid }
                 let content = text.isEmpty ? "Please look at these images." : text
+                guard write(["type": "send", "text": content, "images": ids]) else { return }
                 draft = ""
                 messages.append(ChatMessage(role: "user", text: content, images: ids))
-                write(["type": "send", "text": content, "images": ids])
             } catch { if generation == imageGeneration { imageError = error.localizedDescription; busy = false } }
         }
     }
 
-    private func submit(_ text: String) {
+    @discardableResult private func submit(_ text: String) -> Bool {
         liveVoice.silencePlayback()
         speechBuffer = ""
-        selectedInboxMessageID = nil
-        messages.append(ChatMessage(role: "user", text: text)); busy = true; status = "Thinking…"
         var command: [String: Any] = ["type": "send", "text": text]
         if let reference = notificationReference { command["notification"] = reference }
+        guard write(command) else { return false }
+        selectedInboxMessageID = nil
+        messages.append(ChatMessage(role: "user", text: text)); busy = true; status = "Thinking…"
         notificationReference = nil
-        write(command)
         replyingTo = nil
+        return true
     }
 
     func startReview() {

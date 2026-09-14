@@ -249,7 +249,7 @@ async def main():
             except RuntimeError as error:
                 emit("error", text=str(error))
             except Exception:
-                emit("error", text="Could not connect. Check your database setting and subscription login, then reconnect.")
+                emit("error", text="I couldn’t connect. Check your internet connection and try Reconnect. If it still fails, check the database setting and subscription sign-in.")
     finally:
         tasks = [task for task in (email_task, jobs_task, memory_poll, active, connection_task) if task]
         for task in tasks:
