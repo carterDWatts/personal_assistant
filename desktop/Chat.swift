@@ -241,9 +241,9 @@ final class Chat: ObservableObject {
         }
     }
 
-    func disconnect() {
+    func disconnect(immediately: Bool = false) {
         connectionRequested = false
-        connection.close()
+        connection.close(immediately: immediately)
         connectionClosed("Disconnected")
     }
 

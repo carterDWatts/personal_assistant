@@ -588,6 +588,9 @@ struct SettingsPopover: View {
             if chat.voice { chat.stop() }
         }
         .onDisappear { chat.disconnect() }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.willTerminateNotification)) { _ in
+            chat.disconnect(immediately: true)
+        }
     }
 
     private var conversation: some View {

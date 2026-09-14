@@ -89,7 +89,7 @@ final class EngineConnection {
         try input.write(contentsOf: data + Data([10]))
     }
 
-    func close() {
+    func close(immediately: Bool = false) {
         generation = UUID()
         heartbeat?.cancel(); heartbeat = nil
         outputTask?.cancel()
@@ -97,10 +97,11 @@ final class EngineConnection {
         try? send(["type": "quit"])
         try? input?.close()
         if let child = process, child.isRunning {
-            Task { @MainActor in
+            if immediately { child.terminate() }
+            else { Task { @MainActor in
                 try? await Task.sleep(nanoseconds: 3_000_000_000)
                 if child.isRunning { child.terminate() }
-            }
+            } }
         }
         process = nil
         input = nil
