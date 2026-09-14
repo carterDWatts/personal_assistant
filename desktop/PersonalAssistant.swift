@@ -188,35 +188,47 @@ struct Composer: View {
                 .padding(10).background(palette.surface, in: RoundedRectangle(cornerRadius: 10))
                 .accessibilityElement(children: .contain)
             }
-            HStack(alignment: .bottom, spacing: 8) {
-                ImageAttachmentPicker(images: $chat.pendingImages, error: $chat.imageError).disabled(chat.busy)
-
-                Button { chat.toggleVoice() } label: {
-                    Image(systemName: chat.voice ? "waveform" : "mic").frame(width: 16)
-                }.buttonStyle(.bordered).controlSize(.large).tint(chat.voice ? palette.accent : nil)
-                    .disabled(!chat.connected).help(chat.voice ? "End the voice conversation" : "Talk instead of typing")
+            VStack(alignment: .leading, spacing: 8) {
                 Text(chat.draft.isEmpty ? " " : chat.draft + " ")
-                    .font(.system(size: 15)).lineLimit(1...8).fixedSize(horizontal: false, vertical: true)
-                    .padding(.vertical, 8).frame(maxWidth: .infinity, alignment: .leading).hidden()
-                    .overlay(alignment: .topLeading) {
-                        TextEditor(text: $chat.draft).font(.system(size: 15)).foregroundStyle(palette.ink)
-                            .scrollContentBackground(.hidden).focused($focused).tint(palette.accent)
-                            .accessibilityLabel("Message")
-                        if chat.draft.isEmpty { Text("Reply").font(.system(size: 15)).foregroundStyle(palette.muted).padding(.top, 8).padding(.leading, 5).allowsHitTesting(false) }
+                    .font(.system(size: 16)).lineSpacing(4).lineLimit(2...8)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading).hidden()
+                    .overlay {
+                        ZStack(alignment: .topLeading) {
+                        TextEditor(text: $chat.draft)
+                            .font(.system(size: 16)).lineSpacing(4)
+                            .foregroundStyle(palette.ink).scrollContentBackground(.hidden)
+                            .focused($focused).tint(palette.accent).accessibilityLabel("Message")
+                            .padding(.horizontal, -5).padding(.vertical, -8)
+                        if chat.draft.isEmpty {
+                            Text("Message \(AssistantIdentity.name)…").font(.system(size: 16))
+                                .foregroundStyle(palette.muted).allowsHitTesting(false)
+                        }
+                        }
                     }
-                    .padding(.horizontal, 10).padding(.vertical, 8)
-                    .background(palette.surface, in: RoundedRectangle(cornerRadius: 14))
-                    .overlay(RoundedRectangle(cornerRadius: 14).stroke(focused ? palette.accent.opacity(0.6) : palette.line, lineWidth: 1))
-                if chat.busy && chat.connected {
-                    Button { chat.stop() } label: { Image(systemName: "stop.fill").frame(width: 16) }
-                        .buttonStyle(.bordered).controlSize(.large).help("Stop").accessibilityLabel("Stop reply")
-                } else {
-                    Button { chat.send() } label: { Image(systemName: "arrow.up").frame(width: 16) }
-                        .buttonStyle(.borderedProminent).controlSize(.large).tint(palette.accent)
-                        .disabled(!canSend).keyboardShortcut(.return, modifiers: .command).accessibilityLabel("Send message")
+                    .padding(.top, 6)
+                HStack(spacing: 12) {
+                    ImageAttachmentPicker(images: $chat.pendingImages, error: $chat.imageError).disabled(chat.busy)
+                    Spacer()
+                    Text("⌘ Return to send").font(.caption).foregroundStyle(palette.muted)
+                    Button { chat.toggleVoice() } label: {
+                        Image(systemName: chat.voice ? "waveform" : "mic").frame(width: 30, height: 30)
+                    }.buttonStyle(.plain).foregroundStyle(chat.voice ? palette.accent : palette.muted)
+                        .disabled(!chat.connected).help(chat.voice ? "End voice conversation" : "Talk")
+                    Button { if chat.busy && chat.connected { chat.stop() } else { chat.send() } } label: {
+                        Image(systemName: chat.busy && chat.connected ? "stop.fill" : "arrow.up")
+                            .font(.system(size: 14, weight: .semibold)).frame(width: 34, height: 34)
+                            .foregroundStyle(canSend || chat.busy && chat.connected ? Color.white : palette.muted)
+                            .background(canSend || chat.busy && chat.connected ? palette.accent : palette.line, in: Circle())
+                    }.buttonStyle(.plain).disabled(!canSend && !(chat.busy && chat.connected))
+                        .keyboardShortcut(.return, modifiers: .command)
+                        .accessibilityLabel(chat.busy && chat.connected ? "Stop reply" : "Send message")
                         .help(chat.composerNotice ?? "Send message (⌘Return)")
                 }
             }
+            .padding(16)
+            .background(palette.surface, in: RoundedRectangle(cornerRadius: 18))
+            .overlay(RoundedRectangle(cornerRadius: 18).stroke(focused ? palette.accent.opacity(0.5) : palette.line, lineWidth: 1))
         }
         .onAppear { focused = true }
         .onChange(of: chat.connected) { if $0 { focused = true } }
@@ -412,7 +424,7 @@ struct SettingsPopover: View {
                 Text("Claude").tag("claude-agent-sdk")
                 Text("ChatGPT").tag("codex")
             }.pickerStyle(.segmented).disabled(chat.busy || chat.voice)
-            Toggle("Use the test memory", isOn: $chat.test).disabled(chat.busy || chat.voice)
+            Toggle("Use the test memory", isOn: $chat.test).disabled(chat.busy || chat.voice || chat.meetingCapture.active)
             Text("Changing either reconnects. The conversation continues either way.").font(.caption).foregroundStyle(.secondary)
         }.formStyle(.grouped).frame(width: 300).padding(4)
     }
@@ -495,6 +507,7 @@ struct SettingsPopover: View {
     @State private var showSettings = false
     @State private var showConnections = false
     @State private var showImport = false
+    @State private var showMeetings = false
     @Environment(\.colorScheme) private var scheme
     private var palette: Palette { Palette.forScheme(scheme) }
     private let column: CGFloat = 680
@@ -533,6 +546,8 @@ struct SettingsPopover: View {
                 Button { showConnections.toggle() } label: { Image(systemName: "link") }
                     .help("Connections")
                     .popover(isPresented: $showConnections) { ConnectionsView(chat: chat) }
+                Button { showMeetings = true } label: { Image(systemName: "waveform") }
+                    .help("Import a recorded conversation")
                 Button { showImport = true } label: { Image(systemName: "tray.and.arrow.down") }
                     .help("Import context")
                     .sheet(isPresented: $chat.showEmailDrafts) { EmailDraftsView(initialID: chat.emailDraftID, request: chat.emailRequest).frame(minWidth: 540, minHeight: 580) }
@@ -551,6 +566,7 @@ struct SettingsPopover: View {
         }
         .toolbarBackground(palette.background, for: .windowToolbar)
         .preferredColorScheme(.light)
+        .sheet(isPresented: $showMeetings) { MeetingView(library: chat.meetings, capture: chat.meetingCapture, runtime: chat.runtime) }
         .onAppear {
             chat.liveVoice.prepare()
             if !chat.connected && !chat.busy { chat.connect() }
@@ -609,6 +625,8 @@ struct SettingsPopover: View {
                     }.padding(.horizontal, 32).padding(.top, 16).padding(.bottom, 14)
                         .frame(maxWidth: column).frame(maxWidth: .infinity)
             }
+            MeetingBanner(library: chat.meetings, capture: chat.meetingCapture) { showMeetings = true }
+                .frame(maxWidth: column).padding(.horizontal, 32).padding(.bottom, 8)
             PendingImageStrip(images: $chat.pendingImages, error: chat.imageError)
             Composer(chat: chat, palette: palette)
                 .frame(maxWidth: column).frame(maxWidth: .infinity)

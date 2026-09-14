@@ -141,6 +141,10 @@ func plain(_ value: Any?) -> String {
     @Published var busy = false
     @Published var connected = false
     @Published var voice = false
+    let meetings: MeetingLibrary
+    let meetingCapture: MeetingCapture
+    private var meetingUpdates: AnyCancellable?
+    private var meetingClock: Task<Void, Never>?
     private var imageGeneration = 0
     @Published var pendingImages: [PendingImage] = []
     @Published var imageError = ""
@@ -234,8 +238,16 @@ func plain(_ value: Any?) -> String {
     private var replyState = ReplyState()
 
     init(transport: Transport? = nil) {
+        let library = MeetingLibrary()
+        meetings = library; meetingCapture = MeetingCapture(library: library)
         let transport = transport ?? (ProcessInfo.processInfo.arguments.contains("--sample") ? MockTransport() : RelayTransport())
         self.transport = transport
+        library.upload = { [weak self] args in
+            guard let self, self.connected, Account.shared.signedIn else { throw URLError(.notConnectedToInternet) }
+            try await self.transport.importPart(args)
+        }
+        meetingUpdates = library.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }
+        startMeetingClock()
         Notifications.shared?.onToken = { [weak self] token in self?.registerPush(token) }
         Notifications.shared?.onAction = { [weak self] in self?.loadNotificationDiscussion(); self?.flushReminderActions() }
         liveVoice.onSpeech = { [weak self] in self?.interruptForSpeech() }
@@ -363,6 +375,19 @@ func plain(_ value: Any?) -> String {
         }
     }
 
+    private func startMeetingClock() {
+        meetingClock = Task { [weak self] in
+            var ticks = 0
+            while !Task.isCancelled {
+                do { try await Task.sleep(for: .seconds(10)) } catch { return }
+                guard let self else { return }
+                ticks += 1
+                self.meetings.checkpoint(queue: ticks % 9 == 0 || !self.meetingCapture.active)
+                await self.meetings.sync()
+            }
+        }
+    }
+
     func send() {
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard connected, !busy, !text.isEmpty || !pendingImages.isEmpty else { return }
@@ -382,6 +407,7 @@ func plain(_ value: Any?) -> String {
                 let content = text.isEmpty ? "Please look at these images." : text
                 draft = ""
                 messages.append(ChatMessage(role: "user", text: content, images: ids))
+                transport.setMeetingContext(meetings.context)
                 transport.sendImages(content, id: UUID(), model: selectedModel.isEmpty ? nil : selectedModel, images: ids)
             } catch { if generation == imageGeneration { imageError = error.localizedDescription; busy = false } }
         }
@@ -395,6 +421,7 @@ func plain(_ value: Any?) -> String {
         if speak && voice { liveVoice.prepareReply() }
         selectedInboxMessageID = nil
         if mode == "talk" { messages.append(ChatMessage(role: "user", text: text)) }; busy = true
+        transport.setMeetingContext(mode == "talk" ? meetings.context : nil)
         transport.send(text, id: UUID(), speech: speak && voice && hostSpeaks, model: selectedModel.isEmpty ? nil : selectedModel, mode: mode, notification: notificationDiscussion.map { $0.filter { ["kind", "id", "message_id"].contains($0.key) } })
         clearNotificationDiscussion()
     }
@@ -519,11 +546,14 @@ func plain(_ value: Any?) -> String {
     }
 
     func toggleVoice() {
+        guard !meetingCapture.active else { status = "Meeting recording is using the microphone. You can still type."; return }
         if voice { stop(); return }
         voice = true
         transport.foreground(true)
         liveVoice.start()
     }
+
+    func prepareMeeting() { voice = false; liveVoice.stop() }
 
     func toggleMute() { liveVoice.setMuted(!liveVoice.muted) }
 

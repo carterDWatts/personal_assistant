@@ -36,6 +36,8 @@ struct RelayError: LocalizedError {
     private var failures = 0
     private var replaying = false
     private var draining = false
+    private var meetingContext: String?
+    func setMeetingContext(_ text: String?) { meetingContext = text }
     private var playerGeneration = 0
     private let socket = RelaySocket()
     var socketResponses: Int { socket.responses }
@@ -193,10 +195,12 @@ struct RelayError: LocalizedError {
         submit(text, id: id, speech: false, model: model, mode: "talk", notification: nil, images: images)
     }
     private func submit(_ text: String, id: UUID, speech: Bool, model: String?, mode: String, notification: [String: String]?, images: [String]) {
+        let context = meetingContext
         Task {
             do {
                 var args: [String: Any] = ["client_message_id": id.uuidString.lowercased(), "text": text, "images": images]
                 args["mode"] = mode
+                if mode == "talk", let context { args["meeting_context"] = context }
                 if let notification { args["notification"] = notification }
                 if speech {
                     args["speech"] = true

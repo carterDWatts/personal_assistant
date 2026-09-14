@@ -27,6 +27,26 @@ class desktop_test(unittest.TestCase):
 
 
 class desktop_voice_test(unittest.IsolatedAsyncioTestCase):
+    async def test_meeting_upload_works_before_any_text_import(self):
+        import json
+        from io import StringIO
+        from engine import desktop
+        map_ = Mock(url='fixture')
+        map_.rows.return_value = []
+        map_.row.return_value = {'pending': 0, 'errors': 0}
+        map_.value.return_value = {'ok': True}
+        session = Mock(open=AsyncMock(), close=AsyncMock())
+        commands = [{'type': 'connect', 'runtime': 'codex'},
+                    {'type': 'meeting_import', 'request_id': 'meeting-1', 'args': {'text': 'Fixture'}},
+                    {'type': 'quit'}]
+        incoming = StringIO(''.join(json.dumps(item)+'\n' for item in commands))
+        with patch.object(desktop, 'load_settings'), patch.object(desktop.sys, 'stdin', incoming), \
+             patch.object(desktop, 'emit') as emit, patch('engine.db.Map', return_value=map_), \
+             patch('engine.engine.Session', return_value=session), patch('engine.runtime.load'), \
+             patch('engine.jobs.run', new_callable=AsyncMock):
+            await desktop.main()
+        emit.assert_any_call('client_response', request_id='meeting-1', result={'ok': True})
+
     async def test_database_closes_even_if_session_cleanup_fails(self):
         from io import StringIO
         from engine import desktop

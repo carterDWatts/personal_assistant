@@ -30,6 +30,7 @@ def emit(kind, **values):
 
 class DesktopIO:
     waiting = None
+    def message_saved(self, text, message_id): emit("message_saved", text=text, message_id=message_id)
     def input_saved(self, images): emit("images_saved", images=images)
     def start_turn(self): emit("start")
     def delta(self, text): emit("delta", text=text)
@@ -56,7 +57,7 @@ class DesktopIO:
 async def main():
     load_settings()
     from engine import config
-    from engine.db import Map
+    from engine.db import Map, jsonb
     from engine.engine import Session
     from engine.runtime import load
     from engine.jobs import run as run_jobs
@@ -132,12 +133,14 @@ async def main():
 
     interrupted = False
 
-    async def reply(text, reference=None, images=None, role="user"):
+    async def reply(text, reference=None, images=None, role="user", meeting=None):
         nonlocal interrupted
         interrupted = False
         try:
             from engine.notifications import discussion_context
-            await session.send(text, role=role, extra_context=discussion_context(map_,reference) if reference else "",images=images)
+            from engine.meetings import context as meeting_context
+            extra = discussion_context(map_,reference) if reference else ""
+            await session.send(text, role=role, extra_context=extra+'\n\n'+meeting_context(meeting),images=images)
         except RuntimeError as error:
             if interrupted:
                 emit("ready")
@@ -152,6 +155,9 @@ async def main():
             try:
                 message = json.loads(line)
                 action = message.get("type")
+                if action == "ping":
+                    emit("pong")
+                    continue
                 if action == "connections":
                     emit("connections", **(await connection_status()),
                          connecting=bool(connection_task and not connection_task.done()))
@@ -166,8 +172,13 @@ async def main():
                             raise ValueError("Unknown connection")
                         connection_task = asyncio.create_task(service_action(action, provider, token))
                         token = None
+                elif action == "meeting_import" and map_:
+                    try:
+                        result = map_.value("select memory.import_part(%s)", (jsonb(message["args"]),))
+                        emit("client_response", request_id=message.get("request_id"), result=result)
+                    except Exception:
+                        emit("client_response", request_id=message.get("request_id"), error="Transcript upload will retry when connected.")
                 elif action in ("import_part", "imports") and map_:
-                    from engine.db import jsonb
                     try:
                         if action == "import_part":
                             result = map_.value("select memory.import_part(%s)", (jsonb(message["args"]),))
@@ -238,7 +249,7 @@ async def main():
                     text = message.get("text", "").strip()
                     if text:
                         session.io.waiting=None
-                        active = asyncio.create_task(reply(text, message.get("notification"), message.get("images")))
+                        active = asyncio.create_task(reply(text, message.get("notification"), message.get("images"), meeting=message.get("meeting_context")))
                 elif action == "stop" and session:
                     interrupted = bool(active and not active.done())
                     if not interrupted:

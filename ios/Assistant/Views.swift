@@ -421,6 +421,7 @@ struct ConversationView: View {
     @State private var showSettings = false
     @State private var showConnections = false
     @State private var showImport = false
+    @State private var showMeetings = false
     @State private var typing = false
     @Environment(\.scenePhase) private var phase
     private let palette = Palette.concrete
@@ -443,6 +444,7 @@ struct ConversationView: View {
                     Text(chat.status).font(.caption).foregroundStyle(palette.muted).frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.horizontal, 20).padding(.bottom, 6)
                 }
+                MeetingBanner(library: chat.meetings, capture: chat.meetingCapture) { showMeetings = true }.padding(.horizontal, 16)
                 Composer(chat: chat, palette: palette).padding(.horizontal, 16).padding(.bottom, 10)
             }
         }
@@ -455,6 +457,7 @@ struct ConversationView: View {
         .sheet(isPresented: $chat.showInbox) { MessageInbox(palette: palette, request: chat.inboxRequest, open: chat.openInbox) }
         .sheet(isPresented: $chat.showEmailDrafts) { EmailDraftsView(initialID: chat.emailDraftID, request: chat.emailRequest) }
         .sheet(isPresented: $showSettings) { SettingsView(chat: chat, palette: palette) }
+        .sheet(isPresented: $showMeetings) { MeetingView(library: chat.meetings, capture: chat.meetingCapture, runtime: chat.selectedModel.hasPrefix("claude-agent-sdk/") ? "claude-agent-sdk" : "codex", beforeRecording: chat.prepareMeeting) }
         .sheet(isPresented: $showImport) { ContextImportView(upload: chat.importPart, refresh: chat.imports, runtime: chat.selectedModel.hasPrefix("claude-agent-sdk/") ? "claude-agent-sdk" : "codex") }
         .sheet(isPresented: $showConnections) { ConnectionsView(chat: chat, palette: palette) }
         .sheet(isPresented: Binding(get: { chat.tokenForm != nil }, set: { if !$0 { chat.tokenForm = nil } })) {
@@ -499,6 +502,7 @@ struct ConversationView: View {
             Menu {
                 Button("Clear", systemImage: "eraser") { chat.draft = ""; chat.connect(clear: true) }.disabled(!chat.connected || chat.busy)
                 Button("Start morning", systemImage: "sun.horizon") { chat.startMorning() }.disabled(!chat.connected || chat.busy)
+                Button("Record or import conversation", systemImage: "waveform") { showMeetings = true }
                 Button("Import context", systemImage: "doc.badge.plus") { showImport = true }
                 Button("Connections", systemImage: "link") { showConnections = true }
                 Button("Settings", systemImage: "gearshape") { showSettings = true }

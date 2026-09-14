@@ -155,6 +155,8 @@ class Host:
         if turn.get('invocation')=='connection':
             original=self.map.value('select t.text from assistant.connection_waits w join assistant.turns t on t.id=w.turn_id where w.resumed_turn=%s',(turn['id'],))
             extra+='\nOriginal waiting request (context, not a request to replay completed actions):\n'+(original or '')
+        from engine.meetings import context as meeting_context
+        extra += '\n\n' + meeting_context(turn.get('meeting_context'))
         if turn.get('notification'):
             from engine.notifications import discussion_context
             extra += '\n\n' + discussion_context(self.map,turn['notification'])

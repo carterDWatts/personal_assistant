@@ -10,9 +10,15 @@ final class EngineConnection {
     private var outputTask: Task<Void, Never>?
     private var buffer = Data()
     private var generation = UUID()
+    private var heartbeat: Task<Void, Never>?
+    private var lastEvent = ContinuousClock.now
+    private let heartbeatInterval: Duration
+    private let heartbeatTimeout: Duration
 
-    init(settings: [String: Any] = Bundle.main.infoDictionary ?? [:]) {
+    init(settings: [String: Any] = Bundle.main.infoDictionary ?? [:], heartbeatInterval: Duration = .seconds(10), heartbeatTimeout: Duration = .seconds(30)) {
         self.settings = settings
+        self.heartbeatInterval = heartbeatInterval
+        self.heartbeatTimeout = heartbeatTimeout
     }
 
     func start(test: Bool) throws {
@@ -45,6 +51,8 @@ final class EngineConnection {
                     let line = self.buffer[..<end]
                     self.buffer.removeSubrange(...end)
                     if let event = (try? JSONSerialization.jsonObject(with: line)) as? [String: Any] {
+                        self.lastEvent = .now
+                        if event["type"] as? String == "ready", self.heartbeat == nil { self.watchHealth() }
                         self.onEvent?(event)
                     }
                     // A callback may reconnect while this chunk still has old events.
@@ -58,6 +66,23 @@ final class EngineConnection {
         }
     }
 
+    private func watchHealth() {
+        heartbeat = Task { [weak self, heartbeatInterval, heartbeatTimeout] in
+            while !Task.isCancelled {
+                do { try await Task.sleep(for: heartbeatInterval) } catch { return }
+                guard let self else { return }
+                do {
+                    guard self.lastEvent.duration(to: .now) < heartbeatTimeout else { throw URLError(.timedOut) }
+                    try self.send(["type": "ping"])
+                } catch {
+                    self.close()
+                    self.onClose?()
+                    return
+                }
+            }
+        }
+    }
+
     func send(_ value: [String: Any]) throws {
         guard let input else { throw CocoaError(.fileWriteUnknown) }
         let data = try JSONSerialization.data(withJSONObject: value)
@@ -66,6 +91,7 @@ final class EngineConnection {
 
     func close() {
         generation = UUID()
+        heartbeat?.cancel(); heartbeat = nil
         outputTask?.cancel()
         outputTask = nil
         try? send(["type": "quit"])

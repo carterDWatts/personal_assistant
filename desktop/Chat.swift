@@ -36,6 +36,11 @@ private func plain(_ value: Any?) -> String {
 
 @MainActor
 final class Chat: ObservableObject {
+    let meetings: MeetingLibrary
+    let meetingCapture: MeetingCapture
+    private var meetingUpdates: AnyCancellable?
+    private let scopeMeetings: Bool
+    private var meetingClock: Task<Void, Never>?
     private var imageGeneration = 0
     @Published var pendingImages: [PendingImage] = []
     @Published var imageError = ""
@@ -111,7 +116,13 @@ final class Chat: ObservableObject {
             messages.append(ChatMessage(role: "assistant", text: content, at: parseDate(row["created_at"]) ?? Date(), databaseID: id, reference: (row["payload"] as? [String: Any])?["reference"] as? [String: String], inboxSourceID: (row["payload"] as? [String: Any])?["inbox_source_id"] as? String, emailDrafts: (row["payload"] as? [String: Any])?["email_drafts"] as? [String] ?? []))
         }
     }
-    @Published var draft = UserDefaults.standard.string(forKey: "draft") ?? "" {
+    private var pendingSubmission: String? = UserDefaults.standard.string(forKey: "pendingSubmission") {
+        didSet { UserDefaults.standard.set(pendingSubmission, forKey: "pendingSubmission") }
+    }
+    @Published var draft: String = {
+        let saved = UserDefaults.standard.string(forKey: "draft") ?? ""
+        return saved.isEmpty ? UserDefaults.standard.string(forKey: "pendingSubmission") ?? "" : saved
+    }() {
         didSet { UserDefaults.standard.set(draft, forKey: "draft") }
     }
     @Published var status = "Starting…"
@@ -166,7 +177,10 @@ final class Chat: ObservableObject {
 
     convenience init() { self.init(connection: EngineConnection()) }
 
-    init(connection: EngineConnection, monitorNetwork: Bool = true, connectionTimeout: Duration = .seconds(45)) {
+    init(connection: EngineConnection, monitorNetwork: Bool = true, connectionTimeout: Duration = .seconds(45), meetingLibrary: MeetingLibrary? = nil) {
+        scopeMeetings = meetingLibrary == nil
+        let library = meetingLibrary ?? MeetingLibrary()
+        meetings = library; meetingCapture = MeetingCapture(library: library)
         self.connection = connection
         self.connectionTimeout = connectionTimeout
         connection.onEvent = { [weak self] event in self?.receive(event) }
@@ -175,6 +189,12 @@ final class Chat: ObservableObject {
         liveVoice.onSpeech = { [weak self] in self?.interruptForSpeech() }
         liveVoice.onUtterance = { [weak self] text in self?.sendVoice(text) }
         liveVoice.onError = { [weak self] text in self?.voice = false; self?.status = text }
+        library.upload = { [weak self] args in
+            guard let self, self.connected else { throw URLError(.notConnectedToInternet) }
+            _ = try await self.clientRequest("meeting_import", args)
+        }
+        meetingUpdates = library.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }
+        if meetingLibrary == nil { startMeetingClock() }
         if monitorNetwork {
             networkMonitor.pathUpdateHandler = { [weak self] path in
                 let available = path.status == .satisfied
@@ -184,7 +204,7 @@ final class Chat: ObservableObject {
         }
     }
 
-    deinit { networkMonitor.cancel(); connectionDeadline?.cancel() }
+    deinit { networkMonitor.cancel(); connectionDeadline?.cancel(); meetingClock?.cancel() }
 
     func networkChanged(available: Bool) {
         guard networkAvailable != available else { return }
@@ -198,6 +218,7 @@ final class Chat: ObservableObject {
     func connect(clear: Bool = false) {
         disconnect()
         connectionRequested = true
+        if scopeMeetings { meetings.scope(test ? "mac-test" : "mac-prod") }
         guard networkAvailable else { status = "Offline"; return }
         if clear { messages = [] }
         sendNotice = nil
@@ -228,6 +249,7 @@ final class Chat: ObservableObject {
 
     private func connectionClosed(_ message: String) {
         connectionDeadline?.cancel(); connectionDeadline = nil
+        if let pendingSubmission, draft.isEmpty { draft = pendingSubmission }
         if connected && busy { sendNotice = "The connection dropped during your reply. Reconnect to check the conversation before sending again." }
         let pending = clientPending; clientPending.removeAll()
         for waiter in pending.values { waiter.resume(throwing: NSError(domain: "Client", code: 2, userInfo: [NSLocalizedDescriptionKey: "The connection closed. Reconnect and check the request’s status before trying again."])) }
@@ -291,6 +313,8 @@ final class Chat: ObservableObject {
         guard let type = event["type"] as? String else { return }
         let text = event["text"] as? String ?? ""
         switch type {
+        case "message_saved":
+            if pendingSubmission == text { pendingSubmission = nil }
         case "client_response":
             if let id = event["request_id"] as? String, let pending = clientPending.removeValue(forKey: id) {
                 if let error = event["error"] as? String { pending.resume(throwing: NSError(domain: "Client", code: 1, userInfo: [NSLocalizedDescriptionKey: error])) }
@@ -378,6 +402,7 @@ final class Chat: ObservableObject {
             memoryErrors = (event["errors"] as? NSNumber)?.intValue ?? 0
         case "status": status = text.replacingOccurrences(of: "_", with: " ")
         case "error":
+            if let pendingSubmission, draft.isEmpty { draft = pendingSubmission }
             connectionDeadline?.cancel(); connectionDeadline = nil
             sendNotice = text; busy = false; status = text; voice = false; liveVoice.stop(); voiceTurn = VoiceTurn(); finishStreaming()
         default: break
@@ -387,6 +412,19 @@ final class Chat: ObservableObject {
     private func finishStreaming() {
         messages.removeAll { $0.id == streamingID && $0.text.isEmpty && $0.images.isEmpty && $0.emailDrafts.isEmpty }
         streamingID = nil
+    }
+
+    private func startMeetingClock() {
+        meetingClock = Task { [weak self] in
+            var ticks = 0
+            while !Task.isCancelled {
+                do { try await Task.sleep(for: .seconds(10)) } catch { return }
+                guard let self else { return }
+                ticks += 1
+                self.meetings.checkpoint(queue: ticks % 9 == 0 || !self.meetingCapture.active)
+                await self.meetings.sync()
+            }
+        }
     }
 
     func send() {
@@ -407,6 +445,7 @@ final class Chat: ObservableObject {
                 }
                 guard connected, generation == imageGeneration else { throw ImageError.invalid }
                 let content = text.isEmpty ? "Please look at these images." : text
+                pendingSubmission = content
                 guard write(["type": "send", "text": content, "images": ids]) else { return }
                 draft = ""
                 messages.append(ChatMessage(role: "user", text: content, images: ids))
@@ -419,6 +458,8 @@ final class Chat: ObservableObject {
         speechBuffer = ""
         var command: [String: Any] = ["type": "send", "text": text]
         if let reference = notificationReference { command["notification"] = reference }
+        if let context = meetings.context { command["meeting_context"] = context }
+        pendingSubmission = text
         guard write(command) else { return false }
         selectedInboxMessageID = nil
         messages.append(ChatMessage(role: "user", text: text)); busy = true; status = "Thinking…"

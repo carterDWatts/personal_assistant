@@ -40,7 +40,9 @@ import Darwin
                 emit({'type':'history','messages':[{'role':'assistant','content':os.environ['ASSISTANT_ENV'],'id':1}]})
                 emit({'type':'ready'})
             if kind == 'send':
+                if request['text'] == 'Unacknowledged message': continue
                 emit({**request, 'type':'command'})
+                emit({'type':'message_saved','text':request['text'],'message_id':2})
                 emit({'type':'start'})
                 emit({'type':'delta','text':request['text']})
                 emit({'type':'end'})
@@ -55,6 +57,13 @@ import Darwin
         """#
         try fixture.write(to: root.appendingPathComponent("engine/desktop.py"), atomically: true, encoding: .utf8)
         let settings: [String: Any] = ["AssistantRoot": root.path, "AssistantPython": "/usr/bin/python3"]
+        let stalled = EngineConnection(settings: settings, heartbeatInterval: .milliseconds(30), heartbeatTimeout: .milliseconds(100))
+        var detectedStall = false
+        stalled.onClose = { detectedStall = true }
+        try stalled.start(test: true)
+        try stalled.send(["type": "connect"])
+        try await wait("unresponsive engine detected") { detectedStall }
+        stalled.close()
         let connection = EngineConnection(settings: settings)
         defer { connection.close(); connection.onEvent = nil; connection.onClose = nil }
 
@@ -95,11 +104,13 @@ import Darwin
 
         let oldTest = UserDefaults.standard.object(forKey: "testMemory")
         let oldDraft = UserDefaults.standard.object(forKey: "draft")
+        let oldPending = UserDefaults.standard.object(forKey: "pendingSubmission")
         defer {
             UserDefaults.standard.set(oldTest, forKey: "testMemory")
             UserDefaults.standard.set(oldDraft, forKey: "draft")
+            UserDefaults.standard.set(oldPending, forKey: "pendingSubmission")
         }
-        let chat = Chat(connection: connection, monitorNetwork: false)
+        let chat = Chat(connection: connection, monitorNetwork: false, meetingLibrary: MeetingLibrary(directory: root.appendingPathComponent("meetings")))
         defer { chat.disconnect() }
         var command: [String: Any] = [:]
         let receive = connection.onEvent
@@ -128,6 +139,13 @@ import Darwin
             try await wait("next reply") { !chat.busy }
             precondition(chat.messages.last?.text == text)
         }
+        chat.draft = "Unacknowledged message"
+        chat.send()
+        chat.disconnect()
+        precondition(chat.draft == "Unacknowledged message", "A lost connection must restore text not yet acknowledged by the database")
+        chat.draft = ""
+        chat.connect()
+        try await wait("reconnect after lost acknowledgement") { chat.connected }
 
         chat.draft = "Keep this unsent draft 🐇"
         let countBeforeOffline = chat.messages.count
@@ -157,7 +175,7 @@ import Darwin
 
         // Ignore ready to simulate a host that never completes startup.
         let stalledConnection = EngineConnection(settings: settings)
-        let timedOut = Chat(connection: stalledConnection, monitorNetwork: false, connectionTimeout: .milliseconds(30))
+        let timedOut = Chat(connection: stalledConnection, monitorNetwork: false, connectionTimeout: .milliseconds(30), meetingLibrary: MeetingLibrary(directory: root.appendingPathComponent("meetings")))
         stalledConnection.onEvent = nil
         timedOut.connect()
         try await wait("connection timeout") { !timedOut.busy }

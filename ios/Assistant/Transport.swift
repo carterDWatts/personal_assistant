@@ -8,6 +8,7 @@ import AVFoundation
     func connect(clear: Bool)
     func send(_ text: String, id: UUID, speech: Bool, model: String?, mode: String, notification: [String: String]?)
     func sendImages(_ text: String, id: UUID, model: String?, images: [String])
+    func setMeetingContext(_ text: String?)
     func stop()
     func foreground(_ active: Bool)
     func close()
@@ -215,3 +216,5 @@ struct MockError: LocalizedError {
     func importPart(_ args: [String: Any]) async throws { throw ConnectionFailure("Imports are unavailable in preview.") }
     func imports() async throws -> [[String: Any]] { [] }
 }
+
+@MainActor extension Transport { func setMeetingContext(_ text: String?) {} }

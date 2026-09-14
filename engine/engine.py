@@ -107,6 +107,8 @@ class Session:
             image_content=await asyncio.to_thread(Images(self.map).contents,image_ids)
             opening += '\nAttached image IDs: '+', '.join(image_ids)
         mid = self.conv.record(self.segment_id, role, text, {"images":image_ids} if image_ids else None)
+        if role == 'user' and (saved := getattr(self.io, "message_saved", None)):
+            saved(text, mid)
         if image_ids and (saved := getattr(self.io, "input_saved", None)):
             saved(image_ids)
         if timing := getattr(self.io, "timing", None):

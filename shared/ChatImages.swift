@@ -54,15 +54,19 @@ struct ImageAttachmentPicker: View {
             }
         }
         #else
+        HStack(spacing: 2) {
+        Button { choose = true } label: { Label("Add photo", systemImage: "photo.badge.plus").font(.callout) }
+            .buttonStyle(.plain).help("Choose photos from your Mac").accessibilityLabel("Add photo")
         Menu {
-            Button("Choose images…") { choose = true }
             Button("Paste image") {
                 do {
                     guard let image = NSImage(pasteboard: .general), let data = image.tiffRepresentation else { throw ImageError.invalid }
                     images.append(try PendingImage(data: data, name: "Pasted image.jpg"))
                 } catch { self.error = error.localizedDescription }
             }
-        } label: { Image(systemName: "photo.badge.plus") }.disabled(images.count >= 4)
+        } label: { Image(systemName: "chevron.down").font(.caption) }
+            .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize().help("More photo options")
+        }.disabled(images.count >= 4)
         .fileImporter(isPresented: $choose, allowedContentTypes: [.image], allowsMultipleSelection: true) { result in
             do {
                 for url in try result.get().prefix(4-images.count) {

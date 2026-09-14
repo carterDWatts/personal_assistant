@@ -28,12 +28,16 @@ targets:
       - path: ../shared/IntegrationCatalog.swift
       - path: ../shared/SpotifyCommand.swift
       - path: ../shared/DaySchedule.swift
+      - path: ../shared/PlanNotes.swift
       - path: ../shared/integrations.json
         buildPhase: resources
       - path: ../shared/ChatImages.swift
       - path: ../shared/EmailDrafts.swift
       - path: ../shared/MessageInbox.swift
       - path: ../shared/ContextImport.swift
+      - path: ../shared/MeetingLibrary.swift
+      - path: ../shared/MeetingCapture.swift
+      - path: ../shared/MeetingView.swift
       - path: ../desktop/VoiceTurn.swift
       - path: ../identity.json
         buildPhase: resources
@@ -45,7 +49,7 @@ targets:
         CFBundleDisplayName: Bunny Man
         CFBundleName: Bunny Man
         NSAlarmKitUsageDescription: I can ring an alarm for a reminder you explicitly ask me not to let you miss.
-        NSMicrophoneUsageDescription: The microphone is on while a voice conversation is on.
+        NSMicrophoneUsageDescription: Record meetings or talk to Bunny Man when you turn the microphone on.
         NSSpeechRecognitionUsageDescription: What you say is turned into text so the assistant can answer.
         UILaunchScreen: {}
         UISupportedInterfaceOrientations:
