@@ -171,7 +171,7 @@ struct MessageRow: View {
 struct Composer: View {
     @ObservedObject var chat: Chat
     let palette: Palette
-    @FocusState private var focused: Bool
+    @State private var focused = false
     private var canSend: Bool { chat.connected && !chat.busy && (!chat.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !chat.pendingImages.isEmpty) }
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -194,17 +194,9 @@ struct Composer: View {
                     .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity, alignment: .leading).hidden()
                     .overlay {
-                        ZStack(alignment: .topLeading) {
-                        TextEditor(text: $chat.draft)
-                            .font(.system(size: 16)).lineSpacing(4)
-                            .foregroundStyle(palette.ink).scrollContentBackground(.hidden)
-                            .focused($focused).tint(palette.accent).accessibilityLabel("Message")
-                            .padding(.horizontal, -5).padding(.vertical, -8)
-                        if chat.draft.isEmpty {
-                            Text("Message \(AssistantIdentity.name)…").font(.system(size: 16))
-                                .foregroundStyle(palette.muted).allowsHitTesting(false)
-                        }
-                        }
+                        ComposerInput(text: $chat.draft, focused: $focused, images: $chat.pendingImages,
+                                      error: $chat.imageError, placeholder: "Message \(AssistantIdentity.name)…",
+                                      ink: palette.ink, muted: palette.muted, accent: palette.accent)
                     }
                     .padding(.top, 6)
                 HStack(spacing: 12) {
