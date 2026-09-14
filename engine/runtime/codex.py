@@ -86,6 +86,8 @@ class CodexRuntime:
         self.tools = {s.name: s for s in tools}
         state = Path.home() / "Library/Application Support/Personal Assistant" / config.ENV / "codex"
         state.mkdir(parents=True, exist_ok=True, mode=0o700)
+        from engine.runtime.storage import trim_logs
+        await asyncio.to_thread(trim_logs, state)
         toolsets = state / "toolsets"
         toolsets.mkdir(exist_ok=True, mode=0o700)
         signature = hashlib.sha256(json.dumps([system_prompt, [(t.name, t.description, t.schema) for t in tools]], sort_keys=True).encode()).hexdigest()

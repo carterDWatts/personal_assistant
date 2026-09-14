@@ -12,8 +12,8 @@ async def available():
             if not model.get('hidden'):
                 result.append({'id': 'codex/' + model['model'], 'runtime': 'codex',
                                'model': model['model'], 'name': model.get('displayName', model['model'])})
-    except Exception:
-        pass
+    except Exception as error:
+        print(f'ChatGPT model discovery unavailable ({type(error).__name__}).', flush=True)
     finally:
         await runtime.close()
     if os.environ.get('CLAUDE_CODE_OAUTH_TOKEN'):

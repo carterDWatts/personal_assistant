@@ -246,6 +246,7 @@ class Host:
             self.models = await available()
             self.speech = Speech(self)
             speech_ready = await self.speech.start()
+            self.speech_ready = speech_ready
             # Opening a harness does not generate a reply or consume an inference turn.
             model = self.map.value('select model from assistant.turns order by created_at desc limit 1')
             try:
@@ -344,6 +345,28 @@ async def supervise(host, services):
         await asyncio.gather(running, *workers, return_exceptions=True)
 
 
+async def runtime_maintenance(host):
+    from pathlib import Path
+    from engine.runtime.storage import trim_logs
+    from engine.models import available
+    from engine.voice.catalog import choices
+    await host.ready.wait()
+    state = Path.home() / 'Library/Application Support/Personal Assistant' / config.ENV / 'codex'
+    while not host.stopping.is_set():
+        try:
+            await asyncio.to_thread(trim_logs, state)
+            if not any(model['runtime'] == 'codex' for model in host.models):
+                models = await available()
+                if any(model['runtime'] == 'codex' for model in models):
+                    host.models = models
+                    await host.call(host.relay.capabilities, {'models': models, 'speech': host.speech_ready,
+                                    'voices': choices() if host.speech_ready else []})
+        except Exception as error:
+            print(f'Runtime maintenance deferred ({type(error).__name__}).', flush=True)
+        with contextlib.suppress(asyncio.TimeoutError):
+            await asyncio.wait_for(host.stopping.wait(), 300)
+
+
 async def main():
     from engine.integrations.email import run as send_mail
     from engine.background import gather_sources, classify_mail
@@ -373,6 +396,7 @@ async def main():
             'development': run_developer(relay_map.url, host),
             'attention': run_attention(relay_map.url, host),
             'memory': memory_loop(relay_map.url, host),
+            'runtime_maintenance': runtime_maintenance(host),
         })
 
 
