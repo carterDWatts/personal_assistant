@@ -9,9 +9,9 @@ NAME=personal-assistant-pg-test
 IMAGE=pgvector/pgvector:pg17
 PORT=55432
 
-docker rm -f "$NAME" >/dev/null 2>&1 || true
-docker run -d --name "$NAME" -e POSTGRES_PASSWORD=test -e POSTGRES_DB=app -p "127.0.0.1:$PORT:5432" "$IMAGE" >/dev/null
-trap 'docker rm -f "$NAME" >/dev/null 2>&1 || true' EXIT
+docker rm -fv "$NAME" >/dev/null 2>&1 || true
+docker run -d --name "$NAME" --label app=personal-assistant --label purpose=tests -e POSTGRES_PASSWORD=test -e POSTGRES_DB=app -p "127.0.0.1:$PORT:5432" "$IMAGE" >/dev/null
+trap 'docker rm -fv "$NAME" >/dev/null 2>&1 || true' EXIT
 
 for _ in $(seq 1 30); do
   docker exec "$NAME" pg_isready -h 127.0.0.1 -U postgres -d app >/dev/null 2>&1 && break
