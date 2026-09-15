@@ -11,6 +11,7 @@ from urllib.parse import quote
 
 from engine import credentials as keyring
 from google.auth.transport.requests import AuthorizedSession, Request
+from google.auth.exceptions import RefreshError
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 
@@ -47,8 +48,24 @@ def _credentials(action="google_connect"):
     try:
         raw = keyring.get_password(SERVICE, _account(action))
     except keyring.errors.KeyringError:
-        return None
+        raise ToolError("I couldn’t read the saved Google connection. Try again shortly.") from None
     return Credentials.from_authorized_user_info(json.loads(raw)) if raw else None
+
+
+def refresh(credentials, action="google_connect"):
+    if credentials.valid:
+        return
+    try:
+        credentials.refresh(Request())
+        keyring.set_password(SERVICE, _account(action), credentials.to_json())
+    except RefreshError as error:
+        detail = next((arg for arg in error.args if isinstance(arg, dict)), {})
+        if detail.get('error') == 'invalid_grant':
+            raise ConnectionRequired("Google rejected the saved sign-in. Please reconnect this account.", action) from None
+        raise ToolError("Google couldn’t renew access right now. Try again shortly.") from None
+    except Exception:
+        # Network and credential-storage failures do not mean permission was revoked.
+        raise ToolError("I couldn’t renew the Google connection right now. Try again shortly.") from None
 
 
 def status():
@@ -111,12 +128,7 @@ def _request(method, path, params=None, body=None, headers=None, required_scope=
             raise ConnectionRequired("Google is not connected. Use Connect Google in the chat.", "google_connect")
         if method != "GET" and not credentials.has_scopes([required_scope or WRITE_SCOPE]):
             raise ConnectionRequired("Calendar editing needs permission. Choose Enable calendar editing in the chat.", "google_calendar_write")
-        try:
-            if not credentials.valid:
-                credentials.refresh(Request())
-                keyring.set_password(SERVICE, config.ENV, credentials.to_json())
-        except Exception:
-            raise ConnectionRequired("Google access has expired. Reconnect Google in the chat.", "google_connect") from None
+        refresh(credentials)
     with AuthorizedSession(credentials) as session:
         response = session.request(method, "https://www.googleapis.com/" + path, params=params, json=body, headers=headers, timeout=10)
         if response.status_code == 409 and method == "POST" and body and body.get("id"):
@@ -155,12 +167,7 @@ def read_data(action, path, params=None, *, text=False):
         credentials = _credentials(action)
         if not credentials or not credentials.has_scopes(scopes):
             raise ConnectionRequired(f"Connect {label} in the chat to read this data.", action)
-        try:
-            if not credentials.valid:
-                credentials.refresh(Request())
-                keyring.set_password(SERVICE, _account(action), credentials.to_json())
-        except Exception:
-            raise ConnectionRequired(f"Reconnect {label} in the chat.", action) from None
+        refresh(credentials, action)
     # Paths are assembled by connector code, never accepted as URLs from a tool caller.
     if path.startswith(("/", "http:" , "https:")):
         raise ToolError("Invalid Google resource path.")

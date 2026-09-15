@@ -69,13 +69,17 @@ export async function connection(config: Config, user: string, input: any, fetch
     if (oauthProviders.some(item => item.id === provider)) return startAccount(config,user,input.device_id,provider,fetcher);
     if (provider !== 'google') throw new Error('invalid_request');
     const client = registration(config, 'google');
+    // Reconnecting a shared slot must preserve permissions already granted to it.
+    const allowed = new Set(Object.values(grants).filter(g => g.slot === name).flatMap(g => g.scopes));
+    const previous = rows.find(r => r.slot === name)?.metadata?.scopes || [];
+    const scopes = [...new Set([...grants[grant].scopes, ...previous.filter((s: string) => allowed.has(s))])];
     const state = random(), verifier = random();
     const stateHash = await hash(state);
     const intent = await store(config,user,input.device_id,'begin',{slot:name,state_hash:stateHash,
-      verifier:await seal(config,JSON.stringify({verifier,scopes:grants[grant].scopes}),`oauth:${stateHash}`)},fetcher);
+      verifier:await seal(config,JSON.stringify({verifier,scopes}),`oauth:${stateHash}`)},fetcher);
     const url = new URL(client.authorize);
     url.search = new URLSearchParams({client_id:client.id,redirect_uri:callbackURL(config),response_type:'code',
-      scope:['openid','email',...grants[grant].scopes].join(' '),access_type:'offline',prompt:'consent',
+      scope:['openid','email',...scopes].join(' '),access_type:'offline',prompt:'consent',
       state,code_challenge:await hash(verifier),code_challenge_method:'S256'}).toString();
     return {...intent,url:url.toString()};
   }

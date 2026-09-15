@@ -331,3 +331,26 @@ test('image upload rejects a claimed image MIME type with different bytes', asyn
   assert.equal((await run(request({action:'image',device_id:device,args:{operation:'upload',id:owner,name:'fake.jpg',mime:'image/jpeg',data:btoa('<html>not a photo</html>')}}))).status,400);
   assert.equal(calls,1);
 });
+
+test('Google reconnect preserves existing permissions without requesting unrelated grants', async () => {
+  const calendarWrite = 'https://www.googleapis.com/auth/calendar.events';
+  const calendars = 'https://www.googleapis.com/auth/calendar.calendars';
+  const drive = 'https://www.googleapis.com/auth/drive.readonly';
+  let pending: any;
+  const fetcher: typeof fetch = async (_url, options) => {
+    const body = JSON.parse(String(options?.body));
+    if (body.p_action === 'list') return Response.json([
+      {slot:'google_connect',metadata:{scopes:[calendarWrite,calendars,drive]}},
+      {slot:'google_drive',metadata:{scopes:[drive]}}]);
+    if (body.p_action === 'begin') { pending = body.p_args; return Response.json({intent_id:device}); }
+    throw new Error('Unexpected action');
+  };
+  const result = await connection(connectedConfig,owner,{device_id:device,action:'connection_start',args:{provider:'google',grant:'calendar'}},fetcher);
+  const auth = new URL(result.url);
+  const scopes = auth.searchParams.get('scope')!.split(' ');
+  assert.ok(scopes.includes(calendarWrite)); assert.ok(scopes.includes(calendars));
+  assert.ok(!scopes.includes(drive));
+  const { unseal } = await import('../supabase/functions/assistant/connections.ts');
+  const required = JSON.parse(await unseal(connectedConfig,pending.verifier,`oauth:${pending.state_hash}`)).scopes;
+  assert.ok(required.includes(calendarWrite));
+});

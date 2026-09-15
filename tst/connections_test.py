@@ -20,6 +20,29 @@ class connections_test(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(json.loads(output)['connection_action'], action)
             google_http.assert_not_called(); service_http.assert_not_called()
 
+    def test_google_refresh_only_requests_reconnect_for_revoked_access(self):
+        from google.auth.exceptions import RefreshError, TransportError
+        from engine.tools import ConnectionRequired
+        for error in [TransportError('offline'), RefreshError('server failure', {'error':'temporarily_unavailable'}), RuntimeError('storage unavailable')]:
+            credential = Mock(valid=False)
+            credential.refresh.side_effect = error
+            with self.subTest(error=type(error).__name__), patch.object(google.keyring, 'set_password'):
+                with self.assertRaises(ToolError) as raised: google.refresh(credential)
+                self.assertNotIsInstance(raised.exception, ConnectionRequired)
+        credential = Mock(valid=False)
+        credential.refresh.side_effect = RefreshError('revoked', {'error':'invalid_grant'})
+        with self.assertRaises(ConnectionRequired): google.refresh(credential)
+        credential = Mock(valid=False)
+        with patch.object(google.keyring, 'set_password', side_effect=RuntimeError('storage unavailable')):
+            with self.assertRaises(ToolError) as raised: google.refresh(credential)
+            self.assertNotIsInstance(raised.exception, ConnectionRequired)
+
+    def test_google_keychain_failure_is_not_missing_authorization(self):
+        from engine.tools import ConnectionRequired
+        with patch.object(google.keyring, 'get_password', side_effect=google.keyring.errors.KeyringError('locked')):
+            with self.assertRaises(ToolError) as raised: google._credentials()
+            self.assertNotIsInstance(raised.exception, ConnectionRequired)
+
     def test_google_extra_grant_is_independent_of_calendar_and_mail(self):
         credentials = Mock(refresh_token='test-refresh', granted_scopes=google.CONNECTIONS['google_tasks'][1])
         credentials.has_scopes.return_value = True

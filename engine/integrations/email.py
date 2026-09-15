@@ -19,12 +19,7 @@ def session():
     credentials = google._credentials(SLOT)
     if not credentials or not credentials.has_scopes([SEND_SCOPE]):
         raise ConnectionRequired('Connect email sending to prepare a draft for your review.', SLOT)
-    if not credentials.valid:
-        try:
-            credentials.refresh(google.Request())
-            google.keyring.set_password(google.SERVICE, google._account(SLOT), credentials.to_json())
-        except Exception:
-            raise ConnectionRequired('Reconnect email sending.', SLOT) from None
+    google.refresh(credentials, SLOT)
     return google.AuthorizedSession(credentials)
 
 
