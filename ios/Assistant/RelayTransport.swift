@@ -35,8 +35,23 @@ struct RelayError: LocalizedError {
     private var inFront = true
     private var failures = 0
     private var replaying = false
-    private var draining = false
-    private var needsReplyAck = false
+    private var draining: UUID?
+    private var generation = UUID()
+    private var backgroundReply: UIBackgroundTaskIdentifier = .invalid
+    private var needsSnapshot = false
+
+    private func keepReplyAlive() {
+        endBackgroundReply()
+        backgroundReply = UIApplication.shared.beginBackgroundTask(withName: "Receive reply") { [weak self] in
+            guard let self else { return }
+            self.endBackgroundReply()
+            self.needsSnapshot = true
+            if !self.inFront { self.socket.close() }
+        }
+    }
+    private func endBackgroundReply() {
+        if backgroundReply != .invalid { UIApplication.shared.endBackgroundTask(backgroundReply); backgroundReply = .invalid }
+    }
     private var meetingContext: String?
     func setMeetingContext(_ text: String?) { meetingContext = text }
     private var playerGeneration = 0
@@ -53,12 +68,13 @@ struct RelayError: LocalizedError {
     func connect(clear: Bool) {
         playerGeneration += 1
         Spotify.shared.cancel()
-        poller?.cancel()
+        poller?.cancel(); socket.close(); endBackgroundReply(); generation = UUID(); draining = nil
         guard account.signedIn else { emit(["type": "status", "text": "Sign in to continue"]); return }
         Task { await bootstrap(clear: clear) }
     }
 
     private func bootstrap(clear: Bool) async {
+        let epoch = generation
         do {
             if clear {
                 // A fresh segment on the host keeps the map and archives the messages, the same as the Mac.
@@ -71,6 +87,7 @@ struct RelayError: LocalizedError {
                 account.registered = true
             }
             let boot = try await call("bootstrap")
+            guard epoch == generation else { return }
             emit(["type": "history", "messages": boot["history"] as? [[String: Any]] ?? []])
             cursor = number(boot["replay_after"]) ?? number(boot["cursor"]) ?? 0
             activeTurn = (boot["active_turn"] as? [String: Any])?["turn_id"] as? String
@@ -79,13 +96,14 @@ struct RelayError: LocalizedError {
             capabilities["type"] = "capabilities"; emit(capabilities)
             if var day = boot["day"] as? [String: Any] { day["type"] = "map"; emit(day) }
             replaying = true
-            needsReplyAck = true
             try await drain()
+            guard epoch == generation else { return }
             replaying = false
             if activeTurn == nil { emit(["type": "ready"]) } else { emit(["type": "status", "text": "Waiting for the host"]) }
             failures = 0
             poll()
         } catch {
+            guard epoch == generation else { return }
             emit(["type": "error", "text": error.localizedDescription])
         }
     }
@@ -96,23 +114,19 @@ struct RelayError: LocalizedError {
     }
 
     private func drain() async throws {
-        guard !draining else { return }
-        draining = true
-        defer { draining = false; replaying = false }
+        guard draining == nil else { return }
+        let reader = UUID(), epoch = generation
+        draining = reader
+        defer { if draining == reader { draining = nil; replaying = false } }
         while true {
             let page = try await call("events", ["after": cursor, "wait": !replaying && (activeTurn != nil || audioTurn != nil)])
+            guard epoch == generation else { return }
             for envelope in page["events"] as? [[String: Any]] ?? [] {
                 guard let next = number(envelope["cursor"]), next > cursor else { continue }
                 cursor = next
                 handle(envelope)
             }
             if page["has_more"] as? Bool != true { break }
-        }
-        if inFront && needsReplyAck {
-            needsReplyAck = false
-            do { _ = try await call("reply_seen", ["cursor": cursor]) }
-            catch { needsReplyAck = true }
-            Notifications.shared?.clearChatReplies()
         }
     }
 
@@ -124,7 +138,6 @@ struct RelayError: LocalizedError {
             activeTurn = envelope["turn_id"] as? String
             emit(payload)
         case "end":
-            needsReplyAck = true
             if let current = activeTurn, let ended = envelope["turn_id"] as? String, current != ended { return }
             activeTurn = nil
             emit(payload)
@@ -174,7 +187,7 @@ struct RelayError: LocalizedError {
                     if Task.isCancelled { return }
                     if !busy && (self.activeTurn != nil || self.audioTurn != nil) { break }
                 }
-                guard !Task.isCancelled, self.inFront else { continue }
+                guard !Task.isCancelled, self.inFront || self.backgroundReply != .invalid else { continue }
                 do {
                     try await self.drain()
                     sincePresence += 1
@@ -189,6 +202,7 @@ struct RelayError: LocalizedError {
                     if self.failures >= 3 { self.emit(["type": "status", "text": "Connected"]) }
                     self.failures = 0
                 } catch {
+                    if Task.isCancelled { return }
                     self.failures += 1
                     if self.failures == 3 { self.emit(["type": "status", "text": "Reconnecting…"]) }
                     if (error as? RelayError)?.status == 401 { self.emit(["type": "error", "text": error.localizedDescription]); return }
@@ -205,12 +219,8 @@ struct RelayError: LocalizedError {
     }
     private func submit(_ text: String, id: UUID, speech: Bool, model: String?, mode: String, notification: [String: String]?, images: [String]) {
         let context = meetingContext
-        var submission: UIBackgroundTaskIdentifier = .invalid
-        submission = UIApplication.shared.beginBackgroundTask(withName: "Send message") {
-            if submission != .invalid { UIApplication.shared.endBackgroundTask(submission); submission = .invalid }
-        }
+        keepReplyAlive()
         Task {
-            defer { if submission != .invalid { UIApplication.shared.endBackgroundTask(submission) } }
             do {
                 var args: [String: Any] = ["client_message_id": id.uuidString.lowercased(), "text": text, "images": images]
                 args["mode"] = mode
@@ -230,12 +240,12 @@ struct RelayError: LocalizedError {
                 #if DEBUG
                 print("Submit round trip:", Date().timeIntervalSince(started))
                 #endif
-                if submission != .invalid { UIApplication.shared.endBackgroundTask(submission); submission = .invalid }
                 activeTurn = result["turn_id"] as? String
                 if speech { audioTurn = activeTurn }
                 if let turn = activeTurn { emit(["type": "submitted", "turn_id": turn, "speech": speech]) }
                 try await drain()
             } catch {
+                endBackgroundReply()
                 emit(["type": "error", "text": error.localizedDescription, "unsent": text])
             }
         }
@@ -250,19 +260,28 @@ struct RelayError: LocalizedError {
     }
 
     func foreground(_ active: Bool) {
+        let returning = active && !inFront
         inFront = active
-        if !active { socket.close() }
-        if active, poller != nil {
-            needsReplyAck = true
+        if !active && backgroundReply == .invalid { socket.close(); needsSnapshot = true }
+        if returning, poller != nil {
             Task {
-                // Catch up text without playing audio accumulated while away.
-                replaying = true
-                try? await drain()
+                if needsSnapshot {
+                    needsSnapshot = false
+                    // One current snapshot avoids replaying a backlog of speech packets.
+                    poller?.cancel(); socket.close()
+                    generation = UUID(); draining = nil
+                    await bootstrap(clear: false)
+                } else {
+                    replaying = true
+                    try? await drain()
+                }
             }
         }
     }
 
-    func close() { playerGeneration += 1; poller?.cancel(); socket.close(); Spotify.shared.cancel() }
+    func receivedReply() { endBackgroundReply() }
+
+    func close() { generation = UUID(); draining = nil; endBackgroundReply(); playerGeneration += 1; poller?.cancel(); socket.close(); Spotify.shared.cancel() }
 
     func reminderRequest(_ action: String, _ args: [String: Any]) async throws -> [String: Any] { try await call(action, args) }
     func importPart(_ args: [String: Any]) async throws { _ = try await call("import_part", args) }

@@ -1,6 +1,22 @@
 import XCTest
 
 final class EmailReviewTests: XCTestCase {
+    func testConversationIsVisibleOnOfflineRelaunch() {
+        let app = XCUIApplication()
+        app.launchArguments = ["--sample", "--cache-check"]
+        app.launch()
+        let reply = app.staticTexts["Morning. Nothing is on the calendar until the afternoon, so the dentist call is the one thing worth doing before lunch."]
+        XCTAssertTrue(reply.waitForExistence(timeout: 15))
+        // Backgrounding flushes the display cache before termination.
+        XCUIDevice.shared.press(.home)
+        app.terminate()
+        app.launchArguments.append("--offline-check")
+        app.launch()
+        XCTAssertTrue(reply.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["What should I get done before lunch?"].exists)
+        XCTAssertTrue(app.textViews["Message"].exists)
+    }
+
     func testReplyNotificationReturnsToChatInsteadOfInbox() {
         let app = XCUIApplication(); app.launchArguments = ["--sample", "--chat-reply-check"]; app.launch()
         addUIInterruptionMonitor(withDescription: "Notifications") { alert in

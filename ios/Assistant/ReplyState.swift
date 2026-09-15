@@ -1,7 +1,7 @@
 import Foundation
 
-struct ChatMessage: Identifiable {
-    let id = UUID()
+struct ChatMessage: Identifiable, Codable {
+    var id = UUID()
     let role: String
     var text: String
     var images: [String] = []
@@ -58,4 +58,36 @@ struct ReplyState {
         messages.removeAll { $0.role == "assistant" && $0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && $0.images.isEmpty && $0.emailDrafts.isEmpty }
         for index in messages.indices { messages[index].pending = false }
     }
+}
+
+
+/// A bounded, device-protected copy for display; the server remains authoritative.
+struct ChatCache {
+    let account: String
+    private let url: URL
+    init(account: String, directory: URL? = nil) {
+        self.account = account
+        let root = directory ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("Conversation", isDirectory: true)
+        url = root.appendingPathComponent((UUID(uuidString: account)?.uuidString ?? "sample") + ".json")
+    }
+    func read() -> [ChatMessage] {
+        guard let data = try? Data(contentsOf: url), var rows = try? JSONDecoder().decode([ChatMessage].self, from: data) else { return [] }
+        for index in rows.indices { rows[index].pending = false }
+        return rows
+    }
+    func write(_ messages: [ChatMessage]) {
+        let rows = Array(messages.filter { !$0.text.isEmpty || !$0.images.isEmpty || !$0.emailDrafts.isEmpty }.suffix(100))
+        guard let data = try? JSONEncoder().encode(rows) else { return }
+        do {
+            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            #if os(iOS)
+            try data.write(to: url, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+            #else
+            try data.write(to: url, options: .atomic)
+            #endif
+            var destination = url, values = URLResourceValues(); values.isExcludedFromBackup = true
+            try destination.setResourceValues(values)
+        } catch { /* Reconnection can always restore the server history. */ }
+    }
+    func clear() { try? FileManager.default.removeItem(at: url) }
 }

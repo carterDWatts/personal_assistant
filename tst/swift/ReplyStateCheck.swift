@@ -32,6 +32,27 @@ import Foundation
         precondition(rows.last!.text == "I found an answer.")
         state.end("five", messages: &rows)
         precondition(rows.allSatisfy { !$0.pending })
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let account = UUID().uuidString
+        let cache = ChatCache(account: account, directory: directory)
+        var cached = notice
+        cached.pending = true
+        cached.images = ["image-id"]
+        cached.emailDrafts = ["draft-id"]
+        cache.write([cached])
+        let restored = cache.read()
+        precondition(restored.count == 1 && restored[0].id == cached.id)
+        precondition(restored[0].text == cached.text && restored[0].at == cached.at)
+        precondition(restored[0].reference == cached.reference && restored[0].images == cached.images)
+        precondition(restored[0].emailDrafts == cached.emailDrafts && !restored[0].pending)
+        precondition(ChatCache(account: UUID().uuidString, directory: directory).read().isEmpty)
+        cache.write((0..<120).map { ChatMessage(role: "user", text: String($0)) })
+        precondition(cache.read().count == 100 && cache.read().first!.text == "20")
+        cache.clear()
+        precondition(cache.read().isEmpty)
+        try! Data("invalid".utf8).write(to: directory.appendingPathComponent(account + ".json"))
+        precondition(cache.read().isEmpty)
         print("Finished and superseded turns cannot leave thinking rows.")
     }
 }

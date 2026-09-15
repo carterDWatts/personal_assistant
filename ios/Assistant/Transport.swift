@@ -10,6 +10,7 @@ import AVFoundation
     func sendImages(_ text: String, id: UUID, model: String?, images: [String])
     func setMeetingContext(_ text: String?)
     func stop()
+    func receivedReply()
     func foreground(_ active: Bool)
     func close()
     /// Connection setup for the host. Credentials go only through these, never through send.
@@ -23,6 +24,8 @@ import AVFoundation
     func connectToken(provider: String, token: String) async throws -> String
     func removeConnection(provider: String, grant: String?) async throws
 }
+
+extension Transport { func receivedReply() {} }
 
 func isoDate(_ date: Date) -> String {
     let formatter = ISO8601DateFormatter()
@@ -84,6 +87,9 @@ func isoDate(_ date: Date) -> String {
     }
 
     func connect(clear: Bool) {
+        if ProcessInfo.processInfo.arguments.contains("--offline-check") {
+            emit(["type": "status", "text": "Offline"]); return
+        }
         if clear { history = [] }
         emit(["type": "history", "messages": history])
         emit(["type": "status", "text": "Connecting…"])

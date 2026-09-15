@@ -143,7 +143,26 @@ struct AccountError: LocalizedError {
         }
     }
 
-    func signOut() { session = nil }
+    // Used only to partition the local display cache, never for authorization.
+    var cacheID: String? {
+        #if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("--sample") {
+            return ProcessInfo.processInfo.arguments.contains("--cache-check") ? "00000000-0000-0000-0000-000000000001" : nil
+        }
+        #endif
+        guard let token = session?.accessToken else { return nil }
+        let parts = token.split(separator: ".")
+        guard parts.count == 3 else { return nil }
+        var encoded = String(parts[1]).replacingOccurrences(of: "-", with: "+").replacingOccurrences(of: "_", with: "/")
+        encoded += String(repeating: "=", count: (4 - encoded.count % 4) % 4)
+        guard let data = Data(base64Encoded: encoded), let claims = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let subject = claims["sub"] as? String, let id = UUID(uuidString: subject) else { return nil }
+        return id.uuidString
+    }
+    func signOut() {
+        if let id = cacheID { ChatCache(account: id).clear() }
+        session = nil
+    }
 
     private func parse(_ json: [String: Any]) throws -> Session {
         guard let access = json["access_token"] as? String, let refresh = json["refresh_token"] as? String else {

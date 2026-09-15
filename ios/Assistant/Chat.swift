@@ -34,7 +34,21 @@ func plain(_ value: Any?) -> String {
 
 /// One conversation, whichever device it is on. Mirrors the Mac client so both read the same events the same way.
 @MainActor final class Chat: ObservableObject {
-    @Published var messages: [ChatMessage] = []
+    @Published var messages: [ChatMessage] = [] { didSet { scheduleCache() } }
+    private var cache: ChatCache?
+    private var cacheTask: Task<Void, Never>?
+    private func scheduleCache() {
+        cacheTask?.cancel()
+        guard cache != nil else { return }
+        cacheTask = Task { [weak self] in
+            do { try await Task.sleep(for: .milliseconds(200)) } catch { return }
+            self?.saveCache()
+        }
+    }
+    private func saveCache() {
+        guard let cache, cache.account == Account.shared.cacheID else { return }
+        cache.write(messages)
+    }
     @Published var draft = UserDefaults.standard.string(forKey: "draft") ?? "" {
         didSet { UserDefaults.standard.set(draft, forKey: "draft") }
     }
@@ -246,6 +260,10 @@ func plain(_ value: Any?) -> String {
     private var replyState = ReplyState()
 
     init(transport: Transport? = nil) {
+        if let id = Account.shared.cacheID {
+            cache = ChatCache(account: id)
+            messages = cache!.read()
+        }
         let library = MeetingLibrary()
         meetings = library; meetingCapture = MeetingCapture(library: library)
         let transport = transport ?? (ProcessInfo.processInfo.arguments.contains("--sample") ? MockTransport() : RelayTransport())
@@ -271,9 +289,12 @@ func plain(_ value: Any?) -> String {
 
     func connect(clear: Bool = false) {
         imageGeneration += 1
-        if clear { clearNotificationDiscussion() }
+        if let id = Account.shared.cacheID, cache?.account != id {
+            cache = ChatCache(account: id); messages = cache!.read()
+        }
+        if clear { clearNotificationDiscussion(); cache?.clear(); messages = [] }
         liveVoice.stop(); voice = false; voiceTurn = VoiceTurn()
-        messages = []; memoryStatus = ""; replyState.reset(messages: &messages); connectionPrompt = nil
+        memoryStatus = ""; replyState.reset(messages: &messages); connectionPrompt = nil
         busy = true; status = "Connecting…"
         transport.connect(clear: clear)
     }
@@ -352,6 +373,7 @@ func plain(_ value: Any?) -> String {
             _ = replyState.update(text, turn: turn, replace: true, messages: &messages)
         case "end":
             guard replyState.end(turn, messages: &messages) else { return }
+            saveCache(); transport.receivedReply()
         case "connection_resumed":
             if connectionPrompt?.action == event["action"] as? String { connectionPrompt = nil }
         case "connection_required":
@@ -475,7 +497,8 @@ func plain(_ value: Any?) -> String {
 
     /// A voice conversation keeps the stream alive with the screen off; otherwise the phone rests in the background.
     func foreground(_ active: Bool) {
-        if active { syncAlarms(); loadNotificationDiscussion() }
+        if active { syncAlarms(); loadNotificationDiscussion(); Notifications.shared?.clearChatReplies() }
+        if !active { saveCache() }
         inFront = active
         transport.foreground(active || voice)
     }
