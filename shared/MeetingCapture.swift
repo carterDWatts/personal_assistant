@@ -1,6 +1,10 @@
 import AVFoundation
 import Speech
 import Combine
+#if os(iOS)
+import SwiftUI
+import PhotosUI
+#endif
 
 /// The render callback only copies audio; file I/O and speech ingestion run on a bounded queue.
 private final class MeetingAudioSink: @unchecked Sendable {
@@ -187,15 +191,32 @@ private final class MeetingAudioSink: @unchecked Sendable {
     }
 
     func importAudio(_ source: URL, title: String, runtime: String, kind: String = "current") {
-        guard !active else { return }
-        working = true; error = ""; status = "Extracting audio…"
-        fileTask = Task {
+        importRecording(title: title, runtime: runtime, kind: kind, status: "Extracting audio…") { destination in
             let access = source.startAccessingSecurityScopedResource()
+            defer { if access { source.stopAccessingSecurityScopedResource() } }
+            try await MeetingMedia.extractAudio(from: source, to: destination)
+        }
+    }
+    #if os(iOS)
+    func importVideo(_ item: PhotosPickerItem, title: String, runtime: String, kind: String) {
+        importRecording(title: title, runtime: runtime, kind: kind, status: "Loading video and extracting audio…") { destination in
+            guard let audio = try await item.loadTransferable(type: MeetingVideoAudio.self) else {
+                throw MeetingFailure("I couldn’t load this video from Photos. Try downloading it in Photos first, then select it again.")
+            }
+            try Task.checkCancellation()
+            try audio.move(to: destination)
+        }
+    }
+    #endif
+    private func importRecording(title: String, runtime: String, kind: String, status initialStatus: String,
+                                 prepare: @escaping (URL) async throws -> Void) {
+        guard !active else { return }
+        working = true; error = ""; self.status = initialStatus
+        fileTask = Task {
             let local = library.directory.appendingPathComponent(UUID().uuidString + ".m4a")
             let staging = FileManager.default.temporaryDirectory.appendingPathComponent("meeting-import-" + UUID().uuidString)
             var attached = false
             defer {
-                if access { source.stopAccessingSecurityScopedResource() }
                 try? FileManager.default.removeItem(at: staging)
                 if !attached { try? FileManager.default.removeItem(at: local) }
                 working = false; fileTask = nil
@@ -206,7 +227,8 @@ private final class MeetingAudioSink: @unchecked Sendable {
                 #endif
                 try FileManager.default.createDirectory(at: staging, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
                 let audio = staging.appendingPathComponent("audio.m4a")
-                try await MeetingMedia.extractAudio(from: source, to: audio)
+                try await prepare(audio)
+                try Task.checkCancellation()
                 let id = try library.create(title: title, runtime: runtime, kind: kind)
                 meetingID = id
                 try FileManager.default.moveItem(at: audio, to: local)

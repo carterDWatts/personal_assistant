@@ -1,4 +1,6 @@
 import AVFoundation
+import CoreTransferable
+import UniformTypeIdentifiers
 
 enum MeetingMedia {
     /// Export directly from the selected file, so a large video is never copied into the library.
@@ -44,4 +46,26 @@ enum MeetingMedia {
 private struct MediaFailure: LocalizedError {
     let errorDescription: String?
     init(_ text: String) { errorDescription = text }
+}
+
+/// Photos owns the supplied video URL only during transfer. Extract there rather than copying
+/// the video or loading it into memory. An abandoned transfer owns only a disposable audio file.
+final class MeetingVideoAudio: Transferable, Sendable {
+    let url: URL
+    private init(url: URL) { self.url = url }
+    deinit { try? FileManager.default.removeItem(at: url) }
+
+    static var transferRepresentation: some TransferRepresentation {
+        FileRepresentation(importedContentType: .movie) { received in
+            try await extract(from: received.file)
+        }
+    }
+    static func extract(from video: URL) async throws -> MeetingVideoAudio {
+        let audio = MeetingVideoAudio(url: FileManager.default.temporaryDirectory.appendingPathComponent("meeting-audio-" + UUID().uuidString + ".m4a"))
+        try await MeetingMedia.extractAudio(from: video, to: audio.url)
+        return audio
+    }
+    func move(to destination: URL) throws {
+        try FileManager.default.moveItem(at: url, to: destination)
+    }
 }

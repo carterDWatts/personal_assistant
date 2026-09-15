@@ -52,6 +52,27 @@ import AVFoundation
         precondition(unchanged == original)
         let size = try Data(contentsOf: audio).count
         precondition(size < original.count)
+        // Exercise the Photos handoff: keep just the extracted audio, without re-encoding.
+        let handedOff = root.appendingPathComponent("photos.m4a")
+        var temporary: URL!
+        do {
+            let transfer = try await MeetingVideoAudio.extract(from: video)
+            temporary = transfer.url
+            let extracted = try Data(contentsOf: transfer.url)
+            try transfer.move(to: handedOff)
+            let received = try Data(contentsOf: handedOff)
+            precondition(received == extracted)
+        }
+        precondition(!FileManager.default.fileExists(atPath: temporary.path))
+        precondition(FileManager.default.fileExists(atPath: handedOff.path))
+        do {
+            let abandoned = try await MeetingVideoAudio.extract(from: video)
+            temporary = abandoned.url
+            precondition(FileManager.default.fileExists(atPath: temporary.path))
+        }
+        precondition(!FileManager.default.fileExists(atPath: temporary.path))
+        let photosOriginal = try Data(contentsOf: video)
+        precondition(photosOriginal == original)
         for source in [silent, root.appendingPathComponent("missing.mp4")] {
             let output = root.appendingPathComponent(UUID().uuidString + ".m4a")
             do { try await MeetingMedia.extractAudio(from: source, to: output); fatalError("Invalid input accepted") }

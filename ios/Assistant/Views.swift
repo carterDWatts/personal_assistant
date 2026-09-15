@@ -509,7 +509,7 @@ struct ConversationView: View {
                 if !chat.connected && !chat.busy { Button("Reconnect", systemImage: "arrow.clockwise") { chat.connect() } }
                 if account.signedIn { Button("Sign out", systemImage: "rectangle.portrait.and.arrow.right") { account.signOut() } }
             } label: { Image(systemName: "ellipsis") }
-            .buttonStyle(SquareButton(palette: palette, size: 36))
+            .buttonStyle(SquareButton(palette: palette, size: 36)).accessibilityLabel("More options")
         }
         .padding(.horizontal, 16).padding(.top, 6).padding(.bottom, 10)
         .background(palette.background.ignoresSafeArea(edges: .top))

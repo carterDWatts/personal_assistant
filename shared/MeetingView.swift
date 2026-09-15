@@ -1,5 +1,8 @@
 import SwiftUI
 import UniformTypeIdentifiers
+#if os(iOS)
+import PhotosUI
+#endif
 
 struct MeetingView: View {
     @ObservedObject var library: MeetingLibrary
@@ -9,6 +12,10 @@ struct MeetingView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var title = ""
     @State private var kind = "current"
+    #if os(iOS)
+    @State private var chooseVideo = false
+    @State private var video: PhotosPickerItem?
+    #endif
     @State private var chooseAudio = false
     @State private var fileError = ""
     private var name: String { title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Conversation \(Date().formatted(date: .abbreviated, time: .shortened))" : title }
@@ -36,11 +43,14 @@ struct MeetingView: View {
                     }.disabled(capture.working)
                 }
                 #endif
+                #if os(iOS)
+                Menu {
+                    Button("Choose from Photos", systemImage: "photo.on.rectangle") { chooseVideo = true }
+                    Button("Choose from Files", systemImage: "folder") { chooseAudio = true }
+                } label: { Label("Import recording", systemImage: "waveform.badge.plus") }.disabled(capture.active)
+                #else
                 Button("Import recording…", systemImage: "waveform.badge.plus") { chooseAudio = true }.disabled(capture.active)
-                if capture.working && !capture.recording {
-                    ProgressView().controlSize(.small)
-                    Button("Stop import") { capture.cancelImport() }
-                }
+                #endif
             }.buttonStyle(.bordered)
             #if os(iOS)
             Text("Use your phone’s microphone for an in-person conversation. Let everyone know you’re recording. You can close this panel and type to me while it runs.").font(.caption).foregroundStyle(.secondary)
@@ -48,7 +58,14 @@ struct MeetingView: View {
             Text("Transcription runs locally while you use the chat.").font(.caption).foregroundStyle(.secondary)
             #endif
             Text("Import audio or video, including MP4. I keep a compressed audio copy and the transcript, not the video. Your original file stays untouched.").font(.caption).foregroundStyle(.secondary)
-            if capture.working && !capture.recording { Text(capture.status).font(.caption).foregroundStyle(.secondary) }
+            if capture.working && !capture.recording {
+                HStack {
+                    ProgressView().controlSize(.small)
+                    Text(capture.status).font(.caption).foregroundStyle(.secondary)
+                    Spacer()
+                    Button("Stop import") { capture.cancelImport() }
+                }
+            }
             if !fileError.isEmpty { Text(fileError).font(.caption).foregroundStyle(.red) }
             if !capture.error.isEmpty { Text(capture.error).font(.callout).foregroundStyle(.red).textSelection(.enabled) }
             if !library.notice.isEmpty { Text(library.notice).font(.callout).foregroundStyle(.secondary) }
@@ -94,6 +111,15 @@ struct MeetingView: View {
         }.padding(22)
         #if os(macOS)
         .frame(width: 570, height: 650)
+        #endif
+        #if os(iOS)
+        .photosPicker(isPresented: $chooseVideo, selection: $video, matching: .videos, preferredItemEncoding: .current)
+        .onChange(of: video) { _, item in
+            guard let item else { return }
+            fileError = ""
+            capture.importVideo(item, title: name, runtime: runtime, kind: kind)
+            video = nil
+        }
         #endif
         .fileImporter(isPresented: $chooseAudio, allowedContentTypes: [.audio, .movie, .mpeg4Movie]) { result in
             switch result {

@@ -1,6 +1,24 @@
 import XCTest
 
 final class EmailReviewTests: XCTestCase {
+    func testRecordingCanChoosePhotosWithoutLeavingChat() {
+        let app = XCUIApplication(); app.launchArguments = ["--sample"]; app.launch()
+        XCTAssertTrue(app.buttons["More options"].waitForExistence(timeout: 15))
+        app.buttons["More options"].tap()
+        app.buttons["Record or import conversation"].tap()
+        XCTAssertTrue(app.buttons["Import recording"].waitForExistence(timeout: 5))
+        app.buttons["Import recording"].tap()
+        XCTAssertTrue(app.buttons["Choose from Files"].exists)
+        app.buttons["Choose from Photos"].tap()
+        let cancel = app.buttons["Cancel"]
+        XCTAssertTrue(cancel.waitForExistence(timeout: 10))
+        cancel.tap()
+        XCTAssertTrue(app.buttons["Import recording"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["Stop import"].exists)
+        app.buttons["Done"].tap()
+        XCTAssertTrue(app.textViews["Message"].waitForExistence(timeout: 5))
+    }
+
     func testLongDraftRemainsEditableAndScrolls() {
         let app = XCUIApplication(); app.launchArguments = ["--sample"]; app.launch()
         let input = app.textViews["Message"]
