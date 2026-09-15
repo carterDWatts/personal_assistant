@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		850CA696EAAFB9B241C0DA51 /* ChatScrollView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CCE07CC78BAF615171E3E8FA /* ChatScrollView.swift */; };
 		0046B9359FD9A79E7BF42619 /* VoiceTurn.swift in Sources */ = {isa = PBXBuildFile; fileRef = C85DAEEEE55F2BFC90BE3CC9 /* VoiceTurn.swift */; };
 		0C3FD95CC5D35890D472ECD1 /* Connections.swift in Sources */ = {isa = PBXBuildFile; fileRef = 943C7F4182F35505F7A0B412 /* Connections.swift */; };
 		20CB022D16C16345828B8930 /* Transport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 19166F88EC58DDC6BF56BDD6 /* Transport.swift */; };
@@ -75,6 +76,7 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		CCE07CC78BAF615171E3E8FA /* ChatScrollView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatScrollView.swift; sourceTree = "<group>"; };
 		0497070F1E94B926A14D5A01 /* Voice.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Voice.swift; sourceTree = "<group>"; };
 		09916F194DDAA79391C8ABED /* Chat.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Chat.swift; sourceTree = "<group>"; };
 		0A20A9483B2B64425BF1A36D /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
@@ -164,6 +166,7 @@
 		583D12035B56C18878C21C19 /* shared */ = {
 			isa = PBXGroup;
 			children = (
+				CCE07CC78BAF615171E3E8FA /* ChatScrollView.swift */,
 				7CC96A9E009EAD7BE04002B7 /* ChatImages.swift */,
 				B74AEEBF9820A26218CCD184 /* ContextImport.swift */,
 				B9D3ECC060FC904FB576920A /* DaySchedule.swift */,
@@ -462,6 +465,7 @@
 				48459D3A71D78D775DD0F949 /* Spotify.swift in Sources */,
 				A151CE5C07C3F6BF2A91069C /* SpotifyCommand.swift in Sources */,
 				20CB022D16C16345828B8930 /* Transport.swift in Sources */,
+				850CA696EAAFB9B241C0DA51 /* ChatScrollView.swift in Sources */,
 				63B70AB8344C1CEB6A0FEBD4 /* Views.swift in Sources */,
 				AD4ABC8E4D917F041D63CC44 /* Voice.swift in Sources */,
 				E1BA9713FE2B53B037D885A2 /* VoicePreview.swift in Sources */,

@@ -416,7 +416,6 @@ struct SignInView: View {
 struct ConversationView: View {
     @StateObject private var chat = Chat()
     @ObservedObject private var account = Account.shared
-    @State private var follow = true
     @State private var showDay = false
     @State private var showSettings = false
     @State private var showConnections = false
@@ -517,55 +516,40 @@ struct ConversationView: View {
     }
 
     private var conversation: some View {
-        ScrollViewReader { proxy in
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 20) {
-                    if chat.messages.isEmpty {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("I’m \(AssistantIdentity.name). What’s on your mind?").font(.title2).foregroundStyle(palette.ink)
-                            Text("I keep what matters, on every device, and pick the thread back up wherever you are.")
-                                .font(.callout).foregroundStyle(palette.muted)
-                        }.padding(.top, 60)
-                    }
-                    ForEach(Array(chat.messages.enumerated()), id: \.element.id) { index, message in
-                        if index == 0 || !Calendar.current.isDate(chat.messages[index - 1].at, inSameDayAs: message.at) {
-                            DayMarker(date: message.at, palette: palette)
-                        }
-                        MessageRow(onReply: { chat.reply(to: message) }, message: message, palette: palette).equatable().padding(8).overlay(RoundedRectangle(cornerRadius: 8).stroke(message.id == chat.focusedMessage ? palette.accent : .clear, lineWidth: 1))
-                            .overlay(alignment: .topTrailing) {
-                                if message.databaseID != nil && message.databaseID == chat.selectedInboxMessageID {
-                                    Button { chat.cancelInboxReply() } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(palette.muted).padding(4).background(palette.background, in: Circle()) }
-                                        .buttonStyle(.plain).disabled(chat.busy).accessibilityLabel("Cancel notification reply")
-                                }
-                            }.id(message.id)
-                        MessageImages(ids: message.images, load: chat.imageURL)
-                        ForEach(message.emailDrafts, id: \.self) { id in
-                            EmailDraftPreview(id: id, request: chat.emailRequest) {
-                                chat.emailDraftID = id; chat.showEmailDrafts = true
-                            }.tint(palette.accent)
-                        }
-                    }
-                    if let prompt = chat.connectionPrompt {
-                        ConnectionCard(chat: chat, prompt: prompt, palette: palette)
-                    }
-                    Color.clear.frame(height: 1).id("bottom")
-                        .onAppear { follow = true }
-                        .onDisappear { follow = false }
-                }.padding(.horizontal, 18).padding(.top, 12).padding(.bottom, 12)
-            }
-            .scrollDismissesKeyboard(.interactively)
-            .onChange(of: chat.focusedMessage) { if let id = chat.focusedMessage { proxy.scrollTo(id, anchor: .bottom) } }
-            .onChange(of: chat.messages.last?.text) { if follow { proxy.scrollTo("bottom", anchor: .bottom) } }
-            .onChange(of: chat.messages.count) {
-                if follow || chat.messages.last?.role == "user" { proxy.scrollTo("bottom", anchor: .bottom) }
-            }
-            .overlay(alignment: .bottom) {
-                if !follow {
-                    Button { proxy.scrollTo("bottom", anchor: .bottom); follow = true } label: { Image(systemName: "arrow.down") }
-                        .buttonStyle(SquareButton(palette: palette)).padding(.bottom, 8).accessibilityLabel("Scroll to latest")
+        ChatScrollView(latestInput: chat.messages.last(where: { $0.role == "user" })?.id,
+                       focusedMessage: chat.focusedMessage) {
+            VStack(alignment: .leading, spacing: 20) {
+                if chat.messages.isEmpty {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("I’m \(AssistantIdentity.name). What’s on your mind?").font(.title2).foregroundStyle(palette.ink)
+                        Text("I keep what matters, on every device, and pick the thread back up wherever you are.")
+                            .font(.callout).foregroundStyle(palette.muted)
+                    }.padding(.top, 60)
                 }
-            }
+                ForEach(Array(chat.messages.enumerated()), id: \.element.id) { index, message in
+                    if index == 0 || !Calendar.current.isDate(chat.messages[index - 1].at, inSameDayAs: message.at) {
+                        DayMarker(date: message.at, palette: palette)
+                    }
+                    MessageRow(onReply: { chat.reply(to: message) }, message: message, palette: palette).equatable().padding(8).overlay(RoundedRectangle(cornerRadius: 8).stroke(message.id == chat.focusedMessage ? palette.accent : .clear, lineWidth: 1))
+                        .overlay(alignment: .topTrailing) {
+                            if message.databaseID != nil && message.databaseID == chat.selectedInboxMessageID {
+                                Button { chat.cancelInboxReply() } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(palette.muted).padding(4).background(palette.background, in: Circle()) }
+                                    .buttonStyle(.plain).disabled(chat.busy).accessibilityLabel("Cancel notification reply")
+                            }
+                        }.id(message.id)
+                    MessageImages(ids: message.images, load: chat.imageURL)
+                    ForEach(message.emailDrafts, id: \.self) { id in
+                        EmailDraftPreview(id: id, request: chat.emailRequest) {
+                            chat.emailDraftID = id; chat.showEmailDrafts = true
+                        }.tint(palette.accent)
+                    }
+                }
+                if let prompt = chat.connectionPrompt {
+                    ConnectionCard(chat: chat, prompt: prompt, palette: palette)
+                }
+            }.padding(.horizontal, 18).padding(.top, 12).padding(.bottom, 12)
         }
+        .scrollDismissesKeyboard(.interactively)
     }
 }
 

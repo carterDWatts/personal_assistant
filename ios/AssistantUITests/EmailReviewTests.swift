@@ -25,8 +25,37 @@ final class EmailReviewTests: XCTestCase {
         XCTAssertTrue(app.textViews["Message"].waitForExistence(timeout: 5))
     }
 
+    func testSendingKeepsLatestReplyVisibleAfterKeyboardCollapses() {
+        let app = XCUIApplication(); app.launchArguments = ["--sample", "--scroll-stress", "-draft", ""]; app.launch()
+        let input = app.textViews["Message"]
+        XCTAssertTrue(input.waitForExistence(timeout: 15))
+        input.tap()
+        input.typeText("First line.\nSecond line.\nThird line.\nFourth line.\nFifth line.\nSixth line.")
+        app.buttons["Send message"].tap()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 5))
+        let reply = app.staticTexts.matching(NSPredicate(format: "label ENDSWITH 'Latest reply ends here.'")).firstMatch
+        XCTAssertTrue(reply.waitForExistence(timeout: 20))
+        XCTAssertTrue(app.buttons["Send message"].waitForExistence(timeout: 5))
+        let visible = NSPredicate { _, _ in
+            reply.exists && reply.frame.maxY > 200 && reply.frame.maxY < input.frame.minY
+        }
+        expectation(for: visible, evaluatedWith: app)
+        waitForExpectations(timeout: 5)
+        XCTAssertFalse(app.buttons["Scroll to latest"].exists)
+        let screenshot = XCTAttachment(screenshot: app.screenshot())
+        screenshot.name = "Chat after send"; screenshot.lifetime = .keepAlways; add(screenshot)
+
+        app.scrollViews["Conversation"].swipeDown()
+        let latest = app.buttons["Scroll to latest"]
+        XCTAssertTrue(latest.waitForExistence(timeout: 5))
+        latest.tap()
+        expectation(for: visible, evaluatedWith: app)
+        waitForExpectations(timeout: 5)
+        XCTAssertFalse(latest.exists)
+    }
+
     func testLongDraftRemainsEditableAndScrolls() {
-        let app = XCUIApplication(); app.launchArguments = ["--sample"]; app.launch()
+        let app = XCUIApplication(); app.launchArguments = ["--sample", "-draft", ""]; app.launch()
         let input = app.textViews["Message"]
         XCTAssertTrue(input.waitForExistence(timeout: 15))
         input.tap()

@@ -73,6 +73,13 @@ func isoDate(_ date: Date) -> String {
                        ["role": "assistant", "content": "Got it, level two. I’ll remember that.", "created_at": isoDate(yesterday)],
                        ["role": "user", "content": "What should I get done before lunch?", "created_at": isoDate(Date())],
                        ["role": "assistant", "content": Self.answers[0], "created_at": isoDate(Date())]]
+            if ProcessInfo.processInfo.arguments.contains("--scroll-stress") {
+                history = (0..<50).map { index in
+                    ["role": index.isMultiple(of: 2) ? "user" : "assistant",
+                     "content": "Earlier message \(index). " + String(repeating: "A conversation with varying message heights. ", count: index % 7 + 1),
+                     "created_at": isoDate(yesterday)]
+                }
+            }
         }
     }
 
@@ -97,7 +104,9 @@ func isoDate(_ date: Date) -> String {
         history.append(["role": "user", "content": text, "created_at": isoDate(Date())])
         reply?.cancel()
         let isEmail = text.lowercased().contains("email")
-        let answer = isEmail ? "I’ve prepared the email for your review." : Self.answers[turn % Self.answers.count]
+        let answer = ProcessInfo.processInfo.arguments.contains("--scroll-stress")
+            ? String(repeating: "This longer reply should stay visible as it streams.\n\n", count: 8) + "Latest reply ends here."
+            : isEmail ? "I’ve prepared the email for your review." : Self.answers[turn % Self.answers.count]
         turn += 1
         let turnID = UUID().uuidString.lowercased()
         emit(["type": "submitted", "turn_id": turnID, "speech": speech])

@@ -10,7 +10,7 @@ check() {
   "$ROOT/build/$name"
 }
 
-check ChatScrollCheck "$ROOT/desktop/ChatScrollView.swift" -framework SwiftUI
+check ChatScrollCheck "$ROOT/shared/ChatScrollView.swift" -framework SwiftUI
 check OutputStreamCheck "$ROOT/desktop/OutputStream.swift"
 check VoiceTurnCheck "$ROOT/desktop/VoiceTurn.swift"
 check ReplyStateCheck "$ROOT/ios/Assistant/ReplyState.swift"

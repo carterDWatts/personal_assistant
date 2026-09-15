@@ -50,6 +50,7 @@ struct ChatScrollView<Content: View>: View {
                             frame: geometry.frame(in: .named(coordinateSpace)), viewport: viewport.size.height))
                     })
                 }
+                .accessibilityIdentifier("Conversation")
                 .coordinateSpace(name: coordinateSpace)
                 .onPreferenceChange(ChatScrollPreference.self) { metrics in
                     if position.layout(metrics) {
