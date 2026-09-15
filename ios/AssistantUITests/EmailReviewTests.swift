@@ -1,6 +1,16 @@
 import XCTest
 
 final class EmailReviewTests: XCTestCase {
+    func testUnavailableVoiceDoesNotSilentlySwitchToSystemSpeech() {
+        let app = XCUIApplication(); app.launchArguments = ["--sample", "--speech-unavailable"]; app.launch()
+        let talk = app.buttons["Talk instead of typing"]
+        XCTAssertTrue(talk.waitForExistence(timeout: 15))
+        talk.tap()
+        XCTAssertTrue(app.staticTexts["My usual voice is temporarily unavailable. You can still type."].waitForExistence(timeout: 5))
+        XCTAssertTrue(talk.exists)
+        XCTAssertTrue(app.textViews["Message"].exists)
+    }
+
     func testRecordingCanChoosePhotosWithoutLeavingChat() {
         let app = XCUIApplication(); app.launchArguments = ["--sample"]; app.launch()
         XCTAssertTrue(app.buttons["More options"].waitForExistence(timeout: 15))

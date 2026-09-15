@@ -90,7 +90,7 @@ func isoDate(_ date: Date) -> String {
         Task { [weak self] in
             try? await Task.sleep(for: .milliseconds(400))
             guard let self else { return }
-            emit(["type": "capabilities", "speech": true])
+            emit(["type": "capabilities", "speech": !ProcessInfo.processInfo.arguments.contains("--speech-unavailable")])
             emit(["type": "ready"])
             emit(map())
             if ProcessInfo.processInfo.arguments.contains("--connection") {

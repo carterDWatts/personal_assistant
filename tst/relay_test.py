@@ -32,6 +32,30 @@ class relay_test(MapTest):
     def submit(self, text='Hello', message=None):
         return self.client('submit', {'client_message_id': str(message or uuid.uuid4()), 'text': text})
 
+    def test_speech_cleanup_expires_only_old_audio_in_bounded_batches(self):
+        from engine.speech import Speech
+        from types import SimpleNamespace
+        import time
+        old_audio = {'type': 'speech', 'text': 'Keep the transcript', 'url': 'data:audio/wav;base64,AAA='}
+        for _ in range(105):
+            self.map.execute("insert into assistant.events(user_id,payload,created_at) values(%s,%s,now()-interval '20 minutes')",
+                             (self.owner, jsonb(old_audio)))
+        fresh = self.map.value("insert into assistant.events(user_id,payload) values(%s,%s) returning cursor",
+                               (self.owner, jsonb(old_audio)))
+        unrelated = self.map.value("insert into assistant.events(user_id,payload,created_at) values(%s,%s,now()-interval '20 minutes') returning cursor",
+                                   (self.owner, jsonb({'type': 'image', 'url': 'https://example.test/image'})))
+        async def call(fn, *args): return fn(*args)
+        speech = Speech(SimpleNamespace(relay=self.relay, call=call))
+        speech.last_cleanup = time.monotonic()
+        asyncio.run(speech.cleanup())
+        self.assertEqual(self.map.value("select count(*) from assistant.events where payload->>'type'='speech' and payload ? 'url'"), 6)
+        self.assertEqual(self.map.value("select count(*) from assistant.events where payload->>'text'='Keep the transcript'"), 106)
+        self.assertTrue(self.map.value("select payload ? 'url' from assistant.events where cursor=%s", (fresh,)))
+        self.assertTrue(self.map.value("select payload ? 'url' from assistant.events where cursor=%s", (unrelated,)))
+        speech.last_audio_cleanup = 0
+        asyncio.run(speech.cleanup())
+        self.assertEqual(self.map.value("select count(*) from assistant.events where payload->>'type'='speech' and payload ? 'url'"), 1)
+
     def test_model_and_speech_selection_are_validated_and_retry_safe(self):
         self.relay.acquire()
         self.relay.capabilities({'models': [{'id': 'codex/test', 'runtime': 'codex', 'model': 'test'}], 'speech': True})

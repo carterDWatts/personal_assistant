@@ -69,19 +69,25 @@ class Speech:
             else:
                 self.voice = await asyncio.to_thread(create_voice)
                 await asyncio.to_thread(self.voice.generate, 'Ready.', sid=self.settings.get('speaker',16))
-            await self.cleanup()
+            print(f"Speech ready ({self.settings.get('model', 'kokoro')}).", flush=True)
             return True
         except Exception as error:
+            self.voice = None
             print(f'Speech unavailable ({type(error).__name__}).', flush=True)
             return False
 
     async def cleanup(self):
         if time.monotonic() - self.last_audio_cleanup >= 60:
-            # Audio is transient delivery data, never conversation memory.
-            await self.host.call(self.host.relay.map.execute,
-                "update assistant.events set payload=payload-'url' "
-                "where created_at<now()-interval '10 minutes' and payload->>'url' like 'data:audio/%;base64,%'")
+            # Expire delivery audio in bounded batches, using the pending-audio index.
+            # Cleanup must never rescan every conversation event or delay voice startup.
             self.last_audio_cleanup = time.monotonic()
+            await self.host.call(self.host.relay.map.execute,
+                "with expired as (select cursor from assistant.events "
+                "where payload->>'type'='speech' and payload ? 'url' "
+                "and created_at<now()-interval '10 minutes' "
+                "order by created_at,cursor limit 100 for update skip locked) "
+                "update assistant.events e set payload=e.payload-'url' "
+                "from expired where e.cursor=expired.cursor")
         if time.monotonic() - self.last_cleanup < 3600: return
         names = await self.host.call(self.host.relay.map.rows,
             "select path from assistant.speech_objects where created_at < now()-interval '1 day' limit 100")

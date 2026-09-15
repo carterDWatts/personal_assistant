@@ -41,7 +41,7 @@ class runtime_recovery_test(unittest.IsolatedAsyncioTestCase):
     async def test_missing_models_are_published_when_discovery_recovers(self):
         from engine.host import runtime_maintenance
         host = SimpleNamespace(ready=asyncio.Event(), stopping=asyncio.Event(), models=[],
-                               speech_ready=False, relay=SimpleNamespace(capabilities=object()))
+                               speech_ready=False, speech=None, relay=SimpleNamespace(capabilities=object()))
         host.ready.set()
         models = [{'id': 'codex/test', 'runtime': 'codex', 'model': 'test'}]
         async def publish(method, payload):

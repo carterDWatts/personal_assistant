@@ -360,12 +360,18 @@ async def runtime_maintenance(host):
     while not host.stopping.is_set():
         try:
             await asyncio.to_thread(trim_logs, state)
+            changed = False
+            if not host.speech_ready and host.speech:
+                host.speech_ready = await host.speech.start()
+                changed = host.speech_ready
             if not any(model['runtime'] == 'codex' for model in host.models):
                 models = await available()
                 if any(model['runtime'] == 'codex' for model in models):
                     host.models = models
-                    await host.call(host.relay.capabilities, {'models': models, 'speech': host.speech_ready,
-                                    'voices': choices() if host.speech_ready else []})
+                    changed = True
+            if changed:
+                await host.call(host.relay.capabilities, {'models': host.models, 'speech': host.speech_ready,
+                                'voices': choices() if host.speech_ready else []})
         except Exception as error:
             print(f'Runtime maintenance deferred ({type(error).__name__}).', flush=True)
         with contextlib.suppress(asyncio.TimeoutError):

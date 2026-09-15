@@ -7,6 +7,37 @@ from unittest.mock import AsyncMock, patch
 from engine.speech import chunk, Speech
 
 class speech_test(unittest.TestCase):
+    def test_voice_startup_does_not_depend_on_database_cleanup(self):
+        async def check():
+            speech = Speech(SimpleNamespace())
+            speech.cleanup = AsyncMock(side_effect=TimeoutError("Database cleanup timed out"))
+            voice = SimpleNamespace(stream=lambda text, cancel: iter([b"audio"]))
+            with patch.dict('os.environ', {'ASSISTANT_STORAGE_KEY': 'test'}), \
+                 patch('engine.speech.Storage'), \
+                 patch.dict('sys.modules', {'engine.voice.pocket': SimpleNamespace(PocketVoice=lambda name: voice)}):
+                self.assertTrue(await speech.start())
+                self.assertIs(speech.voice, voice)
+                speech.cleanup.assert_not_awaited()
+        asyncio.run(check())
+
+    def test_unavailable_voice_recovers_and_republishes_capabilities(self):
+        from engine.host import runtime_maintenance
+        async def check():
+            host = SimpleNamespace(ready=asyncio.Event(), stopping=asyncio.Event(), speech_ready=False,
+                                   models=[{'runtime': 'codex'}], relay=SimpleNamespace(capabilities=object()), call=AsyncMock())
+            host.ready.set()
+            async def recover():
+                host.stopping.set()
+                return True
+            host.speech = SimpleNamespace(start=AsyncMock(side_effect=recover))
+            with patch('engine.runtime.storage.trim_logs'):
+                await runtime_maintenance(host)
+            self.assertTrue(host.speech_ready)
+            capabilities = host.call.call_args.args[1]
+            self.assertTrue(capabilities['speech'])
+            self.assertEqual([v['id'] for v in capabilities['voices']], ['michael', 'bill', 'british'])
+        asyncio.run(check())
+
     def test_opening_plays_before_model_finishes_without_splitting_a_word(self):
         async def check():
             events = []

@@ -162,6 +162,7 @@ func plain(_ value: Any?) -> String {
     @Published var connectionError = ""
     @Published var tokenForm: String? = nil
     @Published private(set) var hostSpeaks = false
+    @Published private(set) var voiceError: String?
     @Published var models: [ModelChoice] = []
     @Published var hostVoices: [ModelChoice] = []
     @Published var selectedModel = UserDefaults.standard.string(forKey: "assistantModel") ?? "" {
@@ -234,7 +235,6 @@ func plain(_ value: Any?) -> String {
     func imports() async throws -> [[String: Any]] { try await transport.imports() }
     private let transport: Transport
     private var receiving: Task<Void, Never>?
-    private var speechBuffer = ""
     private var replyState = ReplyState()
 
     init(transport: Transport? = nil) {
@@ -314,17 +314,21 @@ func plain(_ value: Any?) -> String {
             connected = true; busy = false; status = "Connected"
             if let pending = voiceTurn.ready(), voice { submit(pending) }
         case "start":
-            busy = true; speechBuffer = ""
+            busy = true
             replyState.begin(turn, messages: &messages); status = "Thinking…"
         case "capabilities":
             hostSpeaks = event["speech"] as? Bool == true
+            if hostSpeaks { voiceError = nil }
+            if voice && !hostSpeaks {
+                liveVoice.stop(); voice = false
+                voiceError = "My usual voice is temporarily unavailable. You can still type."
+            }
             models = (event["models"] as? [[String: Any]] ?? []).compactMap(ModelChoice.init)
             hostVoices = (event["voices"] as? [[String: Any]] ?? []).compactMap(ModelChoice.init)
             if !models.contains(where: { $0.id == selectedModel }) { selectedModel = "" }
         case "delta":
             guard replyState.update(text, turn: turn, replace: false, messages: &messages) else { return }
-            if hostSpeaks { status = "Replying…" }
-            else if !voiceTurn.interrupted { speechBuffer += text; speakSentences(flush: false); status = "Replying…" }
+            status = "Replying…"
         case "submitted":
             // Only turns this phone sent from voice mode are ever spoken aloud.
             if event["speech"] as? Bool == true, let turn = event["turn_id"] as? String { spokenTurns.insert(turn) }
@@ -340,14 +344,13 @@ func plain(_ value: Any?) -> String {
             _ = replyState.update(text, turn: turn, replace: true, messages: &messages)
         case "end":
             guard replyState.end(turn, messages: &messages) else { return }
-            if !hostSpeaks && !voiceTurn.interrupted { speakSentences(flush: true); liveVoice.finishReplyAudio() }
         case "connection_resumed":
             if connectionPrompt?.action == event["action"] as? String { connectionPrompt = nil }
         case "connection_required":
             connectionPrompt = ConnectionPrompt(event: event)
         case "spotify_control":
             if ["play", "resume"].contains(event["action"] as? String ?? "") {
-                liveVoice.stop(); voice = false; speechBuffer = ""; voiceTurn.discardPending()
+                liveVoice.stop(); voice = false; voiceTurn.discardPending()
             }
             status = "Controlling Spotify…"
         case "connections":
@@ -417,7 +420,6 @@ func plain(_ value: Any?) -> String {
         replyState.reset(messages: &messages)
         liveVoice.silencePlayback()
         spokenTurns.removeAll(); playedChunks.removeAll()
-        speechBuffer = ""
         if speak && voice { liveVoice.prepareReply() }
         selectedInboxMessageID = nil
         if mode == "talk" { messages.append(ChatMessage(role: "user", text: text)) }; busy = true
@@ -438,7 +440,7 @@ func plain(_ value: Any?) -> String {
 
     private func interruptForSpeech() {
         guard !liveVoice.muted else { return }
-        liveVoice.silencePlayback(); liveVoice.userBeganSpeaking(); speechBuffer = ""
+        liveVoice.silencePlayback(); liveVoice.userBeganSpeaking()
         spokenTurns.removeAll(); playedChunks.removeAll()
         voiceTurn.pausePlayback(busy: busy)
         status = "Listening…"
@@ -456,7 +458,7 @@ func plain(_ value: Any?) -> String {
 
     func stop() {
         imageGeneration += 1
-        liveVoice.stop(); speechBuffer = ""; voice = false; voiceTurn.discardPending()
+        liveVoice.stop(); voice = false; voiceTurn.discardPending()
         if voiceTurn.interrupt(busy: busy) || hostSpeaks { transport.stop() }
         transport.foreground(inFront)
     }
@@ -548,6 +550,8 @@ func plain(_ value: Any?) -> String {
     func toggleVoice() {
         guard !meetingCapture.active else { status = "Meeting recording is using the microphone. You can still type."; return }
         if voice { stop(); return }
+        guard hostSpeaks else { voiceError = "My usual voice is temporarily unavailable. You can still type."; return }
+        voiceError = nil
         voice = true
         transport.foreground(true)
         liveVoice.start()
@@ -556,11 +560,6 @@ func plain(_ value: Any?) -> String {
     func prepareMeeting() { voice = false; liveVoice.stop() }
 
     func toggleMute() { liveVoice.setMuted(!liveVoice.muted) }
-
-    private func speakSentences(flush: Bool) {
-        guard voice else { speechBuffer = ""; return }
-        while let chunk = nextSpeechChunk(&speechBuffer, flush: flush) { liveVoice.speak(chunk) }
-    }
 }
 
 struct ConnectionFailure: LocalizedError {

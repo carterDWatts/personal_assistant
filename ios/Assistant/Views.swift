@@ -433,6 +433,11 @@ struct ConversationView: View {
                 .overlay(alignment: .bottom) {
                     if chat.voice { VoiceGlow(voice: chat.liveVoice, palette: palette) }
                 }
+            if let error = chat.voiceError {
+                Text(error).font(.caption).foregroundStyle(palette.muted)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 20).padding(.bottom, 6)
+            }
             AlarmStatusView(alarms: chat.alarms, retry: chat.syncAlarms)
             PendingImageStrip(images: $chat.pendingImages, error: chat.imageError)
             if chat.voice {
