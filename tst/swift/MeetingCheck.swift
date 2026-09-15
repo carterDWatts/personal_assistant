@@ -35,6 +35,8 @@ import Foundation
         var uploaded: [String] = []
         restored.upload = { args in
             precondition(args["source"] as? String == "meeting")
+            precondition(args["recording_id"] as? String == id.uuidString)
+            precondition(args["recording_index"] as? Int == uploaded.count)
             uploaded.append(args["id"] as! String)
         }
         await restored.sync(); await restored.sync()

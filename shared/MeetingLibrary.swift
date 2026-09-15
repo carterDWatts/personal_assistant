@@ -147,10 +147,11 @@ struct MeetingDocument: Codable, Identifiable {
         do {
             try persist() // Never upload an ID that is not recoverable after a crash.
             for doc in documents.reversed() {
-                for batch in doc.batches where !batch.uploaded {
+                for (index, batch) in doc.batches.enumerated() where !batch.uploaded {
                     guard generation == token else { return }
                     try await upload(["id": batch.id.uuidString, "title": doc.title, "kind": doc.kind, "runtime": doc.runtime,
-                                      "source": "meeting", "part": 0, "parts": 1, "text": batch.text])
+                                      "source": "meeting", "recording_id": doc.id.uuidString, "recording_index": index,
+                                      "part": 0, "parts": 1, "text": batch.text])
                     guard generation == token else { return }
                     if let i = documents.firstIndex(where: { $0.id == doc.id }), let j = documents[i].batches.firstIndex(where: { $0.id == batch.id }) {
                         documents[i].batches[j].uploaded = true; try persist()
