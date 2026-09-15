@@ -17,8 +17,9 @@ check ReplyStateCheck "$ROOT/ios/Assistant/ReplyState.swift"
 check SpotifyCheck "$ROOT/shared/SpotifyCommand.swift"
 check LocalVoiceCheck "$ROOT/desktop/LocalVoice.swift" "$ROOT/desktop/OutputStream.swift" -framework AVFoundation
 check MeetingCheck "$ROOT/shared/MeetingLibrary.swift"
+check MeetingMediaCheck "$ROOT/shared/MeetingMedia.swift" -framework AVFoundation
 check ComposerInputCheck "$ROOT/desktop/ComposerInput.swift" "$ROOT/shared/ChatImages.swift" -framework SwiftUI
-check ChatCheck "$ROOT/shared/MeetingLibrary.swift" "$ROOT/shared/MeetingCapture.swift" -framework Speech "$ROOT/shared/PlanNotes.swift" "$ROOT/shared/ChatImages.swift" "$ROOT/desktop/Chat.swift" "$ROOT/desktop/EngineConnection.swift" \
+check ChatCheck "$ROOT/shared/MeetingLibrary.swift" "$ROOT/shared/MeetingCapture.swift" "$ROOT/shared/MeetingMedia.swift" -framework Speech "$ROOT/shared/PlanNotes.swift" "$ROOT/shared/ChatImages.swift" "$ROOT/desktop/Chat.swift" "$ROOT/desktop/EngineConnection.swift" \
   "$ROOT/desktop/OutputStream.swift" "$ROOT/desktop/LiveVoice.swift" \
   "$ROOT/desktop/LocalSpeech.swift" "$ROOT/desktop/LocalVoice.swift" \
   "$ROOT/desktop/VoiceTurn.swift" -framework AVFoundation

@@ -188,24 +188,34 @@ private final class MeetingAudioSink: @unchecked Sendable {
 
     func importAudio(_ source: URL, title: String, runtime: String, kind: String = "current") {
         guard !active else { return }
-        working = true; error = ""; status = "Preparing recording…"
+        working = true; error = ""; status = "Extracting audio…"
         fileTask = Task {
             let access = source.startAccessingSecurityScopedResource()
-            defer { if access { source.stopAccessingSecurityScopedResource() }; working = false }
+            let local = library.directory.appendingPathComponent(UUID().uuidString + ".m4a")
+            let staging = FileManager.default.temporaryDirectory.appendingPathComponent("meeting-import-" + UUID().uuidString)
+            var attached = false
+            defer {
+                if access { source.stopAccessingSecurityScopedResource() }
+                try? FileManager.default.removeItem(at: staging)
+                if !attached { try? FileManager.default.removeItem(at: local) }
+                working = false; fileTask = nil
+            }
             do {
                 #if os(iOS)
                 try await authorize()
                 #endif
+                try FileManager.default.createDirectory(at: staging, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+                let audio = staging.appendingPathComponent("audio.m4a")
+                try await MeetingMedia.extractAudio(from: source, to: audio)
                 let id = try library.create(title: title, runtime: runtime, kind: kind)
                 meetingID = id
-                let name = id.uuidString + "." + source.pathExtension
-                let local = library.directory.appendingPathComponent(name)
-                try await Task.detached(priority: .utility) { try FileManager.default.copyItem(at: source, to: local) }.value
-                try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: local.path)
-                try library.audio(id, name: name)
+                try FileManager.default.moveItem(at: audio, to: local)
+                try library.audio(id, name: local.lastPathComponent)
+                attached = true
                 let reader = try AudioFileChunks(url: local)
                 while let chunk = try await reader.next() {
                     defer { try? FileManager.default.removeItem(at: chunk.url) }
+                    try Task.checkCancellation()
                     status = "Transcribing \(Int(chunk.offset)/60)m…"
                     let text = try await transcribe(chunk.url)
                     library.update(id, segment: UUID(), offset: chunk.offset, text: text, sealed: true)
@@ -213,12 +223,16 @@ private final class MeetingAudioSink: @unchecked Sendable {
                     await Task.yield()
                 }
                 library.finish(id); meetingID = nil; status = "Transcript saved"
+            } catch is CancellationError {
+                if let meetingID { library.finish(meetingID) }; meetingID = nil
+                status = "Import stopped"
             } catch {
                 self.error = error.localizedDescription
                 if let meetingID { library.finish(meetingID) }; meetingID = nil
             }
         }
     }
+    func cancelImport() { fileTask?.cancel(); status = "Stopping import…" }
     private func transcribe(_ url: URL) async throws -> String {
         #if os(macOS)
         guard let settings = Bundle.main.infoDictionary, let root = settings["AssistantRoot"] as? String, let python = settings["AssistantPython"] as? String else { throw MeetingFailure("Rebuild the app to configure local transcription.") }

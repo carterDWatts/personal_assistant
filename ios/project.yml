@@ -37,6 +37,7 @@ targets:
       - path: ../shared/ContextImport.swift
       - path: ../shared/MeetingLibrary.swift
       - path: ../shared/MeetingCapture.swift
+      - path: ../shared/MeetingMedia.swift
       - path: ../shared/MeetingView.swift
       - path: ../desktop/VoiceTurn.swift
       - path: ../identity.json

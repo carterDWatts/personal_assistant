@@ -21,7 +21,7 @@ struct MeetingView: View {
             }
             Text("I can follow a meeting while you keep chatting with me. Audio stays on this device; the transcript goes into memory.").foregroundStyle(.secondary)
             TextField("Give this conversation a name", text: $title).textFieldStyle(.roundedBorder).disabled(capture.active)
-            Picker("Imported audio", selection: $kind) {
+            Picker("Imported recording", selection: $kind) {
                 Text("Update current knowledge").tag("current")
                 Text("Historical archive only").tag("history")
             }.disabled(capture.active)
@@ -36,14 +36,19 @@ struct MeetingView: View {
                     }.disabled(capture.working)
                 }
                 #endif
-                Button("Import audio…", systemImage: "waveform.badge.plus") { chooseAudio = true }.disabled(capture.active)
-                if capture.working && !capture.recording { ProgressView().controlSize(.small) }
+                Button("Import recording…", systemImage: "waveform.badge.plus") { chooseAudio = true }.disabled(capture.active)
+                if capture.working && !capture.recording {
+                    ProgressView().controlSize(.small)
+                    Button("Stop import") { capture.cancelImport() }
+                }
             }.buttonStyle(.bordered)
             #if os(iOS)
             Text("Use your phone’s microphone for an in-person conversation. Let everyone know you’re recording. You can close this panel and type to me while it runs.").font(.caption).foregroundStyle(.secondary)
             #else
-            Text("Choose an M4A, MP3, WAV or CAF recording. Transcription runs locally while you use the chat.").font(.caption).foregroundStyle(.secondary)
+            Text("Transcription runs locally while you use the chat.").font(.caption).foregroundStyle(.secondary)
             #endif
+            Text("Import audio or video, including MP4. I keep a compressed audio copy and the transcript, not the video. Your original file stays untouched.").font(.caption).foregroundStyle(.secondary)
+            if capture.working && !capture.recording { Text(capture.status).font(.caption).foregroundStyle(.secondary) }
             if !fileError.isEmpty { Text(fileError).font(.caption).foregroundStyle(.red) }
             if !capture.error.isEmpty { Text(capture.error).font(.callout).foregroundStyle(.red).textSelection(.enabled) }
             if !library.notice.isEmpty { Text(library.notice).font(.callout).foregroundStyle(.secondary) }
@@ -90,7 +95,7 @@ struct MeetingView: View {
         #if os(macOS)
         .frame(width: 570, height: 650)
         #endif
-        .fileImporter(isPresented: $chooseAudio, allowedContentTypes: [.audio]) { result in
+        .fileImporter(isPresented: $chooseAudio, allowedContentTypes: [.audio, .movie, .mpeg4Movie]) { result in
             switch result {
             case .success(let url): fileError = ""; capture.importAudio(url, title: title.isEmpty ? url.deletingPathExtension().lastPathComponent : name, runtime: runtime, kind: kind)
             case .failure(let error): fileError = error.localizedDescription
