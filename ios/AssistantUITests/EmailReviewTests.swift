@@ -7,6 +7,8 @@ final class EmailReviewTests: XCTestCase {
         app.buttons["More options"].tap()
         app.buttons["Record or import conversation"].tap()
         XCTAssertTrue(app.buttons["Import recording"].waitForExistence(timeout: 5))
+        let screen = XCTAttachment(screenshot: app.screenshot())
+        screen.name = "Recording imports"; screen.lifetime = .keepAlways; add(screen)
         app.buttons["Import recording"].tap()
         XCTAssertTrue(app.buttons["Choose from Files"].exists)
         app.buttons["Choose from Photos"].tap()

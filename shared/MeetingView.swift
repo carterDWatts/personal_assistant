@@ -10,119 +10,81 @@ struct MeetingView: View {
     let runtime: String
     var beforeRecording: () -> Void = {}
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.colorScheme) private var scheme
     @State private var title = ""
     @State private var kind = "current"
+    @State private var expandedTranscript = false
+    @FocusState private var naming: Bool
     #if os(iOS)
     @State private var chooseVideo = false
     @State private var video: PhotosPickerItem?
+    private var palette: Palette { .concrete }
+    #else
+    private var palette: Palette { .forScheme(scheme) }
     #endif
     @State private var chooseAudio = false
     @State private var fileError = ""
     private var name: String { title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Conversation \(Date().formatted(date: .abbreviated, time: .shortened))" : title }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            HStack {
+        VStack(spacing: 0) {
+            HStack(spacing: 12) {
+                Mark(palette: palette).frame(width: 30, height: 36).accessibilityHidden(true)
                 Text("Conversations").font(.title2.weight(.semibold))
                 Spacer()
-                Button("Done") { dismiss() }
-            }
-            Text("I can follow a meeting while you keep chatting with me. Audio stays on this device; the transcript goes into memory.").foregroundStyle(.secondary)
-            TextField("Give this conversation a name", text: $title).textFieldStyle(.roundedBorder).disabled(capture.active)
-            Picker("Imported recording", selection: $kind) {
-                Text("Update current knowledge").tag("current")
-                Text("Historical archive only").tag("history")
-            }.disabled(capture.active)
-            HStack(spacing: 12) {
-                #if os(iOS)
-                if capture.recording {
-                    Button("Stop recording", systemImage: "stop.circle.fill") { Task { await capture.stop(); await library.sync() } }.tint(.red)
-                } else {
-                    Button("Record meeting", systemImage: "mic.fill") {
-                        beforeRecording()
-                        Task { await capture.start(title: name, runtime: runtime) }
-                    }.disabled(capture.working)
-                }
-                #endif
-                #if os(iOS)
-                Menu {
-                    Button("Choose from Photos", systemImage: "photo.on.rectangle") { chooseVideo = true }
-                    Button("Choose from Files", systemImage: "folder") { chooseAudio = true }
-                } label: { Label("Import recording", systemImage: "waveform.badge.plus") }.disabled(capture.active)
-                #else
-                Button("Import recording…", systemImage: "waveform.badge.plus") { chooseAudio = true }.disabled(capture.active)
-                #endif
-            }.buttonStyle(.bordered)
-            #if os(iOS)
-            Text("Use your phone’s microphone for an in-person conversation. Let everyone know you’re recording. You can close this panel and type to me while it runs.").font(.caption).foregroundStyle(.secondary)
-            #else
-            Text("Transcription runs locally while you use the chat.").font(.caption).foregroundStyle(.secondary)
-            #endif
-            Text("Import audio or video, including MP4. I keep a compressed audio copy and the transcript, not the video. Your original file stays untouched.").font(.caption).foregroundStyle(.secondary)
-            if capture.working && !capture.recording {
-                HStack {
-                    ProgressView().controlSize(.small)
-                    Text(capture.status).font(.caption).foregroundStyle(.secondary)
-                    Spacer()
-                    Button("Pause") { capture.cancelImport() }
-                }
-            }
-            if !fileError.isEmpty { Text(fileError).font(.caption).foregroundStyle(.red) }
-            if !capture.error.isEmpty { Text(capture.error).font(.callout).foregroundStyle(.red).textSelection(.enabled) }
-            if !library.notice.isEmpty { Text(library.notice).font(.callout).foregroundStyle(.secondary) }
-            if let doc = library.selected {
-                HStack {
-                    Text(doc.title).font(.headline)
-                    Spacer()
-                    Menu {
-                        ShareLink("Export transcript", item: doc.transcript)
-                        if let name = doc.audioName {
-                            ShareLink("Export audio", item: library.directory.appendingPathComponent(name))
-                        }
-                    } label: { Image(systemName: "square.and.arrow.up") }.help("Export conversation")
-                }
-                Toggle("Use this conversation in chat", isOn: $library.useInChat)
-                if let job = doc.processing {
-                    ProgressView(value: job.duration > 0 ? min(1, job.offset/job.duration) : 0)
-                    if job.state == "paused" || job.state == "failed" {
-                        HStack {
-                            Text(job.error ?? "Import paused. Your audio and progress are saved.").font(.caption).foregroundStyle(.secondary)
-                            Spacer()
-                            Button(job.state == "failed" ? "Retry" : "Resume") { capture.resumeImport(doc) }.disabled(capture.active)
-                        }
+                Button("Done") { dismiss() }.font(.body.weight(.medium)).buttonStyle(.plain)
+            }.padding(20)
+            Divider().overlay(palette.line)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 24) {
+                    if !capture.active { importControls }
+                    if capture.active {
+                        VStack(alignment: .leading, spacing: 12) {
+                            HStack {
+                                Label(capture.recording ? "Recording" : capture.status, systemImage: capture.recording ? "record.circle" : "waveform")
+                                    .font(.headline).accessibilityAddTraits(.updatesFrequently)
+                                Spacer()
+                                if capture.recording {
+                                    Button("Stop recording") { Task { await capture.stop(); await library.sync() } }.tint(.red)
+                                } else { Button("Pause") { capture.cancelImport() } }
+                            }.buttonStyle(.bordered)
+                            if !capture.recording { ProgressView(value: capture.progress) }
+                            Text("You can close this panel and keep chatting. I’ll save my progress as I go.")
+                                .font(.subheadline).foregroundStyle(palette.muted)
+                        }.padding(16).background(palette.bubble, in: RoundedRectangle(cornerRadius: 16))
                     }
-                } else if doc.audioName != nil && doc.ended && !capture.active {
-                    Button("Transcribe saved audio again") { capture.resumeImport(doc) }.font(.caption)
-                }
-                Text(summary(doc)).font(.caption).foregroundStyle(.secondary)
-                ScrollViewReader { proxy in
-                    ScrollView {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text(doc.transcript.isEmpty ? "Your transcript will appear here." : doc.transcript)
-                                .font(.body).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
-                            Color.clear.frame(height: 1).id("end")
-                        }.padding(12)
+                    if !fileError.isEmpty { problem(fileError) }
+                    if !capture.error.isEmpty && library.selected?.processing?.error != capture.error { problem(capture.error) }
+                    if !library.notice.isEmpty { Text(library.notice).font(.subheadline).foregroundStyle(palette.muted) }
+                    if !library.documents.isEmpty {
+                        DisclosureGroup("Saved recordings (\(library.documents.count))") {
+                            VStack(spacing: 0) {
+                                ForEach(library.documents) { doc in
+                                    Button { library.selectedID = doc.id; expandedTranscript = false } label: {
+                                        HStack(spacing: 12) {
+                                            Image(systemName: library.selectedID == doc.id ? "checkmark.circle.fill" : "waveform")
+                                                .foregroundStyle(palette.accent)
+                                            VStack(alignment: .leading, spacing: 4) {
+                                                Text(doc.title).lineLimit(2).foregroundStyle(palette.ink)
+                                                Text(doc.date, style: .date).font(.caption).foregroundStyle(palette.muted)
+                                            }
+                                            Spacer(minLength: 0)
+                                        }.frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 12).contentShape(Rectangle())
+                                    }.buttonStyle(.plain).disabled(capture.active)
+                                }
+                            }
+                        }.font(.subheadline.weight(.medium))
                     }
-                    .frame(minHeight: 140, maxHeight: 300)
-                    .background(.quaternary.opacity(0.3), in: RoundedRectangle(cornerRadius: 12))
-                    .onChange(of: doc.transcript) { _ in if capture.recording { proxy.scrollTo("end", anchor: .bottom) } }
-                }
-            }
-            if !library.documents.isEmpty {
-                Text("Saved on this device").font(.subheadline.weight(.medium))
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 10) {
-                        ForEach(library.documents) { doc in
-                            Button { library.selectedID = doc.id } label: {
-                                HStack { Text(doc.title).lineLimit(1); Spacer(); Text(doc.date, style: .date).font(.caption).foregroundStyle(.secondary) }
-                            }.buttonStyle(.plain).disabled(capture.active)
-                        }
-                    }
-                }.frame(maxHeight: 100)
-            }
-            Spacer(minLength: 0)
-        }.padding(22)
+                    if let doc = library.selected { transcript(doc) }
+                }.padding(20)
+            }.scrollDismissesKeyboard(.interactively)
+        }
+        .foregroundStyle(palette.ink).tint(palette.accent).background(palette.background)
+        .onChange(of: library.selectedID) { _ in expandedTranscript = false; naming = false }
         #if os(macOS)
-        .frame(width: 570, height: 650)
+        .frame(width: 580, height: 700)
+        #else
+        .presentationDragIndicator(.visible)
         #endif
         #if os(iOS)
         .photosPicker(isPresented: $chooseVideo, selection: $video, matching: .videos, preferredItemEncoding: .current)
@@ -141,11 +103,92 @@ struct MeetingView: View {
         }
 
     }
+    private var importControls: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Record here, or bring in an audio or video file.").font(.subheadline).foregroundStyle(palette.muted)
+            TextField("Recording name (optional)", text: $title)
+                .textFieldStyle(.plain).focused($naming).padding(14)
+                .background(palette.surface, in: RoundedRectangle(cornerRadius: 12))
+                .overlay(RoundedRectangle(cornerRadius: 12).stroke(palette.line))
+                .onSubmit { naming = false }
+            HStack(spacing: 12) {
+                #if os(iOS)
+                Button { naming = false; beforeRecording(); Task { await capture.start(title: name, runtime: runtime) } } label: {
+                    Label("Record", systemImage: "mic.fill").frame(maxWidth: .infinity)
+                }.buttonStyle(.borderedProminent).accessibilityLabel("Record meeting")
+                Menu {
+                    Button("Choose from Photos", systemImage: "photo.on.rectangle") { naming = false; chooseVideo = true }
+                    Button("Choose from Files", systemImage: "folder") { naming = false; chooseAudio = true }
+                } label: { Label("Import", systemImage: "square.and.arrow.down").frame(maxWidth: .infinity) }
+                    .buttonStyle(.bordered).accessibilityLabel("Import recording")
+                #else
+                Button { naming = false; chooseAudio = true } label: {
+                    Label("Import recording…", systemImage: "square.and.arrow.down").frame(maxWidth: .infinity)
+                }.buttonStyle(.borderedProminent)
+                #endif
+            }.controlSize(.large)
+            VStack(alignment: .leading, spacing: 8) {
+                Picker("How to use imported recordings", selection: $kind) {
+                    Text("Update knowledge").tag("current")
+                    Text("Keep as history").tag("history")
+                }.pickerStyle(.segmented)
+                Text(kind == "current" ? "I’ll use imported recordings to update what I know." : "I’ll keep imported recordings as past context, without replacing current facts.")
+                    .font(.caption).foregroundStyle(palette.muted).fixedSize(horizontal: false, vertical: true)
+            }
+            Text("Audio stays on this device; the transcript goes into memory. Videos keep only an audio copy. Let people know before recording.")
+                .font(.caption).foregroundStyle(palette.muted).fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private func transcript(_ doc: MeetingDocument) -> some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 5) {
+                    Text(doc.title).font(.title3.weight(.semibold)).fixedSize(horizontal: false, vertical: true)
+                    Text(summary(doc)).font(.caption).foregroundStyle(palette.muted)
+                }
+                Spacer(minLength: 8)
+                Menu {
+                    ShareLink("Export transcript", item: doc.transcript)
+                    if let name = doc.audioName {
+                        ShareLink("Export audio", item: library.directory.appendingPathComponent(name))
+                    }
+                } label: { Image(systemName: "square.and.arrow.up").padding(8) }
+                    .accessibilityLabel("Export conversation")
+            }
+            if let job = doc.processing, job.state != "done", !capture.active {
+                VStack(alignment: .leading, spacing: 10) {
+                    ProgressView(value: job.duration > 0 ? min(1, job.offset/job.duration) : 0)
+                    Text(job.error ?? "Your audio and progress are saved.").font(.subheadline).foregroundStyle(palette.muted)
+                    Button(job.state == "failed" ? "Retry transcription" : "Resume transcription") { capture.resumeImport(doc) }
+                        .buttonStyle(.borderedProminent)
+                }
+            } else if doc.processing == nil && doc.audioName != nil && doc.ended && !capture.active {
+                Button("Transcribe saved audio again") { capture.resumeImport(doc) }.font(.subheadline).buttonStyle(.bordered)
+            }
+            Toggle("Include in this chat", isOn: $library.useInChat).font(.subheadline).toggleStyle(.switch)
+            Divider()
+            if doc.transcript.isEmpty {
+                Label("Your transcript will appear here as I work.", systemImage: "text.alignleft")
+                    .font(.subheadline).foregroundStyle(palette.muted).padding(.vertical, 12)
+            } else {
+                Text(doc.transcript).font(.body).lineSpacing(5).textSelection(.enabled)
+                    .lineLimit(expandedTranscript ? nil : 12).frame(maxWidth: .infinity, alignment: .leading)
+                Button(expandedTranscript ? "Show less" : "Read full transcript") { expandedTranscript.toggle() }
+                    .font(.subheadline.weight(.medium)).buttonStyle(.plain)
+            }
+        }.padding(18).background(palette.surface, in: RoundedRectangle(cornerRadius: 16))
+    }
+
+    private func problem(_ text: String) -> some View {
+        Label(text, systemImage: "exclamationmark.circle").font(.subheadline)
+            .foregroundStyle(palette.ink).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
+    }
     private func summary(_ doc: MeetingDocument) -> String {
-        let uploaded = doc.batches.filter(\.uploaded).count
+        let pending = doc.batches.filter { !$0.uploaded }.count
         let state = doc.processing?.state
-        let label = state == "done" ? "Transcription complete" : state == "paused" ? "Transcription paused" : state == "failed" ? "Transcription incomplete" : capture.active ? capture.status : "Saved on this device"
-        return "\(label) · \(uploaded) of \(doc.batches.count) sections sent to memory. You can keep chatting while I work."
+        let label = state == "done" ? "Transcription complete" : state == "paused" ? "Transcription paused" : state == "failed" ? "Transcription needs attention" : capture.active ? "In progress" : "Saved on this device"
+        return label + (pending > 0 ? " · Memory upload pending" : doc.batches.isEmpty ? "" : " · Sent to memory")
     }
 }
 
