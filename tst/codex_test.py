@@ -1,10 +1,23 @@
 import asyncio
 import unittest
 from engine.runtime.codex import CodexRuntime
+from engine.runtime import ProviderUnavailable
 from engine.tools import ToolSpec
 
 
 class codex_test(unittest.IsolatedAsyncioTestCase):
+    async def test_provider_failure_exposes_status_without_raw_payload(self):
+        runtime = CodexRuntime(); runtime.session_id = 'thread'
+        async def request(method, params): return {'turn': {'id': 'turn'}}
+        runtime.request = request
+        await runtime.events.put({'method': 'turn/completed', 'params': {'threadId': 'thread', 'turn': {
+            'id': 'turn', 'status': 'failed', 'error': {'message': 'unexpected status 404 Not Found: private diagnostic payload'}}}})
+        with self.assertRaises(ProviderUnavailable) as caught:
+            async for _ in runtime.send('Hello'): pass
+        self.assertIn('HTTP 404', str(caught.exception))
+        self.assertNotIn('private diagnostic', str(caught.exception))
+        self.assertTrue(runtime.needs_reseed)
+
     async def test_compaction_invalidates_cached_context(self):
         import json
         runtime = CodexRuntime()

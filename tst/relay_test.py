@@ -38,69 +38,19 @@ class relay_test(MapTest):
                 self.assertFalse(self.map.value("select has_function_privilege(%s,%s,'EXECUTE')",(role,'public.'+name+'(uuid,uuid,text,jsonb)')))
             self.assertFalse(self.map.value("select has_table_privilege(%s,'assistant.reply_deliveries','SELECT')",(role,)))
 
-    def test_reply_is_saved_and_notified_without_a_connected_client(self):
-        from engine.notifications import Dispatcher
-        push = type('Push', (), {'send': AsyncMock(return_value=(200, ''))})()
+    def test_offline_reply_is_saved_without_an_alert(self):
         self.map.execute("insert into assistant.push_devices(device_id,token,environment) values(%s,%s,'sandbox')",(self.device,'a'*64))
-        attention_before=self.map.value('select count(*) from assistant.attention')
-        outbound_before=self.map.value('select count(*) from assistant.outbound')
         async def check():
             relay_map=Map(self.map.url); relay=Relay(relay_map); relay.acquire()
             host=Host(relay,self.map,lambda:FakeRuntime([[say('Your answer is ready.')]]))
             try:
                 self.submit()
-                # No event reads or client heartbeat while the server answers.
                 await host.process(relay.claim())
-                delivery=self.map.row('select * from assistant.reply_deliveries')
-                self.assertEqual(delivery['device_id'],self.device)
-                self.assertFalse(await Dispatcher(self.map,push).reply())  # brief read-ack window
-                self.map.execute("update assistant.reply_deliveries set retry_at=now()")
-                self.assertTrue(await Dispatcher(self.map,push).reply())
-                self.assertFalse(await Dispatcher(self.map,push).reply())
-                push.send.assert_awaited_once()
-                self.assertTrue(push.send.call_args.args[0]['reply'])
+                self.assertEqual(self.map.value('select count(*) from assistant.reply_deliveries'),0)
                 self.assertEqual(self.client('bootstrap')['history'][-1]['content'],'Your answer is ready.')
-                self.assertEqual(self.map.value('select count(*) from assistant.attention'),attention_before)
-                self.assertEqual(self.map.value('select count(*) from assistant.outbound'),outbound_before)
             finally:
                 await host.close_session(); relay_map.close()
         self.run_async(check())
-
-    def test_reply_receipts_cancel_only_the_read_device_and_cursor(self):
-        from engine.notifications import Dispatcher
-        self.map.execute("insert into assistant.push_devices(device_id,token,environment) values(%s,%s,'sandbox')",(self.device,'a'*64))
-        other=uuid.uuid4(); self.client('register',{'name':'Other phone'},device=other)
-        self.relay.acquire(); self.submit(); turn=self.relay.claim(); self.relay.finish(turn['id'],'completed')
-        cursor=self.map.value('select end_cursor from assistant.reply_deliveries')
-        self.client('reply_seen',{'cursor':cursor},device=other)
-        self.client('reply_seen',{'cursor':cursor-1})
-        self.assertIsNone(self.map.value('select cancelled_at from assistant.reply_deliveries'))
-        with self.assertRaisesRegex(psycopg.Error,'device_denied'):
-            self.client('reply_seen',{'cursor':cursor},owner=uuid.uuid4())
-        self.client('reply_seen',{'cursor':cursor})
-        self.assertIsNotNone(self.map.value('select cancelled_at from assistant.reply_deliveries'))
-        self.map.execute('update assistant.reply_deliveries set retry_at=now()')
-        push=type('Push',(),{'send':AsyncMock()})()
-        self.assertFalse(self.run_async(Dispatcher(self.map,push).reply()))
-        push.send.assert_not_called()
-
-    def test_cancelled_turn_does_not_notify_and_failed_delivery_retries(self):
-        from engine.notifications import Dispatcher
-        self.map.execute("insert into assistant.push_devices(device_id,token,environment) values(%s,%s,'sandbox')",(self.device,'a'*64))
-        self.relay.acquire(); self.submit(); turn=self.relay.claim()
-        self.client('cancel',{'turn_id':str(turn['id'])}); self.relay.finish(turn['id'],'completed')
-        self.assertEqual(self.map.value('select count(*) from assistant.reply_deliveries'),0)
-        self.submit(); turn=self.relay.claim(); self.relay.finish(turn['id'],'failed')
-        self.map.execute('update assistant.reply_deliveries set retry_at=now()')
-        push=type('Push',(),{'send':AsyncMock(side_effect=[(503,'Unavailable'),(200,'')])})()
-        dispatcher=Dispatcher(self.map,push)
-        self.assertTrue(self.run_async(dispatcher.reply()))
-        self.assertIsNone(self.map.value('select sent_at from assistant.reply_deliveries'))
-        self.assertFalse(self.run_async(dispatcher.reply()))
-        self.map.execute('update assistant.reply_deliveries set retry_at=now()')
-        self.assertTrue(self.run_async(dispatcher.reply()))
-        self.assertEqual(push.send.await_count,2)
-        self.assertEqual(self.map.value('select count(*) from assistant.reply_deliveries'),1)
 
     def test_speech_cleanup_expires_only_old_audio_in_bounded_batches(self):
         from engine.speech import Speech

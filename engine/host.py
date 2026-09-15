@@ -16,7 +16,7 @@ from engine.db import Map
 from engine.engine import Session
 from engine.memory_worker import Worker as MemoryWorker
 from engine.relay import Relay
-from engine.runtime import load
+from engine.runtime import load, ProviderUnavailable
 from engine.runtime.storage import StorageFullError
 
 
@@ -217,9 +217,9 @@ class Host:
                 except Exception as error:
                     status = 'failed'
                     storage = isinstance(error, StorageFullError) or isinstance(error, OSError) and error.errno == errno.ENOSPC
-                    print('Reply failed: ' + type(error).__name__, flush=True)
+                    print('Reply failed: ' + (str(error) if isinstance(error, ProviderUnavailable) else type(error).__name__), flush=True)
                     self.stream.pending.append({'type': 'error', 'code': 'storage_full' if storage else 'runtime_failed',
-                        'message': str(StorageFullError()) if storage else
+                        'message': str(StorageFullError()) if storage else str(error) if isinstance(error, ProviderUnavailable) else
                         'The reply failed on my host. Your message is saved; please try again.'})
             if self.speech:
                 self.speech.finish(status)

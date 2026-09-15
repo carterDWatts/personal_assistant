@@ -7,6 +7,7 @@ from zoneinfo import ZoneInfo
 from engine import config, context
 from engine.db import Map, dumps, jsonb
 from engine.memory_worker import Worker
+from engine.runtime import ProviderUnavailable
 from engine.tools import ToolSpec, Tools, run
 
 
@@ -40,8 +41,10 @@ class Background:
             items=self.map.rows("select * from assistant.source_items where source='gmail' and processed_at is null and available_at<=now() order by created_at,id limit 5")
             try: await self._triage(items)
             except asyncio.CancelledError: raise
-            except Exception:
-                self.map.execute("update assistant.source_items set available_at=now()+interval '2 minutes',last_error='Email classification will retry' where source='gmail' and processed_at is null and id=any(%s)",([item['id'] for item in items],))
+            except Exception as error:
+                reason = str(error) if isinstance(error, ProviderUnavailable) else 'Email classification will retry'
+                print('Email classification failed: ' + (reason if isinstance(error, ProviderUnavailable) else type(error).__name__), flush=True)
+                self.map.execute("update assistant.source_items set available_at=now()+interval '2 minutes',last_error=%s where source='gmail' and processed_at is null and id=any(%s)",(reason,[item['id'] for item in items]))
         finally:
             self.map.execute("select pg_advisory_unlock(hashtextextended('email-classification',0))")
 

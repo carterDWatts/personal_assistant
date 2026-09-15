@@ -11,6 +11,10 @@ from typing import AsyncIterator, Protocol
 from engine.tools import ToolSpec
 
 
+class ProviderUnavailable(RuntimeError):
+    """A safe, user-facing connection failure, without raw provider payloads."""
+
+
 @dataclass
 class Event:
     kind: str                    # text | assistant_text | tool_use | tool_result | done

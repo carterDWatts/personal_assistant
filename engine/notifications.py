@@ -39,9 +39,6 @@ class Push:
                    'reminder_id':str(row['reminder_id']),'version':row['version']}
         if row.get('notice'):
             payload = {'aps':{'alert':{'title':config.ASSISTANT_NAME,'body':row['title']},'sound':'default','thread-id':'attention'}, 'notice_id':str(row['reminder_id'])}
-        if row.get('reply'):
-            payload = {'aps':{'alert':{'title':config.ASSISTANT_NAME,'body':row['title']},'sound':'default','thread-id':'chat'},
-                       'chat_reply':True,'turn_id':str(row['reminder_id'])}
         if row.get('source')=='job': payload['task_update']=True
         if row.get('message_id'): payload['message_id']=str(row['message_id'])
         expiration=int(time.time()+3600)
@@ -185,28 +182,6 @@ class Dispatcher:
         return True
 
 
-    async def reply(self):
-        with self.map.conn.transaction():
-            row=self.map.row("""select n.*,t.status,t.finished_at,p.token,p.environment,p.enabled,d.revoked_at
-                from assistant.reply_deliveries n join assistant.turns t on t.id=n.turn_id
-                join assistant.push_devices p on p.device_id=n.device_id join assistant.devices d on d.id=n.device_id
-                where n.sent_at is null and n.cancelled_at is null and n.retry_at<=now()
-                order by n.retry_at for update of n skip locked limit 1""")
-            if not row: return False
-            if not row['enabled'] or row['revoked_at'] or row['status'] not in ('completed','failed') or row['finished_at'] < datetime.now(timezone.utc)-timedelta(days=1):
-                self.map.execute('update assistant.reply_deliveries set cancelled_at=now() where id=%s',(row['id'],))
-                return True
-            row.update(reply=True,reminder_id=row['turn_id'],version=1,
-                       title='I’ve replied to your message.' if row['status']=='completed' else 'I couldn’t finish my reply. Open our chat to see what happened.')
-            try: status,reason=await self.push.send(row)
-            except Exception: status,reason=503,'transport_unavailable'
-            if status==200:
-                self.map.execute('update assistant.reply_deliveries set sent_at=now(),last_error=null where id=%s',(row['id'],))
-            else:
-                self.map.execute("update assistant.reply_deliveries set last_error=%s,retry_at=now()+interval '30 seconds' where id=%s",(reason[:100],row['id']))
-                if reason in ('BadDeviceToken','Unregistered','DeviceTokenNotForTopic'):
-                    self.map.execute('update assistant.push_devices set enabled=false where device_id=%s and token=%s',(row['device_id'],row['token']))
-            return True
 
 
 async def run(url, host):
@@ -214,25 +189,20 @@ async def run(url, host):
     map_=Map(url)
     from engine.reminder_message import compose
     dispatcher=Dispatcher(map_,compose=compose)
-    next_reminders = 0
     try:
         while not host.stopping.is_set():
             try:
                 if os.environ.get('ASSISTANT_APNS_KEY') and map_.value('select exists(select 1 from assistant.host where worker_id=%s and lease_until>now())',(host.relay.worker_id,)):
+                    dispatcher.queue()
+                    for _ in range(20):
+                        if not await dispatcher.deliver(): break
                     for _ in range(10):
-                        if not await dispatcher.reply(): break
-                    if time.monotonic() >= next_reminders:
-                        next_reminders = time.monotonic()+30
-                        dispatcher.queue()
-                        for _ in range(20):
-                            if not await dispatcher.deliver(): break
-                        for _ in range(10):
-                            if not await dispatcher.attention(): break
-                        await host.refresh_day()
+                        if not await dispatcher.attention(): break
+                    await host.refresh_day()
             except Exception:
                 # The queue remains durable; host logs show failure without notification contents.
                 print('Reminder delivery will retry.', flush=True)
-            try: await asyncio.wait_for(host.stopping.wait(),5)
+            try: await asyncio.wait_for(host.stopping.wait(),30)
             except asyncio.TimeoutError: pass
     finally: map_.close()
 

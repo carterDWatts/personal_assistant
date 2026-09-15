@@ -4,12 +4,13 @@ import asyncio
 import hashlib
 import json
 import os
+import re
 import shutil
 import tempfile
 from pathlib import Path
 
 from engine import config
-from engine.runtime import Event, Metrics
+from engine.runtime import Event, Metrics, ProviderUnavailable
 from engine.tools import run
 from engine.runtime.storage import require_space
 
@@ -228,6 +229,11 @@ class CodexRuntime:
                 self.interrupt_requested = False
                 if params["turn"].get("status") != "completed":
                     self.needs_reseed=params["turn"].get("status")=="failed"
+                    error = params["turn"].get("error") or {}
+                    message = error.get("message", "") if isinstance(error, dict) else str(error)
+                    status = re.search(r"(?:status|HTTP)\s+(\d{3})\b", message, re.IGNORECASE)
+                    if status:
+                        raise ProviderUnavailable(f"ChatGPT could not answer (HTTP {status[1]}). Your message is saved. You can switch to Claude while the connection is unavailable.")
                     raise RuntimeError("The reply was interrupted or failed. You can continue the conversation.")
                 self.metrics.turns += 1
                 yield Event("done", payload=Metrics(turns=1).as_dict())
