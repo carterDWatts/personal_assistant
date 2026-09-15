@@ -414,6 +414,7 @@ struct SignInView: View {
 }
 
 struct ConversationView: View {
+    @ObservedObject private var focusTimer = Pomodoro.shared
     @StateObject private var chat = Chat()
     @ObservedObject private var account = Account.shared
     @State private var showDay = false
@@ -433,6 +434,7 @@ struct ConversationView: View {
                 .overlay(alignment: .bottom) {
                     if chat.voice { VoiceGlow(voice: chat.liveVoice, palette: palette) }
                 }
+            PomodoroButton(timer: focusTimer, accent: palette.accent).padding(.horizontal, 20)
             if let error = chat.voiceError {
                 Text(error).font(.caption).foregroundStyle(palette.muted)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -455,6 +457,7 @@ struct ConversationView: View {
         .animation(.easeInOut(duration: 0.2), value: chat.voice)
         .background(Concrete(palette: palette).equatable().ignoresSafeArea())
         .tint(palette.accent)
+        .sheet(isPresented: $focusTimer.presented) { PomodoroView(timer: focusTimer, palette: palette) }
         .sheet(isPresented: $showDay) {
             DayPanel(chat: chat, palette: palette).presentationDetents([.medium, .large]).presentationDragIndicator(.visible)
         }
@@ -505,6 +508,7 @@ struct ConversationView: View {
                 .buttonStyle(SquareButton(palette: palette, size: 36)).fixedSize().accessibilityLabel("Open calendar")
             Menu {
                 Button("Clear", systemImage: "eraser") { chat.draft = ""; chat.connect(clear: true) }.disabled(!chat.connected || chat.busy)
+                Button("Focus timer", systemImage: "timer") { focusTimer.refresh(); focusTimer.presented = true }
                 Button("Start morning", systemImage: "sun.horizon") { chat.startMorning() }.disabled(!chat.connected || chat.busy)
                 Button("Record or import conversation", systemImage: "waveform") { showMeetings = true }
                 Button("Import context", systemImage: "doc.badge.plus") { showImport = true }

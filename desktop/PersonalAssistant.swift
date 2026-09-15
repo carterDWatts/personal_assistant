@@ -494,6 +494,7 @@ struct SettingsPopover: View {
 }
 
 @MainActor struct ConversationView: View {
+    @ObservedObject private var focusTimer = Pomodoro.shared
     @StateObject private var chat = Chat()
     @State private var showMemory = true
     @State private var showSettings = false
@@ -538,6 +539,7 @@ struct SettingsPopover: View {
                 Button { showConnections.toggle() } label: { Image(systemName: "link") }
                     .help("Connections")
                     .popover(isPresented: $showConnections) { ConnectionsView(chat: chat) }
+                Button { focusTimer.refresh(); focusTimer.presented = true } label: { Image(systemName: "timer") }.help("Focus timer")
                 Button { showMeetings = true } label: { Image(systemName: "waveform") }
                     .help("Import a recorded conversation")
                 Button { showImport = true } label: { Image(systemName: "tray.and.arrow.down") }
@@ -558,6 +560,7 @@ struct SettingsPopover: View {
         }
         .toolbarBackground(palette.background, for: .windowToolbar)
         .preferredColorScheme(.light)
+        .sheet(isPresented: $focusTimer.presented) { PomodoroView(timer: focusTimer, palette: palette) }
         .sheet(isPresented: $showMeetings) { MeetingView(library: chat.meetings, capture: chat.meetingCapture, runtime: chat.runtime) }
         .onAppear {
             chat.liveVoice.prepare()
@@ -620,6 +623,7 @@ struct SettingsPopover: View {
                     }.padding(.horizontal, 32).padding(.top, 16).padding(.bottom, 14)
                         .frame(maxWidth: column).frame(maxWidth: .infinity)
             }
+            PomodoroButton(timer: focusTimer, accent: palette.accent).frame(maxWidth: column).padding(.horizontal, 32)
             MeetingBanner(library: chat.meetings, capture: chat.meetingCapture) { showMeetings = true }
                 .frame(maxWidth: column).padding(.horizontal, 32).padding(.bottom, 8)
             PendingImageStrip(images: $chat.pendingImages, error: chat.imageError)

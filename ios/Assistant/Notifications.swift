@@ -15,6 +15,19 @@ import UserNotifications
         let later = UNNotificationAction(identifier: "snooze", title: "In an hour", options: [.foreground])
         center.setNotificationCategories([UNNotificationCategory(identifier: "REMINDER", actions: [done,later], intentIdentifiers: [])])
         Task { await refresh() }
+        #if DEBUG
+        // Exercise notification delivery and navigation without a production push token.
+        if ProcessInfo.processInfo.arguments.contains("--chat-reply-check") {
+            Task {
+                guard (try? await center.requestAuthorization(options: [.alert, .sound])) == true else { return }
+                let content = UNMutableNotificationContent()
+                content.title = AssistantIdentity.name; content.body = "Your test reply is ready."
+                content.userInfo = ["chat_reply": true, "turn_id": UUID().uuidString]
+                try? await center.add(UNNotificationRequest(identifier: "chat-reply-check", content: content,
+                    trigger: UNTimeIntervalNotificationTrigger(timeInterval: 12, repeats: false)))
+            }
+        }
+        #endif
         return true
     }
     func refresh() async {
@@ -41,12 +54,31 @@ import UserNotifications
     func application(_ application: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: Error) {
         status = "Notification connection failed. Try enabling again."
     }
+    func clearChatReplies() {
+        Task {
+            let notices = await center.deliveredNotifications()
+            center.removeDeliveredNotifications(withIdentifiers: notices.filter {
+                $0.request.content.userInfo["chat_reply"] as? Bool == true
+            }.map { $0.request.identifier })
+        }
+    }
     func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification) async -> UNNotificationPresentationOptions {
-        if notification.request.content.userInfo["task_update"] as? Bool == true { return [] }
+        if notification.request.content.userInfo["chat_reply"] as? Bool == true || notification.request.content.userInfo["task_update"] as? Bool == true { return [] }
         return [.banner,.sound,.list]
     }
     func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse) async {
         let info = response.notification.request.content.userInfo
+        if info["chat_reply"] as? Bool == true {
+            UserDefaults.standard.set(true, forKey: "openChatReply")
+            UserDefaults.standard.removeObject(forKey: "notificationDiscussion")
+            clearChatReplies()
+            onAction?()
+            return
+        }
+        if info["pomodoro"] as? Bool == true {
+            Pomodoro.shared.refresh(); Pomodoro.shared.presented = true
+            return
+        }
         if response.actionIdentifier == UNNotificationDefaultActionIdentifier {
             let kind = info["notice_id"] != nil ? "notice" : "reminder"
             if let id = (info["notice_id"] ?? info["reminder_id"]) as? String {

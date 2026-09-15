@@ -36,6 +36,7 @@ struct RelayError: LocalizedError {
     private var failures = 0
     private var replaying = false
     private var draining = false
+    private var needsReplyAck = false
     private var meetingContext: String?
     func setMeetingContext(_ text: String?) { meetingContext = text }
     private var playerGeneration = 0
@@ -78,6 +79,7 @@ struct RelayError: LocalizedError {
             capabilities["type"] = "capabilities"; emit(capabilities)
             if var day = boot["day"] as? [String: Any] { day["type"] = "map"; emit(day) }
             replaying = true
+            needsReplyAck = true
             try await drain()
             replaying = false
             if activeTurn == nil { emit(["type": "ready"]) } else { emit(["type": "status", "text": "Waiting for the host"]) }
@@ -96,7 +98,7 @@ struct RelayError: LocalizedError {
     private func drain() async throws {
         guard !draining else { return }
         draining = true
-        defer { draining = false }
+        defer { draining = false; replaying = false }
         while true {
             let page = try await call("events", ["after": cursor, "wait": !replaying && (activeTurn != nil || audioTurn != nil)])
             for envelope in page["events"] as? [[String: Any]] ?? [] {
@@ -104,7 +106,13 @@ struct RelayError: LocalizedError {
                 cursor = next
                 handle(envelope)
             }
-            if page["has_more"] as? Bool != true { return }
+            if page["has_more"] as? Bool != true { break }
+        }
+        if inFront && needsReplyAck {
+            needsReplyAck = false
+            do { _ = try await call("reply_seen", ["cursor": cursor]) }
+            catch { needsReplyAck = true }
+            Notifications.shared?.clearChatReplies()
         }
     }
 
@@ -116,6 +124,7 @@ struct RelayError: LocalizedError {
             activeTurn = envelope["turn_id"] as? String
             emit(payload)
         case "end":
+            needsReplyAck = true
             if let current = activeTurn, let ended = envelope["turn_id"] as? String, current != ended { return }
             activeTurn = nil
             emit(payload)
@@ -196,7 +205,12 @@ struct RelayError: LocalizedError {
     }
     private func submit(_ text: String, id: UUID, speech: Bool, model: String?, mode: String, notification: [String: String]?, images: [String]) {
         let context = meetingContext
+        var submission: UIBackgroundTaskIdentifier = .invalid
+        submission = UIApplication.shared.beginBackgroundTask(withName: "Send message") {
+            if submission != .invalid { UIApplication.shared.endBackgroundTask(submission); submission = .invalid }
+        }
         Task {
+            defer { if submission != .invalid { UIApplication.shared.endBackgroundTask(submission) } }
             do {
                 var args: [String: Any] = ["client_message_id": id.uuidString.lowercased(), "text": text, "images": images]
                 args["mode"] = mode
@@ -216,6 +230,7 @@ struct RelayError: LocalizedError {
                 #if DEBUG
                 print("Submit round trip:", Date().timeIntervalSince(started))
                 #endif
+                if submission != .invalid { UIApplication.shared.endBackgroundTask(submission); submission = .invalid }
                 activeTurn = result["turn_id"] as? String
                 if speech { audioTurn = activeTurn }
                 if let turn = activeTurn { emit(["type": "submitted", "turn_id": turn, "speech": speech]) }
@@ -237,7 +252,14 @@ struct RelayError: LocalizedError {
     func foreground(_ active: Bool) {
         inFront = active
         if !active { socket.close() }
-        if active, poller != nil { Task { try? await drain() } }
+        if active, poller != nil {
+            needsReplyAck = true
+            Task {
+                // Catch up text without playing audio accumulated while away.
+                replaying = true
+                try? await drain()
+            }
+        }
     }
 
     func close() { playerGeneration += 1; poller?.cancel(); socket.close(); Spotify.shared.cancel() }

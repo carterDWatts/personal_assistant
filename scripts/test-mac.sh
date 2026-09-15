@@ -10,6 +10,7 @@ check() {
   "$ROOT/build/$name"
 }
 
+check PomodoroCheck "$ROOT/shared/PomodoroState.swift"
 check ChatScrollCheck "$ROOT/shared/ChatScrollView.swift" -framework SwiftUI
 check OutputStreamCheck "$ROOT/desktop/OutputStream.swift"
 check VoiceTurnCheck "$ROOT/desktop/VoiceTurn.swift"

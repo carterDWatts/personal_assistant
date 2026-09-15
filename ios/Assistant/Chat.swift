@@ -54,6 +54,14 @@ func plain(_ value: Any?) -> String {
         UserDefaults.standard.removeObject(forKey: "notificationDiscussion")
     }
     func loadNotificationDiscussion() {
+        if UserDefaults.standard.bool(forKey: "openChatReply") {
+            UserDefaults.standard.removeObject(forKey: "openChatReply")
+            clearNotificationDiscussion()
+            selectedInboxMessageID = nil; focusedMessage = nil
+            showInbox = false; showEmailDrafts = false
+            transport.foreground(true)
+            return
+        }
         if let pending = UserDefaults.standard.dictionary(forKey: "notificationDiscussion") as? [String: String] {
             notificationDiscussion = pending
             showNotificationMessage()

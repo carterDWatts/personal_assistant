@@ -1,6 +1,84 @@
 import XCTest
 
 final class EmailReviewTests: XCTestCase {
+    func testReplyNotificationReturnsToChatInsteadOfInbox() {
+        let app = XCUIApplication(); app.launchArguments = ["--sample", "--chat-reply-check"]; app.launch()
+        addUIInterruptionMonitor(withDescription: "Notifications") { alert in
+            if alert.buttons["Allow"].exists { alert.buttons["Allow"].tap(); return true }
+            return false
+        }
+        XCTAssertTrue(app.buttons["Open inbox"].waitForExistence(timeout: 15))
+        app.buttons["Open inbox"].tap(); app.tap()
+        XCTAssertTrue(app.staticTexts["A few things I wanted to share."].waitForExistence(timeout: 5))
+        XCUIDevice.shared.press(.home)
+        let alert = XCUIApplication(bundleIdentifier: "com.apple.springboard").staticTexts["Your test reply is ready."]
+        XCTAssertTrue(alert.waitForExistence(timeout: 30))
+        alert.tap()
+        XCTAssertTrue(app.buttons["More options"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.textViews["Message"].exists)
+        XCTAssertFalse(app.staticTexts["A few things I wanted to share."].exists)
+        XCTAssertTrue(app.staticTexts["What should I get done before lunch?"].exists)
+    }
+
+    func testFocusTimerAlertsWhileAppIsBackgrounded() {
+        let app = XCUIApplication(); app.launchArguments = ["--sample"]; app.launch()
+        addUIInterruptionMonitor(withDescription: "Notifications") { alert in
+            if alert.buttons["Allow"].exists { alert.buttons["Allow"].tap(); return true }
+            return false
+        }
+        XCTAssertTrue(app.buttons["More options"].waitForExistence(timeout: 15))
+        app.buttons["More options"].tap(); app.buttons["Focus timer"].tap()
+        app.buttons["Reset focus timer"].tap()
+        let length = app.steppers["Focus length"]
+        for _ in 0..<180 {
+            if length.label == "Focus · 1 min" { break }
+            length.buttons["Focus length-Decrement"].tap()
+        }
+        XCTAssertEqual(length.label, "Focus · 1 min")
+        app.buttons["Start focus"].tap(); app.tap()
+        XCUIDevice.shared.press(.home)
+        let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+        let alert = springboard.staticTexts["Your focus timer is finished. Ready for a break?"]
+        XCTAssertTrue(alert.waitForExistence(timeout: 75))
+        alert.tap()
+        XCTAssertTrue(app.buttons["Start break"].waitForExistence(timeout: 10))
+        app.buttons["Start break"].tap()
+        XCTAssertTrue(app.buttons["Pause"].waitForExistence(timeout: 5))
+        app.buttons["Reset focus timer"].tap()
+    }
+
+    func testFocusTimerCanPauseAndResumeAfterRelaunch() {
+        let app = XCUIApplication(); app.launchArguments = ["--sample"]; app.launch()
+        addUIInterruptionMonitor(withDescription: "Notifications") { alert in
+            if alert.buttons["Allow"].exists { alert.buttons["Allow"].tap(); return true }
+            return false
+        }
+        XCTAssertTrue(app.buttons["More options"].waitForExistence(timeout: 15))
+        app.buttons["More options"].tap(); app.buttons["Focus timer"].tap()
+        XCTAssertTrue(app.buttons["Reset focus timer"].waitForExistence(timeout: 5))
+        app.buttons["Reset focus timer"].tap()
+        app.buttons["Start focus"].tap()
+        app.tap()
+        XCTAssertTrue(app.buttons["Pause"].waitForExistence(timeout: 5))
+        app.buttons["Close focus timer"].tap()
+        XCTAssertTrue(app.buttons["Open focus timer"].waitForExistence(timeout: 5))
+        app.buttons["Open focus timer"].tap()
+        XCTAssertTrue(app.buttons["Pause"].waitForExistence(timeout: 5))
+        app.buttons["Pause"].tap()
+        let remaining = app.staticTexts["Focus countdown"].label
+        let screenshot = XCTAttachment(screenshot: app.screenshot())
+        screenshot.name = "Focus timer"; screenshot.lifetime = .keepAlways; add(screenshot)
+        app.terminate(); app.launch()
+        XCTAssertTrue(app.buttons["Open focus timer"].waitForExistence(timeout: 10))
+        app.buttons["Open focus timer"].tap()
+        XCTAssertTrue(app.buttons["Resume"].waitForExistence(timeout: 5))
+        XCTAssertEqual(app.staticTexts["Focus countdown"].label, remaining)
+        app.buttons["Resume"].tap()
+        XCTAssertTrue(app.buttons["Pause"].waitForExistence(timeout: 5))
+        app.buttons["Reset focus timer"].tap(); app.buttons["Close focus timer"].tap()
+        XCTAssertFalse(app.buttons["Open focus timer"].exists)
+    }
+
     func testUnavailableVoiceDoesNotSilentlySwitchToSystemSpeech() {
         let app = XCUIApplication(); app.launchArguments = ["--sample", "--speech-unavailable"]; app.launch()
         let talk = app.buttons["Talk instead of typing"]
