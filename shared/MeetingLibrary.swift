@@ -93,7 +93,7 @@ struct MeetingDocument: Codable, Identifiable {
                 for j in documents[i].segments.indices { documents[i].segments[j].sealed = true }
                 documents[i].queueCompleted()
             }
-            selectedID = documents.first(where: { $0.processing != nil && $0.processing?.state != "done" })?.id
+            selectedID = documents.first(where: { $0.processing != nil && $0.processing?.state != "done" })?.id ?? documents.first?.id
         } catch { readable = false; notice = "Couldn’t read saved recordings. The files have been left in place." }
     }
     @discardableResult func create(title: String, runtime: String, kind: String = "current", date: Date = Date()) throws -> UUID {

@@ -30,7 +30,7 @@ import Foundation
         await library.sync()
         precondition(calls == 1 && library.selected!.batches.allSatisfy { !$0.uploaded })
         let restored = MeetingLibrary(directory: root)
-        restored.selectedID = id
+        precondition(restored.selectedID == id, "Reopening recordings should show the latest transcript")
         precondition(restored.selected!.ended && restored.selected!.batches.map(\.id) == originalIDs)
         var uploaded: [String] = []
         restored.upload = { args in
