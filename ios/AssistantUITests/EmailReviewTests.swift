@@ -14,7 +14,7 @@ final class EmailReviewTests: XCTestCase {
         XCTAssertTrue(cancel.waitForExistence(timeout: 10))
         cancel.tap()
         XCTAssertTrue(app.buttons["Import recording"].waitForExistence(timeout: 5))
-        XCTAssertFalse(app.buttons["Stop import"].exists)
+        XCTAssertFalse(app.buttons["Pause"].exists)
         app.buttons["Done"].tap()
         XCTAssertTrue(app.textViews["Message"].waitForExistence(timeout: 5))
     }

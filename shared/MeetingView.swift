@@ -63,7 +63,7 @@ struct MeetingView: View {
                     ProgressView().controlSize(.small)
                     Text(capture.status).font(.caption).foregroundStyle(.secondary)
                     Spacer()
-                    Button("Stop import") { capture.cancelImport() }
+                    Button("Pause") { capture.cancelImport() }
                 }
             }
             if !fileError.isEmpty { Text(fileError).font(.caption).foregroundStyle(.red) }
@@ -81,6 +81,18 @@ struct MeetingView: View {
                     } label: { Image(systemName: "square.and.arrow.up") }.help("Export conversation")
                 }
                 Toggle("Use this conversation in chat", isOn: $library.useInChat)
+                if let job = doc.processing {
+                    ProgressView(value: job.duration > 0 ? min(1, job.offset/job.duration) : 0)
+                    if job.state == "paused" || job.state == "failed" {
+                        HStack {
+                            Text(job.error ?? "Import paused. Your audio and progress are saved.").font(.caption).foregroundStyle(.secondary)
+                            Spacer()
+                            Button(job.state == "failed" ? "Retry" : "Resume") { capture.resumeImport(doc) }.disabled(capture.active)
+                        }
+                    }
+                } else if doc.audioName != nil && doc.ended && !capture.active {
+                    Button("Transcribe saved audio again") { capture.resumeImport(doc) }.font(.caption)
+                }
                 Text(summary(doc)).font(.caption).foregroundStyle(.secondary)
                 ScrollViewReader { proxy in
                     ScrollView {
@@ -131,7 +143,9 @@ struct MeetingView: View {
     }
     private func summary(_ doc: MeetingDocument) -> String {
         let uploaded = doc.batches.filter(\.uploaded).count
-        return "\(capture.active ? capture.status + " · " : "")\(uploaded) of \(doc.batches.count) sections uploaded. Structured memory updates in the background; live text is available in chat now."
+        let state = doc.processing?.state
+        let label = state == "done" ? "Transcription complete" : state == "paused" ? "Transcription paused" : state == "failed" ? "Transcription incomplete" : capture.active ? capture.status : "Saved on this device"
+        return "\(label) · \(uploaded) of \(doc.batches.count) sections sent to memory. You can keep chatting while I work."
     }
 }
 

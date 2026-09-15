@@ -243,7 +243,7 @@ func plain(_ value: Any?) -> String {
         let transport = transport ?? (ProcessInfo.processInfo.arguments.contains("--sample") ? MockTransport() : RelayTransport())
         self.transport = transport
         library.upload = { [weak self] args in
-            guard let self, self.connected, Account.shared.signedIn else { throw URLError(.notConnectedToInternet) }
+            guard let self, Account.shared.signedIn else { throw URLError(.notConnectedToInternet) }
             try await self.transport.importPart(args)
         }
         meetingUpdates = library.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }

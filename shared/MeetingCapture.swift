@@ -57,6 +57,8 @@ private final class MeetingAudioSink: @unchecked Sendable {
     private var tasks: [UUID: SFSpeechRecognitionTask] = [:]
     private var rotation: Task<Void, Never>?
     private var fileTask: Task<Void, Never>?
+    private let background = MeetingBackground()
+    @Published private(set) var progress = 0.0
     private var generation = UUID()
     private var currentSegment: UUID?
     private var meetingID: UUID?
@@ -211,14 +213,16 @@ private final class MeetingAudioSink: @unchecked Sendable {
     private func importRecording(title: String, runtime: String, kind: String, status initialStatus: String,
                                  prepare: @escaping (URL) async throws -> Void) {
         guard !active else { return }
-        working = true; error = ""; self.status = initialStatus
+        working = true; error = ""; self.status = initialStatus; progress = 0
+        background.begin(title: title) { [weak self] in self?.cancelImport() }
         fileTask = Task {
             let local = library.directory.appendingPathComponent(UUID().uuidString + ".m4a")
             let staging = FileManager.default.temporaryDirectory.appendingPathComponent("meeting-import-" + UUID().uuidString)
-            var attached = false
+            var attached = false, succeeded = false
             defer {
                 try? FileManager.default.removeItem(at: staging)
                 if !attached { try? FileManager.default.removeItem(at: local) }
+                background.end(success: succeeded)
                 working = false; fileTask = nil
             }
             do {
@@ -234,27 +238,121 @@ private final class MeetingAudioSink: @unchecked Sendable {
                 try FileManager.default.moveItem(at: audio, to: local)
                 try library.audio(id, name: local.lastPathComponent)
                 attached = true
-                let reader = try AudioFileChunks(url: local)
-                while let chunk = try await reader.next() {
-                    defer { try? FileManager.default.removeItem(at: chunk.url) }
-                    try Task.checkCancellation()
-                    status = "Transcribing \(Int(chunk.offset)/60)m…"
-                    let text = try await transcribe(chunk.url)
-                    library.update(id, segment: UUID(), offset: chunk.offset, text: text, sealed: true)
-                    library.checkpoint()
-                    await Task.yield()
-                }
-                library.finish(id); meetingID = nil; status = "Transcript saved"
-            } catch is CancellationError {
-                if let meetingID { library.finish(meetingID) }; meetingID = nil
-                status = "Import stopped"
+                try library.processing(id, MeetingImport())
+                try await processRecording(id)
+                succeeded = true
             } catch {
-                self.error = error.localizedDescription
-                if let meetingID { library.finish(meetingID) }; meetingID = nil
+                recordFailure(error)
             }
         }
     }
-    func cancelImport() { fileTask?.cancel(); status = "Stopping import…" }
+    func resumeImport(_ doc: MeetingDocument) {
+        guard !active, let audio = doc.audioName else { return }
+        working = true; error = ""; status = "Resuming transcription…"
+        background.begin(title: doc.title) { [weak self] in self?.cancelImport() }
+        fileTask = Task {
+            var succeeded = false
+            defer {
+                background.end(success: succeeded)
+                working = false; fileTask = nil
+            }
+            do {
+                #if os(iOS)
+                try await authorize()
+                #endif
+                // Older imports had no checkpoint. Reprocess their saved audio in a new
+                // document, leaving the previous transcript and its provenance intact.
+                let id: UUID
+                if doc.processing == nil {
+                    id = try library.create(title: doc.title, runtime: doc.runtime, kind: doc.kind, date: doc.date)
+                    try library.audio(id, name: audio)
+                    try library.processing(id, MeetingImport())
+                } else { id = doc.id; library.selectedID = id }
+                meetingID = id
+                try await processRecording(id)
+                succeeded = true
+            } catch { recordFailure(error) }
+        }
+    }
+    private func processRecording(_ id: UUID) async throws {
+        guard let doc = library.documents.first(where: { $0.id == id }), let audio = doc.audioName else {
+            throw MeetingFailure("The saved audio could not be found.")
+        }
+        var checkpoint = doc.processing ?? MeetingImport()
+        checkpoint.state = "running"; checkpoint.error = nil
+        let reader = try AudioFileChunks(url: library.directory.appendingPathComponent(audio), offset: checkpoint.offset)
+        checkpoint.duration = await reader.duration
+        progress = checkpoint.duration > 0 ? checkpoint.offset/checkpoint.duration : 0
+        try library.processing(id, checkpoint)
+        while let chunk = try await reader.next() {
+            defer { try? FileManager.default.removeItem(at: chunk.url) }
+            try Task.checkCancellation()
+            status = "Transcribing \(Int(chunk.offset)/60)m of \(max(1, Int(ceil(checkpoint.duration/60))))m"
+            background.update(progress, detail: status)
+            let text = try await transcribe(chunk.url)
+            guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                throw MeetingFailure("I couldn’t transcribe the audio at \(Int(chunk.offset)/60):\(String(format: "%02d", Int(chunk.offset)%60)). The recording is saved; resume to retry this section.")
+            }
+            try Task.checkCancellation()
+            library.update(id, segment: UUID(), offset: chunk.offset, text: text, sealed: true)
+            checkpoint.offset = chunk.end
+            // The text, resume position and upload IDs land in one atomic file write.
+            try library.processing(id, checkpoint)
+            progress = checkpoint.duration > 0 ? checkpoint.offset/checkpoint.duration : 0
+            background.update(progress, detail: status)
+            await library.sync()
+            await Task.yield()
+        }
+        checkpoint.offset = checkpoint.duration; checkpoint.state = "done"
+        try library.processing(id, checkpoint)
+        progress = 1; status = "Transcript saved"; meetingID = nil
+        await library.sync()
+    }
+    private func recordFailure(_ failure: Error) {
+        let cancelled = failure is CancellationError
+        if let id = meetingID, let doc = library.documents.first(where: { $0.id == id }) {
+            var checkpoint = doc.processing ?? MeetingImport()
+            checkpoint.state = cancelled ? "paused" : "failed"
+            checkpoint.error = cancelled ? nil : failure.localizedDescription
+            do { try library.processing(id, checkpoint) }
+            catch { self.error = "Couldn’t save import progress. Check available storage." }
+        }
+        if !cancelled { error = failure.localizedDescription }
+        status = cancelled ? "Import paused · resume when ready" : "Transcription needs attention"
+        meetingID = nil
+    }
+    func cancelImport() { fileTask?.cancel(); status = "Pausing import…" }
+    #if os(iOS)
+    @available(iOS 26, *)
+    private func transcribeRecording(_ url: URL) async throws -> String {
+        let module = SpeechTranscriber(locale: Locale(identifier: "en-US"), preset: .transcription)
+        if let installation = try await AssetInventory.assetInstallationRequest(supporting: [module]) {
+            status = "Downloading on-device transcription…"
+            background.update(progress, detail: status)
+            try await installation.downloadAndInstall()
+        }
+        let analyzer = SpeechAnalyzer(modules: [module])
+        let results = Task { () throws -> String in
+            var pieces: [String] = []
+            for try await result in module.results { pieces.append(String(result.text.characters)) }
+            return pieces.joined(separator: " ")
+        }
+        return try await withTaskCancellationHandler {
+            do {
+                try await analyzer.start(inputAudioFile: AVAudioFile(forReading: url), finishAfterFile: true)
+                let text = try await results.value
+                try Task.checkCancellation()
+                return text
+            } catch {
+                await analyzer.cancelAndFinishNow(); results.cancel()
+                throw error
+            }
+        } onCancel: {
+            results.cancel()
+            Task { await analyzer.cancelAndFinishNow() }
+        }
+    }
+    #endif
     private func transcribe(_ url: URL) async throws -> String {
         #if os(macOS)
         guard let settings = Bundle.main.infoDictionary, let root = settings["AssistantRoot"] as? String, let python = settings["AssistantPython"] as? String else { throw MeetingFailure("Rebuild the app to configure local transcription.") }
@@ -271,6 +369,7 @@ private final class MeetingAudioSink: @unchecked Sendable {
             return text
         }.value
         #else
+        if #available(iOS 26, *), SpeechTranscriber.isAvailable { return try await transcribeRecording(url) }
         guard let recognizer else { throw MeetingFailure("Speech recognition is unavailable.") }
         let request = SFSpeechURLRecognitionRequest(url: url)
         request.requiresOnDeviceRecognition = true; request.addsPunctuation = true
@@ -303,38 +402,45 @@ private final class SpeechFileResult: @unchecked Sendable {
     }
 }
 actor AudioFileChunks {
-    struct Chunk { let url: URL; let offset: Double }
+    struct Chunk { let url: URL; let offset: Double; let end: Double }
     private let file: AVAudioFile
-    init(url: URL) throws { file = try AVAudioFile(forReading: url) }
+    var duration: Double { Double(file.length)/file.processingFormat.sampleRate }
+    init(url: URL, offset: Double = 0) throws {
+        file = try AVAudioFile(forReading: url)
+        file.framePosition = min(file.length, max(0, AVAudioFramePosition((offset * file.processingFormat.sampleRate).rounded())))
+    }
     func next() throws -> Chunk? {
-        guard file.framePosition < file.length else { return nil }
-        let format = file.processingFormat
-        let offset = Double(file.framePosition)/format.sampleRate
-        let capacity = AVAudioFrameCount(min(45*format.sampleRate, Double(file.length-file.framePosition)))
-        guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: capacity),
-              let part = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 2048),
-              let target = buffer.floatChannelData else { throw MeetingFailure("Couldn’t read the recording.") }
-        var silent: Double = 0, heardSpeech = false
-        while buffer.frameLength < capacity {
-            try file.read(into: part, frameCount: min(2048, capacity-buffer.frameLength))
-            guard part.frameLength > 0, let samples = part.floatChannelData else { break }
-            var energy: Float = 0
-            for channel in 0..<Int(format.channelCount) {
-                memcpy(target[channel].advanced(by: Int(buffer.frameLength)), samples[channel], Int(part.frameLength)*4)
-                for i in 0..<Int(part.frameLength) { energy += samples[channel][i]*samples[channel][i] }
+        while file.framePosition < file.length {
+            try Task.checkCancellation()
+            let format = file.processingFormat
+            let offset = Double(file.framePosition)/format.sampleRate
+            let capacity = AVAudioFrameCount(min(45*format.sampleRate, Double(file.length-file.framePosition)))
+            guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: capacity),
+                  let part = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 2048),
+                  let target = buffer.floatChannelData else { throw MeetingFailure("Couldn’t read the recording.") }
+            var silent: Double = 0, heardSpeech = false
+            while buffer.frameLength < capacity {
+                try file.read(into: part, frameCount: min(2048, capacity-buffer.frameLength))
+                guard part.frameLength > 0, let samples = part.floatChannelData else { break }
+                var energy: Float = 0
+                for channel in 0..<Int(format.channelCount) {
+                    memcpy(target[channel].advanced(by: Int(buffer.frameLength)), samples[channel], Int(part.frameLength)*4)
+                    for i in 0..<Int(part.frameLength) { energy += samples[channel][i]*samples[channel][i] }
+                }
+                buffer.frameLength += part.frameLength
+                let level = sqrt(energy/Float(part.frameLength)/Float(format.channelCount))
+                if level > 0.002 { heardSpeech = true; silent = 0 }
+                else { silent += Double(part.frameLength)/format.sampleRate }
+                // URL recognition may finalize at a pause. Give it one speech region at
+                // a time, while retaining every sample and the original time offsets.
+                if heardSpeech && silent >= 0.7 && Double(buffer.frameLength)/format.sampleRate >= 1 { break }
             }
-            buffer.frameLength += part.frameLength
-            let level = sqrt(energy/Float(part.frameLength)/Float(format.channelCount))
-            if level > 0.002 { heardSpeech = true; silent = 0 }
-            else { silent += Double(part.frameLength)/format.sampleRate }
-            // URL recognition may finalize at a pause. Give it one speech region at
-            // a time, while retaining every sample and the original time offsets.
-            if heardSpeech && silent >= 0.7 && Double(buffer.frameLength)/format.sampleRate >= 1 { break }
+            if !heardSpeech { continue }
+            let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".wav")
+            let output = try AVAudioFile(forWriting: url, settings: [AVFormatIDKey: kAudioFormatLinearPCM, AVSampleRateKey: format.sampleRate, AVNumberOfChannelsKey: format.channelCount, AVLinearPCMBitDepthKey: 16, AVLinearPCMIsFloatKey: false, AVLinearPCMIsBigEndianKey: false])
+            try output.write(from: buffer)
+            return Chunk(url: url, offset: offset, end: Double(file.framePosition)/format.sampleRate)
         }
-        if !heardSpeech { return try next() }
-        let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".wav")
-        let output = try AVAudioFile(forWriting: url, settings: [AVFormatIDKey: kAudioFormatLinearPCM, AVSampleRateKey: format.sampleRate, AVNumberOfChannelsKey: format.channelCount, AVLinearPCMBitDepthKey: 16, AVLinearPCMIsFloatKey: false, AVLinearPCMIsBigEndianKey: false])
-        try output.write(from: buffer)
-        return Chunk(url: url, offset: offset)
+        return nil
     }
 }

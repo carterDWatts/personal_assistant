@@ -38,6 +38,7 @@ targets:
       - path: ../shared/MeetingLibrary.swift
       - path: ../shared/MeetingCapture.swift
       - path: ../shared/MeetingMedia.swift
+      - path: ../shared/MeetingBackground.swift
       - path: ../shared/MeetingView.swift
       - path: ../desktop/VoiceTurn.swift
       - path: ../identity.json
@@ -57,8 +58,11 @@ targets:
           - UIInterfaceOrientationPortrait
         ITSAppUsesNonExemptEncryption: false
         LSApplicationQueriesSchemes: [spotify]
+        BGTaskSchedulerPermittedIdentifiers:
+          - com.carterwatts.assistant.transcription.*
         UIBackgroundModes:
           - audio
+          - processing
         CFBundleURLTypes:
           - CFBundleURLName: com.carterwatts.assistant.auth
             CFBundleURLSchemes:

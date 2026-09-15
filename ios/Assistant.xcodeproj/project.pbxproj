@@ -33,6 +33,7 @@
 		7E7862DFBFD553244702D495 /* RelayTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = C713842B995B63BEBCE8932C /* RelayTransport.swift */; };
 		7ECB6C61E0894FE247D165CA /* integrations.json in Resources */ = {isa = PBXBuildFile; fileRef = 5FD5CE666C5C89B6E8C10657 /* integrations.json */; };
 		8C0AE429407B4881090F61C2 /* ContextImport.swift in Sources */ = {isa = PBXBuildFile; fileRef = B74AEEBF9820A26218CCD184 /* ContextImport.swift */; };
+		8DE2783C1082F145B9369514 /* MeetingBackground.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C38F2BF47F9E18BB1E354D9 /* MeetingBackground.swift */; };
 		A0E4E024E148CDD6D9073B95 /* input.wav in Resources */ = {isa = PBXBuildFile; fileRef = 6F8C7E076DFC1900D744A38C /* input.wav */; };
 		A151CE5C07C3F6BF2A91069C /* SpotifyCommand.swift in Sources */ = {isa = PBXBuildFile; fileRef = F4634B80CE2EA2FAE8D3546E /* SpotifyCommand.swift */; };
 		A24298610C07D7A5B014BED5 /* IntegrationCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4D4A74A289C9F0CC4315DDF /* IntegrationCatalog.swift */; };
@@ -91,6 +92,7 @@
 		5063AD0BF055B36F3C136CA7 /* MessageTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageTests.swift; sourceTree = "<group>"; };
 		54BD312561001569101CE03D /* voice-british.m4a */ = {isa = PBXFileReference; path = "voice-british.m4a"; sourceTree = "<group>"; };
 		580BE68E2EA7EFBE168FF444 /* identity.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = identity.json; sourceTree = "<group>"; };
+		5C38F2BF47F9E18BB1E354D9 /* MeetingBackground.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingBackground.swift; sourceTree = "<group>"; };
 		5FD5CE666C5C89B6E8C10657 /* integrations.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = integrations.json; sourceTree = "<group>"; };
 		6F8C7E076DFC1900D744A38C /* input.wav */ = {isa = PBXFileReference; lastKnownFileType = audio.wav; path = input.wav; sourceTree = "<group>"; };
 		724ACE294C39595C12007206 /* AssistantUITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = AssistantUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -168,6 +170,7 @@
 				D729529CD2A52BA170865A77 /* EmailDrafts.swift */,
 				A4D4A74A289C9F0CC4315DDF /* IntegrationCatalog.swift */,
 				5FD5CE666C5C89B6E8C10657 /* integrations.json */,
+				5C38F2BF47F9E18BB1E354D9 /* MeetingBackground.swift */,
 				D6836B4787A9065CF3FC69C2 /* MeetingCapture.swift */,
 				9E754706456EF715BD3B754B /* MeetingLibrary.swift */,
 				3C53B158CE7B3C0ED800D67C /* MeetingMedia.swift */,
@@ -444,6 +447,7 @@
 				F6B6F22907298741BD9E419E /* EmailDrafts.swift in Sources */,
 				A24298610C07D7A5B014BED5 /* IntegrationCatalog.swift in Sources */,
 				BC84ECD4FDE1408C3E8735EA /* Look.swift in Sources */,
+				8DE2783C1082F145B9369514 /* MeetingBackground.swift in Sources */,
 				53204B0AF12142A128043529 /* MeetingCapture.swift in Sources */,
 				EE9216F83EB6C27128BF741E /* MeetingLibrary.swift in Sources */,
 				755D54490BEAECA6885B907C /* MeetingMedia.swift in Sources */,

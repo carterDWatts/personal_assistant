@@ -12,6 +12,12 @@ struct MeetingBatch: Codable, Identifiable {
     let text: String
     var uploaded = false
 }
+struct MeetingImport: Codable {
+    var offset: TimeInterval = 0
+    var duration: TimeInterval = 0
+    var state = "running"
+    var error: String?
+}
 struct MeetingDocument: Codable, Identifiable {
     let id: UUID
     var title: String
@@ -23,6 +29,7 @@ struct MeetingDocument: Codable, Identifiable {
     var queuedSegments = 0
     var ended = false
     var audioName: String?
+    var processing: MeetingImport?
     var transcript: String {
         segments.filter { !$0.text.isEmpty }.map { "[\(Int($0.offset)/60):\(String(format: "%02d", Int($0.offset)%60))] \($0.text)" }.joined(separator: "\n")
     }
@@ -79,10 +86,14 @@ struct MeetingDocument: Codable, Identifiable {
             if FileManager.default.fileExists(atPath: url.path) { documents = try JSONDecoder().decode([MeetingDocument].self, from: Data(contentsOf: url)) }
             for i in documents.indices {
                 // A terminated app must never silently restart the microphone.
-                documents[i].ended = true
+                if documents[i].processing?.state == "running" {
+                    documents[i].processing?.state = "paused"
+                }
+                if documents[i].processing == nil { documents[i].ended = true }
                 for j in documents[i].segments.indices { documents[i].segments[j].sealed = true }
                 documents[i].queueCompleted()
             }
+            selectedID = documents.first(where: { $0.processing != nil && $0.processing?.state != "done" })?.id
         } catch { readable = false; notice = "Couldn’t read saved recordings. The files have been left in place." }
     }
     @discardableResult func create(title: String, runtime: String, kind: String = "current", date: Date = Date()) throws -> UUID {
@@ -99,6 +110,15 @@ struct MeetingDocument: Codable, Identifiable {
     func audio(_ id: UUID, name: String) throws {
         guard let i = documents.firstIndex(where: { $0.id == id }) else { return }
         documents[i].audioName = name; try persist()
+    }
+    func processing(_ id: UUID, _ progress: MeetingImport) throws {
+        guard let i = documents.firstIndex(where: { $0.id == id }) else { return }
+        documents[i].processing = progress
+        documents[i].ended = progress.state == "done"
+        let pendingStart = documents[i].segments.dropFirst(documents[i].queuedSegments).first?.offset ?? progress.offset
+        // Checkpoint every section, but batch memory extraction rather than making one model call per phrase.
+        if progress.state != "running" || progress.offset - pendingStart >= 90 { documents[i].queueCompleted() }
+        try persist()
     }
     func finish(_ id: UUID) {
         guard let i = documents.firstIndex(where: { $0.id == id }) else { return }
