@@ -1,7 +1,7 @@
 import { defineRailway, github, preserve, project, service, volume } from "railway/iac";
 
 export default defineRailway(() => {
-  const state = volume("worker-state", { region: "us-east4-eqdc4a", sizeMB: 1024 });
+  const state = volume("worker-state", { region: "us-east4-eqdc4a", sizeMB: 4096 });
   const worker = service("worker", {
     source: github("carterDWatts/personal_assistant", { branch: "main" }),
     build: { builder: "DOCKERFILE", dockerfilePath: "Dockerfile",

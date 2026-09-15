@@ -326,6 +326,31 @@ class relay_test(MapTest):
                 relay_map.close()
         self.run_async(check())
 
+    def test_storage_failure_is_reported_without_blaming_subscription(self):
+        from engine.runtime.storage import StorageFullError
+        async def check():
+            class Full(FakeRuntime):
+                async def open(self, *args, **kwargs):
+                    raise StorageFullError()
+            relay_map = Map(self.map.url)
+            relay = Relay(relay_map)
+            relay.acquire()
+            self.submit()
+            host = Host(relay, self.map, lambda: Full([]))
+            try:
+                await host.process(relay.claim())
+                events = self.client('events')['events']
+                errors = [e['payload'] for e in events if e['payload']['type']=='error']
+                self.assertEqual(errors[0]['code'],'storage_full')
+                self.assertIn('storage',errors[0]['message'])
+                self.assertNotIn('login',errors[0]['message'])
+                self.assertEqual(events[-1]['payload']['status'],'failed')
+                self.assertIsNone(host.session)
+            finally:
+                await host.close_session()
+                relay_map.close()
+        self.run_async(check())
+
     def test_host_cancels_and_closes_runtime(self):
         async def check():
             class Slow(FakeRuntime):

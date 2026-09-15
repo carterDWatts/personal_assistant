@@ -4,7 +4,7 @@ One Railway worker runs the subscription runtime. Supabase holds the map, owner 
 
 Railway project: `9b4aa82e-47a4-4325-9a42-b443f8cfb1a4` (`personal-assistant`). Service: `worker`. Supabase project: `koauvyfxewczcajnlrfp`.
 
-The infrastructure definition is `.railway/railway.ts`: one replica, sleeping disabled, persistent `/data`, 2 CPUs and a 4 GiB memory ceiling. Railway charges actual resource usage; the ceiling is not a monthly spending cap. No workspace-wide cap is set because the workspace contains other applications.
+The infrastructure definition is `.railway/railway.ts`: one replica, sleeping disabled, a 4 GiB persistent `/data` volume, 2 CPUs and a 4 GiB memory ceiling. Railway charges actual resource usage; the ceiling is not a monthly spending cap. No workspace-wide cap is set because the workspace contains other applications.
 
 ## Deploy
 

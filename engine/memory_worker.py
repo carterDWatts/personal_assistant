@@ -49,7 +49,7 @@ class Worker:
     @staticmethod
     def runtime(name):
         if name == 'codex':
-            return load(name)(model=os.environ.get('ASSISTANT_MEMORY_OPENAI_MODEL', 'gpt-5.5'), effort='low')
+            return load(name)(model=os.environ.get('ASSISTANT_MEMORY_OPENAI_MODEL', 'gpt-5.5'), effort='low', persistent=False)
         if name == 'claude-agent-sdk':
             return load(name)(model=os.environ.get('ASSISTANT_MEMORY_CLAUDE_MODEL', 'haiku'), effort='low')
         raise RuntimeError('Unsupported memory runtime')

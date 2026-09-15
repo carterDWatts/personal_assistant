@@ -2,6 +2,7 @@
 from contextlib import closing
 import sqlite3
 import time
+import shutil
 
 
 def trim_logs(state, budget=32 * 1024 * 1024, seconds=5):
@@ -27,3 +28,16 @@ def trim_logs(state, budget=32 * 1024 * 1024, seconds=5):
         except (sqlite3.Error, OSError):
             # Another harness can hold a write lock; the next maintenance pass retries.
             continue
+
+
+class StorageFullError(RuntimeError):
+    def __init__(self):
+        super().__init__('The host is running low on storage. Your saved conversation is safe, but replies are paused until space is available.')
+
+
+def require_space(path, reserve=64 * 1024 * 1024):
+    """Leave room for SQLite journals instead of letting the harness fail mid-write."""
+    while not path.exists() and path != path.parent:
+        path = path.parent
+    if shutil.disk_usage(path).free < reserve:
+        raise StorageFullError()

@@ -53,3 +53,54 @@ class runtime_recovery_test(unittest.IsolatedAsyncioTestCase):
             await asyncio.wait_for(runtime_maintenance(host), 2)
         self.assertEqual(host.models, models)
         host.call.assert_awaited_once()
+
+
+class storage_capacity_test(unittest.TestCase):
+    def test_low_disk_is_a_clear_error_without_deleting_any_files(self):
+        from engine.runtime.storage import require_space, StorageFullError
+        with tempfile.TemporaryDirectory() as directory:
+            state=Path(directory)
+            sentinel=state/'auth.json'
+            sentinel.write_text('credential sentinel')
+            with patch('engine.runtime.storage.shutil.disk_usage',return_value=SimpleNamespace(free=1)):
+                with self.assertRaises(StorageFullError): require_space(state/'not-created-yet')
+            self.assertEqual(sentinel.read_text(),'credential sentinel')
+            with patch('engine.runtime.storage.shutil.disk_usage',return_value=SimpleNamespace(free=128*1024*1024)):
+                require_space(state)
+
+
+class extraction_storage_test(unittest.IsolatedAsyncioTestCase):
+    async def test_one_off_session_cleans_its_files_after_failed_startup(self):
+        from engine.runtime.codex import CodexRuntime
+        runtime=CodexRuntime(persistent=False)
+        with tempfile.TemporaryDirectory() as directory:
+            home=Path(directory)
+            persistent=home/'Library/Application Support/Personal Assistant/prod/codex'
+            persistent.mkdir(parents=True)
+            sentinel=persistent/'session.jsonl'
+            sentinel.write_text('keep conversation')
+            with patch('engine.runtime.codex.Path.home',return_value=home), patch('engine.runtime.codex.asyncio.create_subprocess_exec',side_effect=OSError('failed launch')):
+                with self.assertRaises(OSError): await runtime.open('test',[])
+            transient=runtime.state
+            self.assertTrue(transient.exists())
+            self.assertNotEqual(transient,persistent)
+            (transient/'logs.sqlite').write_text('disposable')
+            await runtime.close()
+            await runtime.close()
+            self.assertFalse(transient.exists())
+            self.assertEqual(sentinel.read_text(),'keep conversation')
+
+    async def test_new_turn_checks_capacity_before_sending_to_model(self):
+        from engine.runtime.codex import CodexRuntime
+        from engine.runtime.storage import StorageFullError
+        runtime=CodexRuntime()
+        runtime.state=Path(tempfile.gettempdir())
+        runtime.request=AsyncMock()
+        with patch('engine.runtime.storage.shutil.disk_usage',return_value=SimpleNamespace(free=1)):
+            with self.assertRaises(StorageFullError):
+                async for _ in runtime.send('hello'): pass
+        runtime.request.assert_not_awaited()
+
+    async def test_memory_runtime_uses_disposable_sessions(self):
+        from engine.memory_worker import Worker
+        self.assertFalse(Worker.runtime('codex').persistent)

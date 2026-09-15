@@ -5,11 +5,13 @@ import hashlib
 import json
 import os
 import shutil
+import tempfile
 from pathlib import Path
 
 from engine import config
 from engine.runtime import Event, Metrics
 from engine.tools import run
+from engine.runtime.storage import require_space
 
 
 class CodexRequestError(RuntimeError):
@@ -19,7 +21,10 @@ class CodexRequestError(RuntimeError):
 class CodexRuntime:
     name = "codex"
 
-    def __init__(self, executable=None, model=None, effort=None):
+    def __init__(self, executable=None, model=None, effort=None, persistent=True):
+        self.persistent = persistent
+        self._temporary = None
+        self.state = None
         self.model = model or os.environ.get("ASSISTANT_OPENAI_MODEL")
         self.effort = effort or config.EFFORT
         self.executable = executable or os.environ.get("ASSISTANT_CODEX_PATH") or shutil.which("codex") or "/Applications/ChatGPT.app/Contents/Resources/codex"
@@ -84,7 +89,14 @@ class CodexRuntime:
 
     async def open(self, system_prompt, tools, resume=None):
         self.tools = {s.name: s for s in tools}
-        state = Path.home() / "Library/Application Support/Personal Assistant" / config.ENV / "codex"
+        if self.persistent:
+            state = Path.home() / "Library/Application Support/Personal Assistant" / config.ENV / "codex"
+        else:
+            require_space(Path(tempfile.gettempdir()))
+            self._temporary = tempfile.TemporaryDirectory(prefix="assistant-memory-")
+            state = Path(self._temporary.name)
+        self.state = state
+        require_space(state)
         state.mkdir(parents=True, exist_ok=True, mode=0o700)
         from engine.runtime.storage import trim_logs
         await asyncio.to_thread(trim_logs, state)
@@ -139,12 +151,14 @@ class CodexRuntime:
     async def restart(self, system_prompt, tools):
         previous=self.metrics
         await self.close()
-        self.__init__(self.executable,self.model,self.effort)
+        self.__init__(self.executable,self.model,self.effort,persistent=self.persistent)
         self.carried_metrics=previous
         self.metrics=Metrics(**previous.as_dict())
         await self.open(system_prompt,tools)
 
     async def send(self, text, images=None):
+        if self.state:
+            require_space(self.state)
         try:
             async for event in self._send(text,images):yield event
         finally:
@@ -234,4 +248,7 @@ class CodexRuntime:
                 await self.process.wait()
         if self.reader:
             await asyncio.gather(self.reader, return_exceptions=True)
+        if self._temporary:
+            self._temporary.cleanup()
+            self._temporary = None
         return self.metrics

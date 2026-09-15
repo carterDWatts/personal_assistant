@@ -6,6 +6,7 @@ import json
 import signal
 import os
 import time
+import errno
 import psycopg
 
 from engine import config
@@ -16,6 +17,7 @@ from engine.engine import Session
 from engine.memory_worker import Worker as MemoryWorker
 from engine.relay import Relay
 from engine.runtime import load
+from engine.runtime.storage import StorageFullError
 
 
 class Stream:
@@ -212,10 +214,13 @@ class Host:
             if status != 'cancelled':
                 try:
                     await task
-                except Exception:
+                except Exception as error:
                     status = 'failed'
-                    self.stream.pending.append({'type': 'error', 'message':
-                        'The subscription runtime could not finish. Check the host login or usage limit before retrying.'})
+                    storage = isinstance(error, StorageFullError) or isinstance(error, OSError) and error.errno == errno.ENOSPC
+                    print('Reply failed: ' + type(error).__name__, flush=True)
+                    self.stream.pending.append({'type': 'error', 'code': 'storage_full' if storage else 'runtime_failed',
+                        'message': str(StorageFullError()) if storage else
+                        'The reply failed on my host. Your message is saved; please try again.'})
             if self.speech:
                 self.speech.finish(status)
             self.stream.pending.append({'type': 'timing', **self.stream.timings})

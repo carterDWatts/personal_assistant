@@ -26,7 +26,9 @@ fields still work, but are not automatically regrouped.
 The worker starts with a bounded excerpt of relevant facts and relationships,
 then pages through the map or recording when it needs more. Explicit user rules
 stay in its stable instructions. A read budget bounds each extraction attempt;
-uncommitted work stays queued for retry. There is no change to transcript retention.
+uncommitted work stays queued for retry. One-off Codex extraction sessions use temporary local storage and remove it on close.
+Original imports, extracted memory and job receipts stay in Supabase; the primary
+chat keeps its resumable local session. There is no change to transcript retention.
 
 Job receipts retain the proposed operations, resolved arguments, returned record
 IDs, and before/after state for fact and relationship assertions. Their effects
