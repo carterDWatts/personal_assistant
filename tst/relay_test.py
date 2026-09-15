@@ -32,6 +32,12 @@ class relay_test(MapTest):
     def submit(self, text='Hello', message=None):
         return self.client('submit', {'client_message_id': str(message or uuid.uuid4()), 'text': text})
 
+    def test_reply_gateway_is_private(self):
+        for role in ('anon','authenticated'):
+            for name in ('assistant_client','assistant_client_before_replies'):
+                self.assertFalse(self.map.value("select has_function_privilege(%s,%s,'EXECUTE')",(role,'public.'+name+'(uuid,uuid,text,jsonb)')))
+            self.assertFalse(self.map.value("select has_table_privilege(%s,'assistant.reply_deliveries','SELECT')",(role,)))
+
     def test_reply_is_saved_and_notified_without_a_connected_client(self):
         from engine.notifications import Dispatcher
         push = type('Push', (), {'send': AsyncMock(return_value=(200, ''))})()
