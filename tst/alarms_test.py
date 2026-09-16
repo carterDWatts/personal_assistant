@@ -1,4 +1,6 @@
 from datetime import datetime, timedelta, timezone
+import asyncio
+from unittest.mock import patch, AsyncMock
 import uuid
 from engine.db import jsonb
 from engine.reminders import Reminders
@@ -17,6 +19,48 @@ class alarms_test(MapTest):
                    'kind':'task','timing':'exact','window_start':(datetime.now(timezone.utc)+timedelta(hours=1)).isoformat(),'alarm':True}
     def rpc(self,action,args=None,device=None):
         return self.map.value('select public.assistant_client(%s,%s,%s,%s)',(self.owner,device or self.device,action,jsonb(args or {})))
+    def test_timer_schedules_ringing_and_waits_for_phone_receipt(self):
+        async def check():
+            task=asyncio.create_task(self.api.timer({'title':'Timer','seconds':120}))
+            await asyncio.sleep(0)
+            row=self.rpc('alarm_sync')['alarms'][0]
+            self.assertTrue(row['enabled'])
+            self.rpc('alarm_receipt',{'id':row['id'],'version':row['version'],'status':'scheduled'})
+            result=await task
+            self.assertTrue(result['alarm_ready'])
+            self.assertEqual(result['delivery'],'alarm')
+            self.assertEqual(result['kind'],'check_in')
+            self.assertAlmostEqual((result['alarm_at']-datetime.now(timezone.utc)).total_seconds(),120,delta=3)
+        self.run_async(check())
+    def test_timer_upgrades_notification_and_permission_denial_is_not_ready(self):
+        item=self.run_async(self.api.save({**self.args,'alarm':False}))
+        self.assertEqual(item['delivery'],'notification')
+        self.assertFalse(item['alarm_ready'])
+        async def check():
+            task=asyncio.create_task(self.api.timer({'id':str(item['id']),'version':1,'title':item['title'],'at':self.args['window_start']}))
+            await asyncio.sleep(0)
+            row=self.rpc('alarm_sync')['alarms'][0]
+            self.rpc('alarm_receipt',{'id':row['id'],'version':row['version'],'status':'denied'})
+            result=await task
+            self.assertFalse(result['alarm_ready'])
+            self.assertEqual(result['alarm_delivery'][0]['status'],'denied')
+            self.assertEqual(result['context'],self.args['context'])
+            self.assertEqual(self.map.value('select count(*) from memory.reminders'),1)
+        self.run_async(check())
+    def test_timer_schema_rejects_ambiguous_time_and_worker_cannot_use_timer_tool(self):
+        from jsonschema import validate,ValidationError
+        spec=next(s for s in self.api.specs() if s.name=='timer_set')
+        for change in ({},{'seconds':0},{'seconds':30,'at':self.args['window_start']},{'id':str(uuid.uuid4()),'seconds':30}):
+            with self.assertRaises(ValidationError):validate({'title':'Timer',**change},spec.schema)
+        self.assertNotIn('timer_set',[s.name for s in self.api.specs(scheduling=False)])
+    def test_timer_without_phone_never_claims_ready_even_after_memory_race(self):
+        item=self.run_async(self.api.save({**self.args,'alarm':False}))
+        with patch('engine.reminders.asyncio.sleep',new_callable=AsyncMock):
+            result=self.run_async(self.api.timer({'title':item['title'],'at':self.args['window_start']}))
+        self.assertEqual(result['id'],item['id'])
+        self.assertIsNotNone(result['alarm_at'])
+        self.assertEqual(result['delivery'],'alarm')
+        self.assertFalse(result['alarm_ready'])
     def test_alarm_requires_device_confirmation_and_keeps_context(self):
         item=self.run_async(self.api.save(self.args))
         self.assertFalse(item['alarm_ready'])

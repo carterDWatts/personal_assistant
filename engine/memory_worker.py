@@ -138,7 +138,7 @@ class Worker:
             if not (job.get('payload') or {}).get('import_id') and not (job.get('payload') or {}).get('external'):
                 from engine.reminders import Reminders
                 from engine.reconciliation import Reconciliation
-                all_specs += Reminders(tools).specs() + Reconciliation(tools).conversation_specs()
+                all_specs += Reminders(tools).specs(scheduling=False) + Reconciliation(tools).conversation_specs()
             writes = {s.name: s for s in all_specs if s.name not in READ_TOOLS}
             if (job.get('payload') or {}).get('kind') == 'history':
                 from engine.imports import HISTORY_WRITES

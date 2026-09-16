@@ -1,4 +1,5 @@
 """Contextual commitments with explicit completion and durable follow-up timing."""
+import asyncio
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 import uuid
@@ -27,6 +28,9 @@ class Reminders:
         return [self.delivery(r) for r in rows]
 
     def delivery(self, row):
+        row['delivery'] = 'alarm' if row.get('alarm_at') else 'notification'
+        row['alarm_ready'] = False
+        row['alarm_note'] = 'Ordinary reminder notification only. No ringing timer or alarm is scheduled.'
         if row.get('alarm_at'):
             row['alarm_delivery'] = self.map.rows("select a.status,a.version,a.updated_at from assistant.alarm_receipts a join assistant.devices d on d.id=a.device_id where a.reminder_id=%s and a.version=%s and d.revoked_at is null",(row['id'],row['version']))
             row['alarm_ready'] = any(r['status']=='scheduled' for r in row['alarm_delivery'])
@@ -35,6 +39,34 @@ class Reminders:
                 return row
             row['alarm_note'] = 'Native alarm confirmed on a phone.' if row['alarm_ready'] else 'Not confirmed on a phone. Open the updated iPhone app and allow Alarms; ordinary notifications are not a ringing alarm.'
         return row
+
+    async def timer(self, args):
+        if ('seconds' in args) == ('at' in args):
+            raise ValueError('Choose a duration in seconds or an exact time, not both.')
+        start = datetime.fromisoformat(args['at']) if 'at' in args else datetime.now().astimezone() + timedelta(seconds=args['seconds'])
+        values = {'title':args['title'], 'context':args.get('context',''), 'kind':'check_in',
+                  'timing':'exact', 'window_start':start.isoformat(),
+                  'window_end':(start+timedelta(minutes=15)).isoformat(), 'alarm':True}
+        if args.get('id'):
+            existing = self.map.row('select * from memory.reminders where id=%s',(args['id'],))
+            if not existing: raise ValueError('Read the reminder before converting it to a timer.')
+            values.update(id=args['id'],version=args['version'],kind=existing['kind'],
+                          context=args.get('context',existing['context']))
+        result = await self.save(values)
+        if not result.get('alarm_at'):
+            # A memory write may have won the same-message idempotency race.
+            result = await self.save({**values,'id':str(result['id']),'version':result['version']})
+        # The transaction is committed before waiting, so the phone can schedule
+        # and acknowledge it while the model is still awaiting its tool result.
+        for _ in range(20):
+            if result['alarm_ready']: break
+            await asyncio.sleep(0.25)
+            current = self.map.row('select * from memory.reminders where id=%s',(result['id'],))
+            if not current or current['version'] != result['version']:
+                raise ToolError('The timer changed while the phone was confirming it. Read it again.')
+            result = self.delivery(current)
+            if any(r['status'] in ('denied','unsupported','failed','expired','dismissed') for r in result.get('alarm_delivery',[])): break
+        return result
 
     async def save(self, args):
         zone = args.get('timezone', config.TIMEZONE)
@@ -94,10 +126,12 @@ class Reminders:
     async def act(self, args):
         return self.delivery(self.map.value('select memory.reminder_action(%s)', (jsonb({**args,'message_id':self.tools.message_id}),)))
 
-    def specs(self):
+    def specs(self, *, scheduling=True):
         from engine.tools import ToolSpec
         string={'type':'string'}
-        return [ToolSpec('reminders_list','Read reminders, including their context and timing. Search relevant long-term tasks during conversation; check due reminders each morning.',
+        timers = [ToolSpec('timer_set', 'Set a ringing timer or alarm when the user says set a timer, count down, or wake me. Use seconds for a duration, or at for a future timestamp with UTC offset. This always requests a native phone alarm, never a quiet reminder. An existing ordinary reminder is not a timer: pass its id/version to upgrade it. Report it as ready only when alarm_ready is true; otherwise explain that phone confirmation or Alarms permission is still needed. Check reminders_list for current delivery receipts.',
+            {'type':'object','properties':{'title':{'type':'string','minLength':1,'maxLength':300},'context':{'type':'string','maxLength':5000},'seconds':{'type':'integer','minimum':1,'maximum':604800},'at':string,'id':string,'version':{'type':'integer','minimum':1}},'required':['title'],'oneOf':[{'required':['seconds']},{'required':['at']}],'dependentRequired':{'id':['version'],'version':['id']},'additionalProperties':False},self.timer)] if scheduling else []
+        return timers + [ToolSpec('reminders_list','Read reminders, including their context, delivery type and timing. A notification-only reminder does not satisfy a request for a timer or alarm. Search relevant long-term tasks during conversation; check due reminders each morning.',
             {'type':'object','properties':{'query':string,'include_inactive':{'type':'boolean','description':'Include expired/delivered check-ins for history or cleanup.'},'status':{'type':'string','enum':['open','completed','cancelled']}},'additionalProperties':False},self.list),
             ToolSpec('reminder_save','Save or edit a reminder. Reuse existing id/version when discussing the same commitment. Possible duplicates are rejected until resolved; distinct_from is only for genuinely separate tasks or occurrences. Choose kind=task for unfinished work that must remain tracked after its deadline. Choose kind=check_in for a scheduled briefing or nudge: one occurrence, delivered at most once within window_start/window_end, with no hourly follow-ups. Each later occurrence needs its own explicit window; followup_hours is not a recurrence rule. Use alarm=true only when the user asks for a ringing alarm, at an exact future time. Alarm readiness requires a scheduled phone receipt; if alarm_ready is false, explain it is waiting for the iPhone app and Alarms permission, not a verified alarm. Severity alone never enables ringing. alarm=false removes ringing. Do this immediately, before claiming it is saved. Distinct from a calendar event. Interpret tomorrow/this week using local time. Preserve why it matters and dependencies in context. Use a day/week window rather than inventing a deadline. Someday gets a later first window and gentle follow-up. Severity measures consequences of missing it, separate from when it is due. Default normal; critical requires concrete serious consequences, not just an emphatic phrase. Choose followup_hours proportionate to consequences and urgency; do not nag. Editing requires id and version from reminders_list. Do not create reminders from quoted imports without the user adopting them.',
             {'type':'object','properties':{'distinct_from':{'type':'array','maxItems':8,'items':string},'alarm':{'type':'boolean'},'kind':{'type':'string','enum':['task','check_in']},'id':string,'version':{'type':'integer'},'title':{'type':'string','minLength':1,'maxLength':300},'context':{'type':'string','maxLength':5000},'timing':{'type':'string','enum':['exact','day','week','someday']},'window_start':string,'window_end':string,'timezone':string,'severity':{'type':'string','enum':['low','normal','high','critical']},'followup_hours':{'type':'number','minimum':0.25,'maximum':168}},'required':['kind','title','context','timing','window_start'],'additionalProperties':False},self.save),

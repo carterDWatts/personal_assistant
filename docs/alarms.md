@@ -5,6 +5,11 @@ inferred from severity alone. Ask for an alarm at an exact future time; the assi
 saves `alarm_at` on the reminder and the connected iPhone schedules it with AlarmKit.
 iOS 26 or newer and the user's Alarms permission are required.
 
+Timer requests use `timer_set`, with either a duration in seconds or an exact
+future timestamp. It always enables ringing and waits briefly for a phone receipt;
+an ordinary reminder cannot satisfy it. Existing notification-only reminders can
+be upgraded by ID and version. Memory extraction does not execute timer requests.
+
 The phone reads `alarm_sync`, schedules through Apple's API, checks the returned
 system state, and writes an authenticated `alarm_receipt` for that reminder revision.
 The assistant reports readiness only from a current scheduled receipt. A closed or
