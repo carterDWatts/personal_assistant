@@ -491,12 +491,16 @@ final class Chat: ObservableObject {
 
     func stop() {
         imageGeneration += 1
-        liveVoice.stop(); speechBuffer = ""; voice = false; voiceTurn.discardPending()
+        endVoice()
         if voiceTurn.interrupt(busy: busy) { write(["type": "stop"]) }
     }
 
+    func endVoice() {
+        liveVoice.stop(); speechBuffer = ""; voice = false; voiceTurn.discardPending()
+    }
+
     func toggleVoice() {
-        if voice { stop(); return }
+        if voice { endVoice(); return }
         voiceStartIndex = messages.count
         voice = true
         liveVoice.start()

@@ -488,8 +488,13 @@ func plain(_ value: Any?) -> String {
 
     func stop() {
         imageGeneration += 1
-        liveVoice.stop(); voice = false; voiceTurn.discardPending()
+        endVoice()
         if voiceTurn.interrupt(busy: busy) || hostSpeaks { transport.stop() }
+    }
+
+    func endVoice() {
+        liveVoice.stop(); voice = false; voiceTurn.discardPending()
+        spokenTurns.removeAll(); playedChunks.removeAll()
         transport.foreground(inFront)
     }
 
@@ -580,7 +585,7 @@ func plain(_ value: Any?) -> String {
 
     func toggleVoice() {
         guard !meetingCapture.active else { status = "Meeting recording is using the microphone. You can still type."; return }
-        if voice { stop(); return }
+        if voice { endVoice(); return }
         guard hostSpeaks else { voiceError = "My usual voice is temporarily unavailable. You can still type."; return }
         voiceError = nil
         voice = true

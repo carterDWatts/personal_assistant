@@ -121,7 +121,7 @@ private final class Capture: @unchecked Sendable {
 
     func start() {
         #if DEBUG
-        guard ProcessInfo.processInfo.environment["ASSISTANT_VOICE_TEST"] != "1" else { return }
+        guard ProcessInfo.processInfo.environment["ASSISTANT_VOICE_TEST"] != "1", !ProcessInfo.processInfo.arguments.contains("--sample") else { return }
         #endif
         guard !active else { return }
         VoiceDiagnostics.record("talk_pressed")

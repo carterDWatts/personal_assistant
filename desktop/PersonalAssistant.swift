@@ -437,7 +437,7 @@ struct SettingsPopover: View {
             HStack {
                 Text(AssistantIdentity.name).font(.headline).foregroundStyle(palette.ink)
                 Spacer()
-                Button { chat.stop() } label: { Image(systemName: "xmark") }.buttonStyle(.borderless).accessibilityLabel("End voice conversation")
+                Button { chat.endVoice() } label: { Image(systemName: "xmark") }.buttonStyle(.borderless).accessibilityLabel("End voice conversation")
             }.padding(14)
             ScrollViewReader { proxy in
                 ScrollView {
@@ -485,7 +485,7 @@ struct SettingsPopover: View {
                     Image(systemName: chat.liveVoice.speaking ? "waveform" : "mic.fill").foregroundStyle(palette.accent)
                     Text(title).font(.subheadline.weight(.medium)).foregroundStyle(palette.ink)
                     Spacer()
-                    Button("Done") { chat.stop() }.buttonStyle(.bordered)
+                    Button("Done") { chat.endVoice() }.buttonStyle(.bordered)
                 }
             }.padding(.horizontal, 18).padding(.vertical, 12)
                 .overlay(alignment: .top) { Rectangle().fill(palette.line).frame(height: 1) }
@@ -577,10 +577,10 @@ struct SettingsPopover: View {
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didResignActiveNotification)) { _ in
-            if chat.voice { chat.stop() }
+            if chat.voice { chat.endVoice() }
         }
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.didMiniaturizeNotification)) { _ in
-            if chat.voice { chat.stop() }
+            if chat.voice { chat.endVoice() }
         }
         .onDisappear { chat.disconnect() }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.willTerminateNotification)) { _ in

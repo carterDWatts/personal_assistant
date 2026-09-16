@@ -1,6 +1,32 @@
 import XCTest
 
 final class EmailReviewTests: XCTestCase {
+    func testLeavingVoiceKeepsReplyRunning() {
+        let app = XCUIApplication(); app.launchArguments = ["--sample", "--slow-reply-check", "-draft", ""]; app.launch()
+        let talk = app.buttons["Talk instead of typing"]
+        XCTAssertTrue(talk.waitForExistence(timeout: 15))
+        talk.tap()
+        app.buttons["Type instead"].tap()
+        let input = app.textViews["Message"]
+        input.tap(); input.typeText("Please draft an email.")
+        app.buttons["Send message"].tap()
+        app.buttons["End the voice conversation"].tap()
+        XCTAssertTrue(talk.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["I’ve prepared the email for your review."].waitForExistence(timeout: 20))
+        XCTAssertTrue(app.buttons["Send message"].waitForExistence(timeout: 10))
+    }
+
+    func testStopReplyStillCancelsGeneration() {
+        let app = XCUIApplication(); app.launchArguments = ["--sample", "--slow-reply-check", "-draft", ""]; app.launch()
+        let input = app.textViews["Message"]
+        XCTAssertTrue(input.waitForExistence(timeout: 15))
+        input.tap(); input.typeText("Please draft an email.")
+        app.buttons["Send message"].tap()
+        app.buttons["Stop reply"].tap()
+        XCTAssertTrue(app.buttons["Send message"].waitForExistence(timeout: 10))
+        XCTAssertFalse(app.staticTexts["I’ve prepared the email for your review."].exists)
+    }
+
     func testConversationIsVisibleOnOfflineRelaunch() {
         let app = XCUIApplication()
         app.launchArguments = ["--sample", "--cache-check"]

@@ -119,7 +119,7 @@ func isoDate(_ date: Date) -> String {
         reply = Task { [weak self] in
             guard let self else { return }
             emit(["type": "start", "turn_id": turnID])
-            try? await Task.sleep(for: .milliseconds(700))
+            try? await Task.sleep(for: .milliseconds(ProcessInfo.processInfo.arguments.contains("--slow-reply-check") ? 4000 : 700))
             if text.lowercased().contains("calendar") && (linked["google"] ?? []).isEmpty {
                 emit(["type": "connection_required", "action": "google_connect", "message": "This service needs to be connected on this host."])
             }

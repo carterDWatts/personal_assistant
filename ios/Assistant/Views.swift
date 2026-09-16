@@ -225,7 +225,7 @@ struct VoiceBar: View {
                 Spacer()
                 Button { typing.toggle() } label: { Image(systemName: "keyboard") }
                     .buttonStyle(SquareButton(palette: palette)).accessibilityLabel("Type instead")
-                Button { chat.stop() } label: { Image(systemName: "xmark") }
+                Button { chat.endVoice() } label: { Image(systemName: "xmark") }
                     .buttonStyle(SquareButton(palette: palette)).accessibilityLabel("End the voice conversation")
             }
         }

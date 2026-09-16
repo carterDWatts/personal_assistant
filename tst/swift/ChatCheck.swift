@@ -39,6 +39,7 @@ import Darwin
                 emit({**request, 'type':'command'})
                 emit({'type':'history','messages':[{'role':'assistant','content':os.environ['ASSISTANT_ENV'],'id':1}]})
                 emit({'type':'ready'})
+            if kind == 'stop': emit({**request, 'type':'command'})
             if kind == 'send':
                 if request['text'] == 'Unacknowledged message': continue
                 emit({**request, 'type':'command'})
@@ -131,6 +132,15 @@ import Darwin
         precondition(chat.messages.last?.text == "Hello 🐇\nAnother paragraph.")
         precondition((command["notification"] as? [String: String])?["message_id"] == "25")
         precondition(chat.draft.isEmpty && chat.replyingTo == nil)
+
+        chat.draft = "Finish this after I leave voice"
+        chat.voice = true
+        chat.send()
+        chat.endVoice()
+        precondition(!chat.voice && chat.busy)
+        try await wait("reply after voice closes") { !chat.busy }
+        precondition(chat.messages.last?.text == "Finish this after I leave voice")
+        precondition(command["text"] as? String == "Finish this after I leave voice", "Leaving voice must not send stop")
 
         for text in ["Second message", "Third message"] {
             chat.draft = text
