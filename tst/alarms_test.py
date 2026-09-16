@@ -33,7 +33,7 @@ class alarms_test(MapTest):
             self.assertAlmostEqual((result['alarm_at']-datetime.now(timezone.utc)).total_seconds(),120,delta=3)
         self.run_async(check())
     def test_timer_upgrades_notification_and_permission_denial_is_not_ready(self):
-        item=self.run_async(self.api.save({**self.args,'alarm':False}))
+        item=self.run_async(self.api.save({**self.args,'alarm':False,'severity':'high','followup_hours':24}))
         self.assertEqual(item['delivery'],'notification')
         self.assertFalse(item['alarm_ready'])
         async def check():
@@ -45,6 +45,8 @@ class alarms_test(MapTest):
             self.assertFalse(result['alarm_ready'])
             self.assertEqual(result['alarm_delivery'][0]['status'],'denied')
             self.assertEqual(result['context'],self.args['context'])
+            self.assertEqual(result['severity'],'high')
+            self.assertEqual(result['followup_hours'],24)
             self.assertEqual(self.map.value('select count(*) from memory.reminders'),1)
         self.run_async(check())
     def test_timer_schema_rejects_ambiguous_time_and_worker_cannot_use_timer_tool(self):

@@ -51,7 +51,8 @@ class Reminders:
             existing = self.map.row('select * from memory.reminders where id=%s',(args['id'],))
             if not existing: raise ValueError('Read the reminder before converting it to a timer.')
             values.update(id=args['id'],version=args['version'],kind=existing['kind'],
-                          context=args.get('context',existing['context']))
+                          context=args.get('context',existing['context']),severity=existing['severity'],
+                          followup_hours=existing['followup_hours'],timezone=existing['timezone'])
         result = await self.save(values)
         if not result.get('alarm_at'):
             # A memory write may have won the same-message idempotency race.
