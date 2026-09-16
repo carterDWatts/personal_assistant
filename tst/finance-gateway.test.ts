@@ -5,6 +5,24 @@ import { seal, unseal, hash, connection } from '../supabase/functions/assistant/
 const user='aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',device='bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb';
 const config={url:'https://example.invalid',serviceKey:'private',anonKey:'public',credentialKey:btoa('x'.repeat(32)),plaid:{id:'client',secret:'private-secret',environment:'sandbox'}};
 
+test('bank tokens reject another owner and ciphertext tampering',async()=>{
+  const aad=`${user}:plaid:sandbox:item`;
+  const encrypted=await seal(config,'bank-secret',aad);
+  assert.equal(await unseal(config,encrypted,aad),'bank-secret');
+  await assert.rejects(()=>unseal(config,encrypted,`${device}:plaid:sandbox:item`));
+  const bytes=Uint8Array.from(atob(encrypted),c=>c.charCodeAt(0));bytes[bytes.length-1]^=1;
+  await assert.rejects(()=>unseal(config,btoa(String.fromCharCode(...bytes)),aad));
+});
+
+test('missing callback state never contacts Plaid or the database',async()=>{
+  let called=false;
+  const result=await bankCallback(new Request('https://example.invalid/plaid/callback'),config,async()=>{
+    called=true;throw new Error('unexpected I/O');
+  });
+  assert.equal(called,false);
+  assert.equal(result.headers.get('location'),'personal-assistant://connection?status=failed');
+});
+
 test('bank access is checked before external I/O',async()=>{
   const urls:string[]=[];
   await assert.rejects(()=>connection(config,user,{device_id:device,action:'connection_start',args:{provider:'plaid'}},async(url)=>{

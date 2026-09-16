@@ -11,11 +11,25 @@ from datetime import date, datetime
 from decimal import Decimal
 
 import psycopg
+from psycopg.conninfo import conninfo_to_dict
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 from psycopg.types.range import Range
 
 from engine import config
+
+
+def transport_options(url):
+    """Supabase connections must verify TLS, even with an old local URL."""
+    params = conninfo_to_dict(url)
+    host = params.get('host', '')
+    if not host.endswith(('.supabase.com', '.supabase.co')):
+        return {}
+    options = {'sslmode': 'verify-full'}
+    root = config.ROOT / 'deploy/supabase-ca.crt'
+    if not params.get('sslrootcert') and root.is_file():
+        options['sslrootcert'] = str(root)
+    return options
 
 
 class Map:
@@ -24,7 +38,7 @@ class Map:
         if not self.url:
             name = "ASSISTANT_TEST_DATABASE_URL" if config.ENV == "test" else "ASSISTANT_DATABASE_URL"
             raise RuntimeError(f"{name} is not set")
-        self.conn = psycopg.Connection.connect(self.url, row_factory=dict_row, autocommit=True, connect_timeout=10,
+        self.conn = psycopg.Connection.connect(self.url, **transport_options(self.url), row_factory=dict_row, autocommit=True, connect_timeout=10,
             keepalives_idle=10, keepalives_interval=5, keepalives_count=3, tcp_user_timeout=20000)  # type: ignore[arg-type]
         # Dates the database computes must agree with the device the user is on.
         self.conn.execute("select set_config('timezone', %s, false)", (config.TIMEZONE,))
