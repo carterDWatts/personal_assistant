@@ -63,6 +63,9 @@ import UserNotifications
         }
     }
     func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification) async -> UNNotificationPresentationOptions {
+        if notification.request.content.userInfo["pomodoro"] as? Bool == true, Pomodoro.shared.displayOpen {
+            return notification.request.content.sound == nil ? [] : [.sound]
+        }
         if notification.request.content.userInfo["chat_reply"] as? Bool == true || notification.request.content.userInfo["task_update"] as? Bool == true { return [] }
         return [.banner,.sound,.list]
     }

@@ -2,6 +2,31 @@ import XCTest
 @testable import Assistant
 
 @MainActor final class MessageTests: XCTestCase {
+    func testFocusDisplayRestoresScreenSleepPolicy() {
+        let original = UIApplication.shared.isIdleTimerDisabled
+        defer { UIApplication.shared.isIdleTimerDisabled = original }
+        let lock = FocusDisplayWakeLock()
+        for prior in [false, true] {
+            UIApplication.shared.isIdleTimerDisabled = prior
+            lock.setEnabled(true); lock.setEnabled(true)
+            XCTAssertTrue(UIApplication.shared.isIdleTimerDisabled)
+            lock.setEnabled(false); lock.setEnabled(false)
+            XCTAssertEqual(UIApplication.shared.isIdleTimerDisabled, prior)
+        }
+    }
+
+    func testFocusSoundDefaultsToSilentAndPersistsChoice() {
+        let name = "FocusTests." + UUID().uuidString
+        let defaults = UserDefaults(suiteName: name)!
+        defer { defaults.removePersistentDomain(forName: name) }
+        let timer = Pomodoro(defaults: defaults)
+        XCTAssertFalse(timer.soundEnabled)
+        timer.setSound(true)
+        XCTAssertTrue(Pomodoro(defaults: defaults).soundEnabled)
+        timer.setSound(false)
+        XCTAssertFalse(Pomodoro(defaults: defaults).soundEnabled)
+    }
+
     func testProactiveMessageDoesNotTakeOverReplyAndCarriesExactReference() async throws {
         let transport = MessageTransport()
         let chat = Chat(transport: transport)

@@ -20,6 +20,10 @@ struct PomodoroState: Codable {
         let seconds = Int(ceil(seconds(at: now)))
         return String(format: "%02d:%02d", seconds / 60, seconds % 60)
     }
+    /// Eight broad steps, rather than a second-by-second visual countdown.
+    func blocks(at now: Date) -> Int {
+        min(8, max(1, Int((1 - seconds(at: now) / duration) * 8) + 1))
+    }
     mutating func reconcile(at now: Date) {
         guard status == .running, let deadline, now >= deadline else { return }
         status = .finished; remaining = 0; self.deadline = nil

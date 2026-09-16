@@ -1,6 +1,44 @@
 import XCTest
 
 final class EmailReviewTests: XCTestCase {
+    func testVisualFocusDisplayChangesPhaseWithoutCountdown() {
+        let app = XCUIApplication(); app.launchArguments = ["--sample"]; app.launch()
+        addUIInterruptionMonitor(withDescription: "Notifications") { alert in
+            if alert.buttons["Allow"].exists { alert.buttons["Allow"].tap(); return true }
+            return false
+        }
+        XCTAssertTrue(app.buttons["More options"].waitForExistence(timeout: 15))
+        app.buttons["More options"].tap(); app.buttons["Focus timer"].tap()
+        app.buttons["Reset focus timer"].tap()
+        app.swipeUp()
+        let length = app.steppers["Focus length"]
+        for _ in 0..<180 {
+            if length.label == "Focus · 1 min" { break }
+            length.buttons["Focus length-Decrement"].tap()
+        }
+        XCTAssertEqual(length.label, "Focus · 1 min")
+        app.buttons["Open focus display"].tap()
+        XCTAssertTrue(app.buttons["Start focus"].waitForExistence(timeout: 5))
+        app.buttons["Start focus"].tap(); app.tap()
+        XCTAssertTrue(app.buttons["Pause"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.staticTexts["Focus countdown"].exists)
+        let focus = XCTAttachment(screenshot: app.screenshot()); focus.name = "Focus blocks"; focus.lifetime = .keepAlways; add(focus)
+        app.buttons["Pause"].tap()
+        XCTAssertTrue(app.staticTexts["Take your time."].waitForExistence(timeout: 5))
+        app.buttons["Resume"].tap()
+        XCTAssertTrue(app.staticTexts["Time for a break."].waitForExistence(timeout: 75))
+        // Let the color transition settle, and verify it stays until acknowledged.
+        Thread.sleep(forTimeInterval: 2)
+        XCTAssertTrue(app.buttons["Start break"].isHittable)
+        let end = XCTAttachment(screenshot: app.screenshot()); end.name = "Time to switch"; end.lifetime = .keepAlways; add(end)
+        app.buttons["Start break"].tap()
+        XCTAssertTrue(app.staticTexts["A little breathing room."].waitForExistence(timeout: 5))
+        let rest = XCTAttachment(screenshot: app.screenshot()); rest.name = "Break blocks"; rest.lifetime = .keepAlways; add(rest)
+        app.buttons["Close focus display"].tap()
+        XCTAssertTrue(app.buttons["Reset focus timer"].waitForExistence(timeout: 5))
+        app.buttons["Reset focus timer"].tap()
+    }
+
     func testLeavingVoiceKeepsReplyRunning() {
         let app = XCUIApplication(); app.launchArguments = ["--sample", "--slow-reply-check", "-draft", ""]; app.launch()
         let talk = app.buttons["Talk instead of typing"]
