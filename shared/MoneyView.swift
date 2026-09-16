@@ -4,11 +4,14 @@ import SwiftUI
 struct MoneyView: View {
     let palette: Palette
     let load: () async throws -> [String: Any]
+    var connect: (() async throws -> Void)? = nil
     @Environment(\.dismiss) private var dismiss
     @State private var accounts: [[String: Any]] = []
     @State private var connections: [[String: Any]] = []
     @State private var loading = true
     @State private var error = ""
+    @State private var connecting = false
+    @State private var connectionError = ""
 
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
@@ -21,6 +24,24 @@ struct MoneyView: View {
             }
             Text("We can work through the details in our conversation.")
                 .font(.subheadline).foregroundStyle(palette.muted)
+            if let connect {
+                Button {
+                    connecting = true; connectionError = ""
+                    Task { @MainActor in
+                        do { try await connect(); await refresh() }
+                        catch { connectionError = error.localizedDescription }
+                        connecting = false
+                    }
+                } label: {
+                    HStack {
+                        if connecting { ProgressView().controlSize(.small) }
+                        Text(connecting ? "Signing in…" : connections.isEmpty ? "Connect a bank" : "Add another bank")
+                    }
+                }.buttonStyle(.plain).padding(.horizontal, 14).padding(.vertical, 10)
+                    .background(palette.accent.opacity(0.16), in: RoundedRectangle(cornerRadius: 10))
+                    .disabled(connecting).accessibilityLabel("Add bank")
+                if !connectionError.isEmpty { Text(connectionError).font(.caption).foregroundStyle(palette.muted) }
+            }
             if loading { ProgressView().frame(maxWidth: .infinity) }
             if !error.isEmpty {
                 Text(error).foregroundStyle(palette.muted)

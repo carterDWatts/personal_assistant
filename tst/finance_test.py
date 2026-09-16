@@ -26,6 +26,16 @@ def page(added=None, modified=None, removed=None, cursor='next', more=False):
 
 
 class BankPages(TestCase):
+    def test_connect_emits_prompt_without_reading_existing_accounts(self):
+        import asyncio,json
+        from engine.finance.tools import specs
+        from engine.tools import run
+        connect=next(s for s in specs() if s.name=='money_connect')
+        with patch('engine.finance.tools.Map',side_effect=AssertionError('Sign-in must not depend on account reads')):
+            result,error=asyncio.run(run(connect,{}))
+        self.assertTrue(error)
+        self.assertEqual(json.loads(result)['connection_action'],'plaid_connect')
+
     def test_mutation_restarts_from_original_cursor(self):
         api=Mock()
         api.call.side_effect=[page([transaction('discard')],cursor='partial',more=True),

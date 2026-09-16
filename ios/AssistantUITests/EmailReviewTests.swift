@@ -1,6 +1,22 @@
 import XCTest
 
 final class EmailReviewTests: XCTestCase {
+    func testMoneyCanAddAnotherBankWithoutAskingInChat() {
+        let app = XCUIApplication(); app.launchArguments = ["--sample"]; app.launch()
+        XCTAssertTrue(app.buttons["More options"].waitForExistence(timeout: 15))
+        app.buttons["More options"].tap(); app.buttons["Money"].tap()
+        let addBank = app.buttons["Add bank"]
+        XCTAssertTrue(addBank.waitForExistence(timeout: 5))
+        for index in 1...2 {
+            addBank.tap()
+            XCTAssertTrue(app.staticTexts["Connected sample bank \(index)"].waitForExistence(timeout: 5))
+            XCTAssertTrue(addBank.isEnabled)
+        }
+        XCTAssertTrue(app.staticTexts["Sample checking"].exists)
+        app.buttons["Close money"].tap()
+        XCTAssertTrue(app.textViews["Message"].waitForExistence(timeout: 5))
+    }
+
     func testMoneyShowsBalancesAndStalenessWithoutOpeningChat() {
         let app = XCUIApplication(); app.launchArguments = ["--sample"]; app.launch()
         XCTAssertTrue(app.buttons["More options"].waitForExistence(timeout: 15))

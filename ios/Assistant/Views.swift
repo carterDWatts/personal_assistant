@@ -458,7 +458,11 @@ struct ConversationView: View {
         .animation(.easeInOut(duration: 0.2), value: chat.voice)
         .background(Concrete(palette: palette).equatable().ignoresSafeArea())
         .tint(palette.accent)
-        .sheet(isPresented: $showMoney) { MoneyView(palette: palette, load: chat.moneyRequest) }
+        .sheet(isPresented: $showMoney) {
+            MoneyView(palette: palette, load: chat.moneyRequest, connect: {
+                try await chat.authorize(provider: "plaid", grant: nil)
+            })
+        }
         .sheet(isPresented: $focusTimer.presented) { PomodoroView(timer: focusTimer, palette: palette) }
         .sheet(isPresented: $showDay) {
             DayPanel(chat: chat, palette: palette).presentationDetents([.medium, .large]).presentationDragIndicator(.visible)

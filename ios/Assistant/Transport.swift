@@ -44,8 +44,11 @@ func isoDate(_ date: Date) -> String {
     func clientRequest(_ action: String, _ args: [String: Any]) async throws -> [String: Any] {
         let notice: [String: Any] = ["id": 900, "role": "assistant", "content": "Your report is ready.", "created_at": isoDate(Date()), "payload": ["reference": ["kind": "notice", "id": "sample"]]]
         if action == "money" {
+            let added: [[String: Any]] = (linked["plaid"] ?? []).enumerated().map { index, _ in
+                ["institution": "Connected sample bank \(index + 1)", "transactions_status": "NOT_READY"]
+            }
             return ["accounts": [["id": "sample", "name": "Sample checking", "mask": "0000", "type": "depository", "currency": "USD", "balance": "1250.25", "active": true]],
-                    "connections": [["institution": "Sample bank", "bank_updated_at": isoDate(Date()), "transactions_status": "HISTORICAL_UPDATE_COMPLETE", "last_error": "UNAVAILABLE"]]]
+                    "connections": [["institution": "Sample bank", "bank_updated_at": isoDate(Date()), "transactions_status": "HISTORICAL_UPDATE_COMPLETE", "last_error": "UNAVAILABLE"]] + added]
         }
         if action == "inbox" { return ["messages": [notice]] }
         if action == "inbox_open" {
@@ -161,7 +164,7 @@ func isoDate(_ date: Date) -> String {
     private var linked: [String: [String]] = [:]
 
     func connections() async throws -> [[String: Any]] {
-        ["google", "todoist", "notion", "github"].map { provider in
+        ["google", "todoist", "notion", "github", "plaid"].map { provider in
             ["id": provider, "kind": IntegrationCatalog.find(provider)?.auth ?? "unavailable",
              "configured": !(provider == "notion" && ProcessInfo.processInfo.arguments.contains("--connection-unconfigured")),
              "state": (linked[provider] ?? []).isEmpty ? "absent" : "connected", "grants": linked[provider] ?? [],
