@@ -8,7 +8,7 @@ if (catalog.version !== 1) throw new Error('Unsupported integration catalog vers
 export const integrations = catalog.providers as Provider[];
 export const google = integrations.find(item => item.id === 'google')!;
 export const grants = Object.fromEntries(google.grants.map(item => [item.id, item]));
-export const providers = Object.fromEntries(integrations.filter(item => item.id !== 'google').map(item =>
+export const providers = Object.fromEntries(integrations.filter(item => item.id !== 'google' && item.auth !== 'bank_link').map(item =>
   [item.id, {...item, url: item.apiBase! + item.profile!, headers: {'User-Agent':'personal-assistant', ...item.headers}}]));
 export const oauthProviders = integrations.filter(item => item.id !== 'google' && item.auth === 'oauth');
 
@@ -24,5 +24,6 @@ export function registration(config: Config, provider: string) {
 export function configured(config: Config, provider: Provider) {
   if (!config.credentialKey) return false;
   if (provider.auth === 'token') return true;
+  if (provider.auth === 'bank_link') return !!(config.plaid?.id && config.plaid?.secret && ['sandbox','production'].includes(config.plaid.environment));
   try { registration(config, provider.id); return true; } catch { return false; }
 }

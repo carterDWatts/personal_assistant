@@ -136,3 +136,19 @@ Single-use state still binds callbacks to the owner, device and Notion intent.
 Refresh tokens stay encrypted and are rotated under the existing credential lock.
 
 [Notion OAuth authorization](https://developers.notion.com/guides/get-started/authorization)
+
+## Bank accounts
+
+Plaid Link connects banks and credit cards through the system sign-in sheet on iPhone or the browser on Mac. Both save to the same owned cloud ledger. The assistant offers this connection when asked about money; Connections also has an add-bank button. Connecting grants read access only. No tool can make payments, move money or trade.
+
+`engine/finance/plaid.py` is the replaceable provider adapter. `sync.py` fetches incremental transaction pages without invoking a model, then commits the whole batch and cursor together. A pagination mutation restarts from the original cursor. Pending charges are retired when their posted replacements arrive; edits and removals replay safely. Failed syncs retain the last successful data and report an error. Ingestion normally checks every four hours, more often while the initial history is still loading. This fetches Plaid's available data, not a forced bank refresh; bank reporting can lag.
+
+Private `assistant.bank_items`, `bank_accounts` and `bank_transactions` hold encrypted access tokens and source records, scoped to the owner. Tokens are bound to the owner, provider environment and Item by authenticated encryption. Anonymous and ordinary authenticated database roles cannot read these tables or call the gateway-only functions. Disconnect immediately stops reads and cancels pending sign-ins; the worker retries provider revocation before deleting the disconnected ledger. Reauthorization repairs an existing unhealthy Item instead of consuming a new connection.
+
+`money_accounts`, `money_transactions` and `money_summary` return bounded reads with sync status and bank freshness. Money uses Postgres numeric and decimal strings; totals are computed in SQL, grouped by currency and pending status. Transfer and debt-payment categories are separate from spending to avoid counting card payments as purchases. Bank categorization is evidence, not certainty: unclassified transactions stay unclassified. Duplicate bank connections can still represent the same real account; do not link an already healthy account twice. Budgets, goals and personal explanations belong in ordinary structured memory. Transactions are not automatically copied into the knowledge graph or injected into every conversation.
+
+The small Money sheet shows balances, payment due dates when provided, and freshness. Conversation remains the main interface. It does not claim a balance is a safe spending budget. Investment holdings and money movement are outside this integration.
+
+Provision with `python scripts/cloud.py bank /private/path/plaid.json`, containing `client_id`, `secret` and an explicit `environment` (`sandbox` or `production`). It installs secrets into the gateway, Railway worker and Mac Keychain; secrets never enter Git or model tools. Add `https://secure.plaid.com/oauth/redirect` to Plaid's allowed redirect URIs. The gateway verifies the owned Hosted Link session, never a browser's success claim. Native clients receive only connection state, not access tokens.
+
+Run the optional live Sandbox regression with `BANK_SANDBOX_CONFIG=/private/path/plaid-sandbox.json scripts/test.sh`; it uses the disposable local test database, creates only a fake bank Item and removes it afterward. Real bank connections are exclusively user-controlled. The personal Trial has ten lifetime Production connections; deleting an Item does not restore a slot. Sandbox tests use none of them.

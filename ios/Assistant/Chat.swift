@@ -98,6 +98,7 @@ func plain(_ value: Any?) -> String {
         }
     }
     @Published var showInbox = false
+    func moneyRequest() async throws -> [String: Any] { try await transport.clientRequest("money", [:]) }
     func inboxRequest(_ args: [String: Any]) async throws -> [String: Any] { try await transport.clientRequest("inbox", args) }
     func receiveWorkUpdates() async {
         guard connected, !busy else { return }

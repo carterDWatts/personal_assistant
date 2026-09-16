@@ -381,6 +381,7 @@ async def runtime_maintenance(host):
 async def main():
     from engine.integrations.email import run as send_mail
     from engine.background import gather_sources, classify_mail
+    from engine.finance.sync import run as bank_sync
     from engine.notifications import run as notify
     from engine.jobs import run as run_jobs
     from engine.developer import run as run_developer
@@ -408,6 +409,7 @@ async def main():
             'attention': run_attention(relay_map.url, host),
             'memory': memory_loop(relay_map.url, host),
             'runtime_maintenance': runtime_maintenance(host),
+            'bank_sync': bank_sync(relay_map.url,host),
         })
 
 

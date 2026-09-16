@@ -314,7 +314,7 @@ struct ServiceConnectionForm: View {
             ProgressView("Checking sign-in availability…").controlSize(.small)
         } else if chat.serviceConfigured[provider] == false {
             Text("I can’t open \(ServiceSetup.entries[provider]?.name ?? provider) sign-in yet. The app’s developer registration needs to be completed first. There’s nothing to approve in your browser.").font(.callout).foregroundStyle(.secondary)
-        } else if IntegrationCatalog.find(provider)?.auth == "oauth" {
+        } else if IntegrationCatalog.find(provider)?.auth != "token" {
             Button("Sign in to \(ServiceSetup.entries[provider]?.name ?? provider)") { chat.connectService(provider) }.buttonStyle(.borderedProminent).disabled(chat.googleConnecting)
         } else if let setup = ServiceSetup.entries[provider] {
             VStack(alignment: .leading, spacing: 8) {
@@ -393,6 +393,7 @@ struct ConnectionsView: View {
                     Text(ServiceSetup.entries[provider]!.name).font(.headline)
                     Spacer()
                     if chat.serviceConnections[provider] == true {
+                        if provider == "plaid" { Button("Add bank") { chat.connectService(provider) } }
                         Button("Disconnect") { chat.disconnectService(provider) }
                     } else {
                         Button("Connect") { serviceSetup = serviceSetup == provider ? nil : provider }
@@ -501,6 +502,7 @@ struct SettingsPopover: View {
     @State private var showConnections = false
     @State private var showImport = false
     @State private var showMeetings = false
+    @State private var showMoney = false
     @Environment(\.colorScheme) private var scheme
     private var palette: Palette { Palette.forScheme(scheme) }
     private let column: CGFloat = 680
@@ -539,6 +541,7 @@ struct SettingsPopover: View {
                 Button { showConnections.toggle() } label: { Image(systemName: "link") }
                     .help("Connections")
                     .popover(isPresented: $showConnections) { ConnectionsView(chat: chat) }
+                Button { showMoney = true } label: { Image(systemName: "creditcard") }.help("Money")
                 Button { focusTimer.refresh(); focusTimer.presented = true } label: { Image(systemName: "timer") }.help("Focus timer")
                 Button { showMeetings = true } label: { Image(systemName: "waveform") }
                     .help("Import a recorded conversation")
@@ -560,6 +563,7 @@ struct SettingsPopover: View {
         }
         .toolbarBackground(palette.background, for: .windowToolbar)
         .preferredColorScheme(.light)
+        .sheet(isPresented: $showMoney) { MoneyView(palette: palette, load: chat.moneyRequest) }
         .sheet(isPresented: $focusTimer.presented) { PomodoroView(timer: focusTimer, palette: palette) }
         .sheet(isPresented: $showMeetings) { MeetingView(library: chat.meetings, capture: chat.meetingCapture, runtime: chat.runtime) }
         .onAppear {

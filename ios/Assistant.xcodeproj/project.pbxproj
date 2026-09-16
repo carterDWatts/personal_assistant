@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		310EC6EBE9B09EF727DE5CC1 /* MoneyView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1F49948D4F964BF6A6C5C8AD /* MoneyView.swift */; };
 		C4E586B5FFB288BE2D47BF55 /* PomodoroState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 35C0FAB53864283A0346DBD5 /* PomodoroState.swift */; };
 		A71D6B4CCC0FB306BA97D99E /* Pomodoro.swift in Sources */ = {isa = PBXBuildFile; fileRef = B56144A28A5EC448C67B9B7C /* Pomodoro.swift */; };
 		850CA696EAAFB9B241C0DA51 /* ChatScrollView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CCE07CC78BAF615171E3E8FA /* ChatScrollView.swift */; };
@@ -78,6 +79,7 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		1F49948D4F964BF6A6C5C8AD /* MoneyView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MoneyView.swift; sourceTree = "<group>"; };
 		35C0FAB53864283A0346DBD5 /* PomodoroState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PomodoroState.swift; sourceTree = "<group>"; };
 		B56144A28A5EC448C67B9B7C /* Pomodoro.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Pomodoro.swift; sourceTree = "<group>"; };
 		CCE07CC78BAF615171E3E8FA /* ChatScrollView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatScrollView.swift; sourceTree = "<group>"; };
@@ -170,6 +172,7 @@
 		583D12035B56C18878C21C19 /* shared */ = {
 			isa = PBXGroup;
 			children = (
+				1F49948D4F964BF6A6C5C8AD /* MoneyView.swift */,
 				B56144A28A5EC448C67B9B7C /* Pomodoro.swift */,
 				35C0FAB53864283A0346DBD5 /* PomodoroState.swift */,
 				CCE07CC78BAF615171E3E8FA /* ChatScrollView.swift */,
@@ -471,6 +474,7 @@
 				48459D3A71D78D775DD0F949 /* Spotify.swift in Sources */,
 				A151CE5C07C3F6BF2A91069C /* SpotifyCommand.swift in Sources */,
 				20CB022D16C16345828B8930 /* Transport.swift in Sources */,
+				310EC6EBE9B09EF727DE5CC1 /* MoneyView.swift in Sources */,
 				A71D6B4CCC0FB306BA97D99E /* Pomodoro.swift in Sources */,
 				C4E586B5FFB288BE2D47BF55 /* PomodoroState.swift in Sources */,
 				850CA696EAAFB9B241C0DA51 /* ChatScrollView.swift in Sources */,

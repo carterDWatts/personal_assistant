@@ -1,13 +1,14 @@
+import { startBank, removeBank, bankStore } from './finance.ts';
 import type { Config } from './handler.ts';
 
 import { integrations, grants, providers, oauthProviders, registration, configured } from './catalog.ts';
 
-export const connectionActions = new Set(['connections','connection_start','connection_status','connection_token','connection_remove','spotify_command']);
+export const connectionActions = new Set(['money','connections','connection_start','connection_status','connection_token','connection_remove','spotify_command']);
 const encode = new TextEncoder();
 const b64 = (v: Uint8Array) => btoa(String.fromCharCode(...v));
 const bytes = (v: string) => Uint8Array.from(atob(v), x => x.charCodeAt(0));
-const random = () => b64(crypto.getRandomValues(new Uint8Array(32))).replaceAll('+','-').replaceAll('/','_').replaceAll('=','');
-const hash = async (v: string) => b64(new Uint8Array(await crypto.subtle.digest('SHA-256',encode.encode(v)))).replaceAll('+','-').replaceAll('/','_').replaceAll('=','');
+export const random = () => b64(crypto.getRandomValues(new Uint8Array(32))).replaceAll('+','-').replaceAll('/','_').replaceAll('=','');
+export const hash = async (v: string) => b64(new Uint8Array(await crypto.subtle.digest('SHA-256',encode.encode(v)))).replaceAll('+','-').replaceAll('/','_').replaceAll('=','');
 async function key(config: Config) {
   if (!config.credentialKey) throw new Error('connections_unavailable');
   return crypto.subtle.importKey('raw',bytes(config.credentialKey), 'AES-GCM',false,['encrypt','decrypt']);
@@ -21,7 +22,7 @@ export async function unseal(config: Config, value: string, aad: string) {
   const data = bytes(value);
   return new TextDecoder().decode(await crypto.subtle.decrypt({name:'AES-GCM',iv:data.slice(0,12),additionalData:encode.encode(aad)},await key(config),data.slice(12)));
 }
-async function store(config: Config, user: string | null, device: string | null, action: string, args: object, fetcher: typeof fetch) {
+export async function store(config: Config, user: string | null, device: string | null, action: string, args: object, fetcher: typeof fetch) {
   const response = await fetcher(`${config.url}/rest/v1/rpc/assistant_connection_store`, {
     method:'POST', headers:{'Content-Type':'application/json',apikey:config.serviceKey,authorization:`Bearer ${config.serviceKey}`},
     body:JSON.stringify({p_user:user,p_device:device,p_action:action,p_args:args}),signal:AbortSignal.timeout(15000),
@@ -41,6 +42,7 @@ export async function connection(config: Config, user: string, input: any, fetch
   // Every operation validates the authenticated owner and device before external I/O.
   const rows = await store(config,user,input.device_id,'list',{},fetcher) as any[];
   const args = input.args || {}, provider = args.provider;
+  if (input.action === 'money') return bankStore(config,user,input.device_id,'view',{},fetcher);
   if (input.action === 'spotify_command') {
     const client = registration(config, 'spotify');
     if (!['claim','finish'].includes(args.action)) throw new Error('invalid_request');
@@ -63,6 +65,11 @@ export async function connection(config: Config, user: string, input: any, fetch
       account:item.id==='google' ? googleRows[0]?.metadata.account || null : rows.find(r=>r.slot===item.id)?.metadata.account || null}))};
   }
   if (input.action === 'connection_status') return store(config,user,input.device_id,'status',{intent_id:args.intent_id},fetcher);
+  if (provider === 'plaid') {
+    if (input.action === 'connection_start') return startBank(config,user,input.device_id,fetcher);
+    if (input.action === 'connection_remove') return removeBank(config,user,input.device_id,fetcher);
+    throw new Error('invalid_request');
+  }
   const grant = args.grant || 'calendar', name = slot(provider,grant);
   if (input.action === 'connection_remove') return store(config,user,input.device_id,'remove',{slot:name},fetcher);
   if (input.action === 'connection_start') {

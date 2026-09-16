@@ -43,6 +43,10 @@ func isoDate(_ date: Date) -> String {
     private var sampleEmailState = "draft"
     func clientRequest(_ action: String, _ args: [String: Any]) async throws -> [String: Any] {
         let notice: [String: Any] = ["id": 900, "role": "assistant", "content": "Your report is ready.", "created_at": isoDate(Date()), "payload": ["reference": ["kind": "notice", "id": "sample"]]]
+        if action == "money" {
+            return ["accounts": [["id": "sample", "name": "Sample checking", "mask": "0000", "type": "depository", "currency": "USD", "balance": "1250.25", "active": true]],
+                    "connections": [["institution": "Sample bank", "bank_updated_at": isoDate(Date()), "transactions_status": "HISTORICAL_UPDATE_COMPLETE", "last_error": "UNAVAILABLE"]]]
+        }
         if action == "inbox" { return ["messages": [notice]] }
         if action == "inbox_open" {
             var selected = notice; selected["id"] = 901

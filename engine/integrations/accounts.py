@@ -11,7 +11,7 @@ from engine.tools import ConnectionRequired, ToolError
 from engine.integrations.catalog import ACCOUNT_PROVIDERS, OAUTH_PROVIDERS
 
 PROVIDERS = {key: (item["name"], item["apiBase"], item["profile"])
-             for key, item in ACCOUNT_PROVIDERS.items()}
+             for key, item in ACCOUNT_PROVIDERS.items() if item["auth"] != "bank_link"}
 CONNECTION_ACTIONS = {item["action"] for item in ACCOUNT_PROVIDERS.values()}
 SERVICE = "com.carterwatts.personal-assistant.connections"
 _LOCK = threading.RLock()
@@ -34,6 +34,8 @@ def status():
                                 "capabilities": ACCOUNT_PROVIDERS[provider]["capabilities"]}
         except Exception:
             result[provider] = {"label": label, "connected": False, "message": "Unlock your keychain to connect."}
+    from engine.finance.connection import status as bank_status
+    result["plaid"] = bank_status()
     return result
 
 
@@ -95,6 +97,9 @@ def _request(provider, path, *, params=None, body=None, token=None, method=None)
 
 
 def connect(provider, token):
+    if provider == "plaid":
+        from engine.finance.connection import connect
+        return connect()
     account = _account(provider)
     if provider in OAUTH_PROVIDERS and token is None:
         from engine.integrations.oauth import connect_local
@@ -110,6 +115,9 @@ def connect(provider, token):
 
 
 def disconnect(provider):
+    if provider == "plaid":
+        from engine.finance.connection import disconnect
+        return disconnect()
     with _LOCK:
         try:
             keyring.delete_password(SERVICE, _account(provider))

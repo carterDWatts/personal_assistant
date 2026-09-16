@@ -11,7 +11,7 @@ from engine.tools import ConnectionRequired, ToolError, ToolSpec
 from engine.integrations.catalog import PROVIDERS
 
 ADAPTERS = {domain: (item["id"], item["action"],
-                    "Account authorization" if item["auth"] == "oauth" else "Personal token setup")
+                    "Account authorization" if item["auth"] in ("oauth", "bank_link") else "Personal token setup")
             for item in PROVIDERS.values() for domain in item["domains"]}
 KEYWORDS = re.compile(r'\b(api|oauth|developers?|integrations?|mcp|connectors?|authentication)\b', re.I)
 

@@ -184,6 +184,32 @@ def configure_connections(client_file):
     print('Cloud connection credentials configured. The encryption key is saved outside the repository.')
 
 
+
+def configure_bank(client_file):
+    """Provision Plaid once; bank passwords always stay in Plaid Link."""
+    import base64
+    import tempfile
+    import keyring
+    client=json.loads(Path(client_file).read_text())
+    if client.get('environment') not in ('sandbox','production'):
+        raise RuntimeError('Choose an explicit Plaid environment.')
+    if not all(isinstance(client.get(k),str) and client[k] and not any(c.isspace() for c in client[k]) for k in ('client_id','secret')):
+        raise RuntimeError('Invalid Plaid configuration.')
+    key=(Path.home()/'.config/personal-assistant/credential-key').read_text().strip()
+    if len(base64.b64decode(key,validate=True))!=32: raise RuntimeError('Invalid credential encryption key.')
+    values={'PLAID_CLIENT_ID':client['client_id'],'PLAID_SECRET':client['secret'],'PLAID_ENV':client['environment']}
+    with tempfile.NamedTemporaryFile(mode='w',suffix='.env') as env:
+        for name,value in values.items(): env.write(name+'='+value+'\n')
+        env.flush()
+        command(['supabase','secrets','set','--project-ref',PROJECT,'--env-file',env.name])
+    for name,value in values.items():
+        command([RAILWAY,'variable','set',name,'--stdin','--skip-deploys','--service','worker'],input=value)
+    client['gateway']=f'https://{PROJECT}.supabase.co/functions/v1/assistant'
+    keyring.set_password('com.carterwatts.personal-assistant.plaid','prod',json.dumps(client))
+    keyring.set_password('com.carterwatts.personal-assistant.plaid','cipher-key',key)
+    print('Bank registration installed on the gateway, worker and Mac. No bank account was connected.')
+
+
 def configure_account(provider, client_file):
     """Install a developer OAuth registration; end users only see the sign-in sheet."""
     import tempfile
@@ -253,6 +279,8 @@ if __name__ == '__main__':
     reviews.add_argument('--disable',action='store_true')
     connections = commands.add_parser('connections')
     connections.add_argument('client_file')
+    bank = commands.add_parser('bank')
+    bank.add_argument('client_file')
     account = commands.add_parser('account')
     from engine.integrations.catalog import OAUTH_PROVIDERS
     account.add_argument('provider',choices=list(OAUTH_PROVIDERS))
@@ -266,6 +294,8 @@ if __name__ == '__main__':
             configure_development()
         elif args.action == 'bind-owner':
             bind_owner(args.email)
+        elif args.action == 'bank':
+            configure_bank(args.client_file)
         elif args.action == 'account':
             configure_account(args.provider,args.client_file)
         elif args.action == 'connections':

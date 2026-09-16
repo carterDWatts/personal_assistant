@@ -78,7 +78,7 @@ enum Service {
                     session = sheet
                     if !sheet.start() { finish(.failure(URLError(.cannotConnectToHost))); return }
                 }
-                try? await Task.sleep(for: .seconds(180))
+                try? await Task.sleep(for: .seconds(600))
                 if attempt == id { finish(.failure(URLError(.timedOut))) }
             }
         }

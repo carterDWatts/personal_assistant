@@ -14,7 +14,7 @@ class catalog_test(TestCase):
         self.assertEqual(len(PROVIDERS), len(raw['providers']))
         names = [spec.name for spec in services.specs()]
         self.assertEqual(len(names), len(set(names)))
-        self.assertEqual(set(ACCOUNT_PROVIDERS), {name.split('_', 1)[0] for name in names})
+        self.assertEqual(set(ACCOUNT_PROVIDERS), {'plaid' if name.startswith('money_') else name.split('_', 1)[0] for name in names})
         for provider in PROVIDERS.values():
             for domain in provider['domains']:
                 self.assertEqual(discovery.adapter('https://' + domain)[0], provider['id'])

@@ -1,6 +1,17 @@
 import XCTest
 
 final class EmailReviewTests: XCTestCase {
+    func testMoneyShowsBalancesAndStalenessWithoutOpeningChat() {
+        let app = XCUIApplication(); app.launchArguments = ["--sample"]; app.launch()
+        XCTAssertTrue(app.buttons["More options"].waitForExistence(timeout: 15))
+        app.buttons["More options"].tap(); app.buttons["Money"].tap()
+        XCTAssertTrue(app.staticTexts["Sample checking"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["I couldn’t refresh this connection. These figures may be out of date."].exists)
+        let image = XCTAttachment(screenshot: app.screenshot()); image.name = "Money summary"; image.lifetime = .keepAlways; add(image)
+        app.buttons["Close money"].tap()
+        XCTAssertTrue(app.buttons["More options"].exists)
+    }
+
     func testVisualFocusDisplayChangesPhaseWithoutCountdown() {
         let app = XCUIApplication(); app.launchArguments = ["--sample"]; app.launch()
         addUIInterruptionMonitor(withDescription: "Notifications") { alert in

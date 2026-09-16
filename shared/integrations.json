@@ -237,6 +237,23 @@
         "clientIdEnv": "SPOTIFY_CLIENT_ID",
         "clientSecretEnv": "SPOTIFY_CLIENT_SECRET"
       }
+    },
+    {
+      "id": "plaid",
+      "name": "Bank accounts",
+      "domains": [
+        "plaid.com"
+      ],
+      "action": "plaid_connect",
+      "auth": "bank_link",
+      "setupURL": "https://plaid.com/",
+      "instructions": "Securely connect your bank and credit cards so I can help with spending, balances and upcoming payments. Access is read-only.",
+      "capabilities": [
+        "balances.read",
+        "transactions.read",
+        "liabilities.read"
+      ],
+      "grants": []
     }
   ]
 }

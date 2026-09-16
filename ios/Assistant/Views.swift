@@ -422,6 +422,7 @@ struct ConversationView: View {
     @State private var showConnections = false
     @State private var showImport = false
     @State private var showMeetings = false
+    @State private var showMoney = false
     @State private var typing = false
     @Environment(\.scenePhase) private var phase
     private let palette = Palette.concrete
@@ -457,6 +458,7 @@ struct ConversationView: View {
         .animation(.easeInOut(duration: 0.2), value: chat.voice)
         .background(Concrete(palette: palette).equatable().ignoresSafeArea())
         .tint(palette.accent)
+        .sheet(isPresented: $showMoney) { MoneyView(palette: palette, load: chat.moneyRequest) }
         .sheet(isPresented: $focusTimer.presented) { PomodoroView(timer: focusTimer, palette: palette) }
         .sheet(isPresented: $showDay) {
             DayPanel(chat: chat, palette: palette).presentationDetents([.medium, .large]).presentationDragIndicator(.visible)
@@ -508,6 +510,7 @@ struct ConversationView: View {
                 .buttonStyle(SquareButton(palette: palette, size: 36)).fixedSize().accessibilityLabel("Open calendar")
             Menu {
                 Button("Clear", systemImage: "eraser") { chat.draft = ""; chat.connect(clear: true) }.disabled(!chat.connected || chat.busy)
+                Button("Money", systemImage: "creditcard") { showMoney = true }
                 Button("Focus timer", systemImage: "timer") { focusTimer.refresh(); focusTimer.presented = true }
                 Button("Start morning", systemImage: "sun.horizon") { chat.startMorning() }.disabled(!chat.connected || chat.busy)
                 Button("Record or import conversation", systemImage: "waveform") { showMeetings = true }
@@ -676,6 +679,9 @@ struct ConnectionsView: View {
                         row(Service.name(provider), linked: linked, configured: connection(provider)?.configured ?? false, key: provider) {
                             if linked { chat.disconnect(provider) } else if Service.usesToken(provider) { tokenProvider = provider } else { authorize(provider, nil) }
                         }
+                    }
+                    if connection("plaid")?.state == "connected" {
+                        Button("Connect another bank") { authorize("plaid", nil) }.disabled(working != nil)
                     }
                 } header: { Text("Apps") } footer: { Text("Each service uses its supported sign-in or secure setup flow. Disconnect removes the saved connection.") }
                 if !chat.connectionError.isEmpty { Section { Text(chat.connectionError).font(.caption).foregroundStyle(Color.orange) } }

@@ -93,7 +93,7 @@ async def main():
             if action=="service_connect":await resume_connection(f"{provider}_connect")
         except Exception:
             emit("connections", **(await connection_status()), connecting=False,
-                 error="Sign-in wasn’t completed. Please try again." if provider in OAUTH_PROVIDERS else "Could not connect. Check the token and its permissions.")
+                 error="Sign-in wasn’t completed. Please try again." if provider in OAUTH_PROVIDERS or provider == "plaid" else "Could not connect. Check the token and its permissions.")
 
     async def google_action(action, connection):
         emit("connections", **(await connection_status()), connecting=True)
@@ -172,6 +172,15 @@ async def main():
                             raise ValueError("Unknown connection")
                         connection_task = asyncio.create_task(service_action(action, provider, token))
                         token = None
+                elif action == "money" and map_:
+                    try:
+                        from engine.finance.tools import read as read_money
+                        from engine.tools import ConnectionRequired
+                        try: result = await asyncio.to_thread(read_money, {}, 'accounts')
+                        except ConnectionRequired: result = {'accounts': [], 'connections': []}
+                        emit("client_response", request_id=message.get("request_id"), result=result)
+                    except Exception:
+                        emit("client_response", request_id=message.get("request_id"), error="Bank summary is unavailable.")
                 elif action == "meeting_import" and map_:
                     try:
                         result = map_.value("select memory.import_part(%s)", (jsonb(message["args"]),))

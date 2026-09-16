@@ -82,6 +82,7 @@ final class Chat: ObservableObject {
     @Published var showInbox = false
     @Published var focusedMessage: UUID?
     private var notificationReference: [String: String]?
+    func moneyRequest() async throws -> [String: Any] { try await clientRequest("money", [:]) }
     func inboxRequest(_ args: [String: Any]) async throws -> [String: Any] { try await clientRequest("inbox", args) }
     func receiveWorkUpdates() async {
         guard connected, !busy else { return }
