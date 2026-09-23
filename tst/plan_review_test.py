@@ -35,6 +35,18 @@ class plan_review_test(MapTest):
         self.assertEqual(self.map.value('select status from memory.plans where id=%s',(p['id'],)),'done')
         self.assertEqual(self.map.value('select count(*) from memory.plan_revisions'),1)
         self.assertFalse(self.review.pending())
+
+    def test_rewording_unknown_outcome_does_not_revise_the_plan(self):
+        p=self.plan('Work block')
+        m=self.source(content='We discussed other plans today.')
+        op={'tool':'plan_update','arguments':{'plan_id':p['id'],'version':1,'status':'planned','note':'Still no evidence that this happened.'}}
+        self.run_async(self.review.commit(self.review.pending(),{'items':[self.item(p,[m],[op])]}))
+        current=self.map.row('select * from memory.plans where id=%s',(p['id'],))
+        self.assertEqual(current['version'],1)
+        self.assertIsNone(current['outcome_note'])
+        self.assertIsNone(current['last_observation_id'])
+        self.assertFalse(self.review.pending())
+        self.assertIsNotNone(self.map.value('select receipt from memory.plan_reviews where plan_id=%s',(p['id'],)))
     def test_concurrent_update_rejects_the_batch(self):
         p=self.plan('Call');rows=self.review.pending()
         self.run_async(self.specs['plan_update'].fn({'plan_id':p['id'],'version':1,'day':'tomorrow','note':'Postponed'}))

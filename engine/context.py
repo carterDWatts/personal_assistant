@@ -18,8 +18,8 @@ def snapshot_sections(map_, today=None, now=None, include_pending=True):
     now = now or datetime.now(ZoneInfo(config.TIMEZONE))
     today = today or now.date()
     parts = [f"Map snapshot. Today is {today.strftime('%A')} {today.isoformat()}, {now.strftime('%H:%M')} local."]
-    parts.append("Facts (current, up to 150; use map_search for more)\n" + facts_block(map_))
-    parts.append("Relationships (current, up to 100)\n" + relationships_block(map_))
+    parts.append("Facts (startup overview, up to 40; relevant memory is retrieved per turn; abbreviated values require entity_view before relying on missing detail; use map_search for more)\n" + facts_block(map_))
+    parts.append("Relationships (startup overview, up to 30; retrieve related entities for more)\n" + relationships_block(map_))
     parts.append("Standing rules\n" + rules_block(map_))
     parts.append(f"Yesterday's plan ({(today - timedelta(days=1)).isoformat()})\n" + plans_block(map_, today - timedelta(days=1)))
     parts.append(f"Today's plan\n" + plans_block(map_, today))
@@ -35,8 +35,8 @@ def snapshot_sections(map_, today=None, now=None, include_pending=True):
 
 
 def plan_review_block(map_, today):
-    rows = map_.rows("select * from memory.plan_notes(%s) where section <> 'finished'", (today,))
-    return ("Maintained plan notes (bounded to 100; plans_list scope=open searches all unresolved dates):\n"
+    rows = map_.rows("select * from memory.plan_notes(%s) where section <> 'finished' limit 12", (today,))
+    return ("Maintained plan notes (first 12; plans_list scope=open searches all unresolved dates):\n"
             "Earlier unresolved items need review, not assumed completion or automatic rollover. When helping plan the day or discussing a related task, reconcile these with newer user statements and verified outcomes. Ask only the relevant uncertainty; do not repeat an answered question or hold the morning routine open. Use plan_update for corrections/reschedules and plan_merge for duplicates of the same occurrence. Calendar time passing is not proof of completion.\n" + dumps(rows))
 
 
@@ -103,24 +103,34 @@ class PreparedContext:
 def update(previous, current):
     if previous is None:
         return "\n\n".join(current.values())
-    changed = [value for key, value in current.items() if previous.get(key) != value]
+    changed = []
+    for key,value in current.items():
+        old=previous.get(key)
+        if old==value: continue
+        # Exact line deltas preserve IDs and avoid re-sending thousands of unchanged facts/rules.
+        if old and len(value)>2000:
+            before,after=old.splitlines(),value.splitlines()
+            before_set,after_set=set(before),set(after)
+            removed=[line for line in before if line not in after_set]
+            added=[line for line in after if line not in before_set]
+            delta=f'Memory section {key}: remove these exact lines:\n'+dumps(removed)+'\nAdd these exact lines:\n'+dumps(added)
+            if (removed or added) and len(delta)<len(value)*.7:
+                changed.append(delta)
+                continue
+        changed.append(value)
     if not changed:
         return "Memory checked; no changes."
-    return "Memory update. Replace earlier versions of these sections; other sections are unchanged.\n\n" + "\n\n".join(changed)
+    return "Memory update. Apply explicit line changes; otherwise replace the supplied section. Other sections are unchanged.\n\n" + "\n\n".join(changed)
 
 
 def facts_block(map_):
     rows = map_.rows(
         "select entity_id, entity_type, entity_name, attribute, value, confidence, level, stale, last_confirmed_at, id"
-        " from memory.current_assertions order by importance desc, entity_type, entity_name, attribute limit 150")
+        " from memory.current_assertions order by importance desc, last_confirmed_at desc, entity_type, entity_name, attribute limit 40")
     if not rows:
         return "Nothing recorded yet. Learn the basics gently, a little each conversation."
-    lines, key = [], None
+    lines = []
     for r in rows:
-        k = (r["entity_type"], r["entity_name"])
-        if k != key:
-            key = k
-            lines.append(f"{r['entity_type']} {r['entity_name']} ({r['entity_id']})")
         flags = []
         if r["stale"]:
             flags.append("stale, re-verify")
@@ -129,17 +139,17 @@ def facts_block(map_):
         if r["confidence"] < 1:
             flags.append(f"confidence {r['confidence']:.1f}")
         tail = f" [{', '.join(flags)}]" if flags else ""
-        lines.append(f"  {r['attribute']} = {_val(r['value'])}{tail} (assertion {r['id']})")
+        lines.append(f"{r['entity_type']} {r['entity_name']} ({r['entity_id']}): {r['attribute']} = {preview(r['value'],400)}{tail} (assertion {r['id']})")
     return "\n".join(lines)
 
 
 def relationships_block(map_):
     rows = map_.rows(
-        "select id, subject_name, relation, object_name, properties, level, confidence from memory.current_relationships order by subject_name, relation limit 100")
+        "select id, subject_name, relation, object_name, properties, level, confidence from memory.current_relationships order by last_confirmed_at desc,subject_name,relation limit 30")
     if not rows:
         return "None yet."
     return "\n".join(
-        f"  {r['subject_name']} {r['relation']} {r['object_name']}" + (f" {r['properties']}" if r["properties"] else "") + f" [{r['level']}, confidence {r['confidence']:.1f}] (relationship {r['id']})"
+        f"  {r['subject_name']} {r['relation']} {r['object_name']}" + (f" {preview(r['properties'],200)}" if r["properties"] else "") + f" [{r['level']}, confidence {r['confidence']:.1f}] (relationship {r['id']})"
         for r in rows)
 
 
@@ -169,9 +179,10 @@ def plans_block(map_, day):
 
 def questions_block(map_, today, limit=8):
     rows = map_.rows(
-        "select id, kind, text, score, times_asked, ref_table, ref_id from memory.questions"
-        " where closed_at is null and (deferred_until is null or deferred_until <= %s)"
-        " order by score * power(0.7, times_asked) desc, id limit %s", (today, limit))
+        "select c.ref_id id,c.text,q.kind,c.ref_table,c.target_id ref_id from memory.review_candidates c"
+        " join memory.questions q on q.id::text=c.ref_id"
+        " where c.kind='question' and action is distinct from 'dismiss' and (action is distinct from 'defer' or review_after<=%s)"
+        " order by priority desc,reviewed_at nulls first,day,c.ref_id limit %s", (today, limit))
     if not rows:
         return "None."
     return "\n".join(f"  {r['text']} ({r['kind']}, question {r['id']})" + (f" [record {r['ref_table']}:{r['ref_id']}]" if r['ref_id'] else '') for r in rows)
@@ -184,7 +195,7 @@ def transitions_block(map_, today, days=7):
     if not rows:
         return "None."
     return "\n".join(
-        f"  {r['entity_name']} {r['attribute']}: {_val(r['from_value'])} -> {_val(r['to_value'])} on {r['changed_at'].date().isoformat()}"
+        f"  {r['entity_name']} {r['attribute']}: {preview(r['from_value'],200)} -> {preview(r['to_value'],200)} on {r['changed_at'].date().isoformat()}"
         for r in rows)
 
 
@@ -192,3 +203,8 @@ def _val(v):
     if isinstance(v, str):
         return v
     return str(v)
+
+
+def preview(value, limit):
+    text = _val(value).replace('\n',' ')
+    return text if len(text)<=limit else text[:limit]+'… [excerpt; retrieve full record]'

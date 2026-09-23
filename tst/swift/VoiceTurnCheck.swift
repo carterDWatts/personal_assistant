@@ -68,6 +68,8 @@ import Foundation
         // Brief fragments must survive ordinary thinking pauses instead of
         // becoming separate turns such as "Breakdown" / "When you book".
         precondition(voicePause("Breakdown") == 2.4)
+        precondition(voicePause("Yes.") == 1.0)
+        precondition(voicePause("Correct.") == 1.0)
         precondition(voicePause("When you book") == 2.4)
         precondition(voicePause("What is the?") == 3.0)
         precondition(voicePause("I want to explain something because...") == 3.0)

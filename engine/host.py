@@ -150,7 +150,11 @@ class Host:
         return await phone_control(self, args)
 
     async def answer(self, turn):
-        await self.prepare_session(turn.get('model'), turn.get('invocation') if turn.get('invocation') in ('morning','review') else turn.get('mode', 'talk'))
+        from engine.routine import requested
+        mode = turn.get('invocation') if turn.get('invocation') in ('morning','review') else turn.get('mode', 'talk')
+        if mode == 'talk' and not turn.get('invocation'):
+            mode = requested(turn['text']) or mode
+        await self.prepare_session(turn.get('model'), mode)
         extra = ("Reply mode: live voice. Speak naturally in plain sentences, with a short complete opening thought. "
                  "No headings, tables, Markdown or spoken URLs. Keep the requested substance."
                  if turn.get('speech') else "Reply mode: written chat. Use natural paragraphs; add structure only where useful.")
@@ -162,7 +166,7 @@ class Host:
         if turn.get('notification'):
             from engine.notifications import discussion_context
             extra += '\n\n' + discussion_context(self.map,turn['notification'])
-        if turn.get('mode') == 'morning':
+        if mode == 'morning':
             from engine.morning import prepare
             extra += "\n\n" + await prepare(self.stream)
         await self.session.send(turn['text'], role='system' if turn.get('invocation') or turn.get('mode')=='morning' else 'user', extra_context=extra, **({'images':turn['images']} if turn.get('images') else {}))

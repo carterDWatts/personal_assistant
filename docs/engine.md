@@ -138,3 +138,46 @@ or performance on an untested device.
 The [cloud guide](cloud.md) covers deployment, credentials and operational checks.
 Memory job metrics live in `memory.memory_jobs`; background usage is recorded under
 `runtime-usage` in `assistant.source_items`. Missing metrics mean unknown usage.
+
+
+## Retrieval before replies
+
+Every conversational turn retrieves relevant current facts, relationships, commitments,
+conversation evidence and imported source excerpts before calling the model. The
+current message has more weight than the previous four conversational messages, which
+supply the topic for short follow-ups. Cleared chat is excluded from conversation
+retrieval. The global snapshot remains a starting overview, not the whole memory.
+It contains 40 fact previews and 30 relationships; standing preferences remain intact.
+Small changes travel as line deltas rather than repeated copies of whole sections.
+
+Ranking runs in Postgres. At most 28 facts are selected, with a per-entity limit of
+10, and the retrieved JSON has a combined section budget of 23,000 characters.
+Long values are marked as excerpts and retain IDs for deeper lookup. Retrieval uses
+lexical ranking, names and aliases; it is not a semantic embedding search and does
+not guarantee recall for paraphrases with no shared terms.
+
+Source search follows assertion provenance to imported recordings, including older
+meeting batches grouped by title and capture date. `context_import_search` accepts
+an entity ID, an import ID, a topic and an offset for paging. Extraction status,
+source dates and historical/current designation travel with the text. Quoted source
+material cannot become instructions or silently establish current state.
+
+Reminder composition receives the same relevant evidence before deciding whether to
+withhold an obsolete nudge. Withholding does not mark a commitment complete. Explicit
+completion and cancellation retain their existing write paths.
+
+Regression tests cover company identity outside the global snapshot, short follow-ups,
+misrecognized recording names, legacy source pagination, superseded facts, completed
+interviews, cleared conversation history and bounded context size.
+
+## Routine reviews
+
+Spoken requests to start the morning enter the same persisted routine as the app button.
+The agenda advances on short acknowledgments, except when a question still needs an
+answer. Finishing the agenda exposes remaining reviews instead of silently forgetting them.
+
+Review decisions are separate from outcomes. Each records a subject revision, reason
+and revisit date; a deferral never marks a task done. Dismissal requires a user message.
+Changed plans return to review. Nightly maintenance must triage a rotating batch of
+existing questions and plans before adding more questions. No-change findings stay in
+review receipts rather than repeatedly rewriting plan history.

@@ -152,18 +152,27 @@ need not become durable memory. Sent mail must not notify the user about their o
             with self.map.conn.transaction():
                 self.map.execute("update memory.rules r set status='retired',retired_at=now(),updated_at=now() where r.status='active' and exists(select 1 from memory.rules older where older.id<r.id and older.status='active' and older.kind=r.kind and older.text=r.text and older.entity_id is not distinct from r.entity_id)")
             tools=Tools(self.map,'nightly'); questions=next(s for s in tools.specs() if s.name=='question_add')
+            from engine import review_queue
+            backlog = review_queue.candidates(self.map,12,maintenance=True)
             organized=False
             async def propose(args):
                 nonlocal organized
                 if organized: return {'saved':True}
                 with self.map.conn.transaction():
+                    reviews = args.get('reviews',[])
+                    expected = {(r['kind'],r['ref_id'],r['revision']) for r in backlog}
+                    if len(reviews)!=len(expected) or {(r['kind'],r['ref_id'],r['revision']) for r in reviews}!=expected:
+                        raise ValueError('Give a disposition for each selected existing review before adding more questions.')
+                    for review in reviews:
+                        review_queue.decide(tools,review)
                     for proposal in args['questions']:
-                        if not self.map.value("select exists(select 1 from memory.questions where closed_at is null and (text=%s or (%s in ('plans','reminders') and ref_table=%s and ref_id=%s)))",(proposal['text'],proposal.get('ref_table'),proposal.get('ref_table'),proposal.get('ref_id'))):
+                        if not self.map.value("select exists(select 1 from memory.questions where closed_at is null and (text=%s or (%s in ('plans','reminders','assertions','relationships') and ref_table=%s and ref_id=%s)))",(proposal['text'],proposal.get('ref_table'),proposal.get('ref_table'),proposal.get('ref_id'))):
                             result,failed=await run(questions,proposal)
                             if failed: raise ValueError('Invalid maintenance proposal')
                 organized=True
                 return {'saved':True}
             schema={'type':'object','properties':{'questions':{'type':'array','maxItems':5,'items':questions.schema}},'required':['questions'],'additionalProperties':False}
+            schema['properties']['reviews']={'type':'array','items':review_queue.schema()}
             from engine.reconciliation import Reconciliation
             runtime=self.factory(config.RUNTIME)
             await runtime.open('''Review the structured memory for missing relationships, uncertain duplicate identities,
@@ -178,9 +187,14 @@ You may queue at most five useful questions/proposals per maintenance pass; neve
 For unresolved or apparently duplicate plan notes, read related conversation evidence and queue a question with ref_table=plans and the plan ID when its outcome or relevance needs the user’s answer. Never assume an elapsed task is done.
 For open reminders whose outcome needs confirmation, queue a question with ref_table=reminders and its ID. Group duplicate commitments rather than asking about each copy. Never infer completion from time passing.
 Existing open questions are already queued. Propose a next step from emerging context when useful.
+First triage every item in review_backlog. Explain the actual present-day decision the answer changes.
+Use keep for consequential uncertainty. Use defer for historical trivia, internal housekeeping, or questions
+that existing sources can settle; give a reason and a revisit date. Look up evidence before asking the user.
+Defer is attention scheduling only: it never declares a task done. Dismissal requires the user's direction.
+Never add a new copy of an existing question. Important unresolved commitments must remain tracked.
 Call organize once, including an empty list if nothing is needed.''',[ToolSpec('organize','Queue useful memory reconciliation questions.',schema,propose)] + Reconciliation(tools).nightly_specs())
             async def consume():
-                async for _ in runtime.send(context.snapshot(self.map,include_pending=False)): pass
+                async for _ in runtime.send(context.snapshot(self.map,include_pending=False)+'\nReview backlog requiring dispositions:\n'+dumps(backlog)): pass
             await asyncio.wait_for(consume(),120)
             if not organized: raise RuntimeError('Maintenance did not commit.')
             self.map.execute('update assistant.maintenance_runs set completed_at=now(),last_error=null where day=%s',(day,))

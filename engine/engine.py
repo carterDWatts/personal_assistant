@@ -81,6 +81,8 @@ class Session:
         if revision != self.context_revision:
             self.sent_snapshot = None
         opening = context.update(self.sent_snapshot, sections)
+        from engine.retrieval import block
+        opening += "\n\n" + block(self.map, text)
         if self.morning:
             from engine.routine import progress, steer
             from engine.db import dumps

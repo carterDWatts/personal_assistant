@@ -8,6 +8,8 @@ shared tail and carries on, so there is never a visible seam.
 
 from engine import config
 
+POLICY_VERSION = 10
+
 
 class Conversation:
     def __init__(self, map_, device, runtime_name):
@@ -34,11 +36,11 @@ class Conversation:
     def latest_segment(self):
         return self.map.row(
             "select id, runtime_session_id from memory.conversations"
-            " where device = %s and runtime = %s and runtime_policy_version = 9 and runtime_session_id is not null"
+            " where device = %s and runtime = %s and runtime_policy_version = %s and runtime_session_id is not null"
             " and started_at >= coalesce((select c.started_at from memory.messages m join memory.conversations c on c.id=m.conversation_id"
             " where m.role='system' and m.payload->>'event'='chat_cleared' order by m.id desc limit 1), '-infinity'::timestamptz)"
             " order by started_at desc limit 1",
-            (self.device, self.runtime_name))
+            (self.device, self.runtime_name, POLICY_VERSION))
 
     def spoken_elsewhere_since(self, segment_id):
         last = self.map.value("select coalesce(min(id), 0) from memory.messages where conversation_id = %s", (segment_id,))
@@ -48,8 +50,8 @@ class Conversation:
 
     def open_segment(self, mode):
         return self.map.value(
-            "insert into memory.conversations (agent, device, runtime, runtime_policy_version) values (%s, %s, %s, 9) returning id",
-            (mode, self.device, self.runtime_name))
+            "insert into memory.conversations (agent, device, runtime, runtime_policy_version) values (%s, %s, %s, %s) returning id",
+            (mode, self.device, self.runtime_name, POLICY_VERSION))
 
     def record(self, segment_id, role, content, payload=None):
         from engine.db import jsonb

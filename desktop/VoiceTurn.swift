@@ -122,6 +122,8 @@ func voicePause(_ text: String) -> TimeInterval {
     let words = text.lowercased().split(whereSeparator: { !$0.isLetter && !$0.isNumber }).map(String.init)
     let unfinished: Set<String> = ["and", "but", "because", "so", "if", "when", "to", "with", "about", "the", "a", "an", "of", "for", "that", "is", "are", "was", "would", "could", "should", "my", "your", "like", "also"]
     let phrase = words.suffix(2).joined(separator: " ")
+    let complete = words.joined(separator: " ")
+    if ["yes", "yeah", "yep", "no", "okay", "ok", "correct", "next", "hello", "thanks", "thank you", "sounds good", "stop", "wait"].contains(complete) { return 1.0 }
     if keepListeningCommand(text) || unfinished.contains(words.last ?? "") || ["i think", "i mean", "i want", "let me", "how quickly", "how long"].contains(phrase) { return 3.0 }
     if words.count <= 3 { return 2.4 }
     if words.count <= 7 { return 2.0 }

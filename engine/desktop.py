@@ -134,9 +134,16 @@ async def main():
     interrupted = False
 
     async def reply(text, reference=None, images=None, role="user", meeting=None):
-        nonlocal interrupted
+        nonlocal interrupted, session
         interrupted = False
         try:
+            from engine.routine import requested
+            mode = requested(text) if role == 'user' else None
+            if mode:
+                old = session
+                await old.close()
+                session = Session(map_,load(old.runtime.name)(model=getattr(old.runtime,'model',None)),DesktopIO(),config.DEVICE,spotify_control=spotify_control)
+                await session.open(mode,begin_morning=False)
             from engine.notifications import discussion_context
             from engine.meetings import context as meeting_context
             extra = discussion_context(map_,reference) if reference else ""

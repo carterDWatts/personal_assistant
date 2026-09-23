@@ -32,6 +32,7 @@ async def compose(map_,reminder,factory=None):
 You are reviewing whether a due reminder still deserves a message now.
 Use the supplied current local time, delivery state and recent conversation, not the
 reminder's creation-time wording. A past start or deadline is never an upcoming event.
+Read the automatically retrieved current facts and source evidence before deciding whether to notify.
 Recent changes to the plan take precedence over old reminder context. If superseded,
 already addressed, or no longer useful now, call withhold_reminder. Do not manufacture
 a reason to interrupt. A task past its deadline remains unfinished, not automatically
@@ -56,8 +57,10 @@ actual message to the user, without work logs or internal reasoning.
             rules=map_.rows("select text from memory.rules where status='active'")
             now=datetime.now(ZoneInfo(reminder['timezone']))
             recent=map_.rows("select id,role,content,created_at from memory.messages where role in ('user','assistant') and created_at>now()-interval '1 day' and not coalesce((payload->>'external')::boolean,false) order by id desc limit 16")
+            from engine.retrieval import block
+            evidence=block(map_,reminder['title']+' '+(reminder.get('context') or ''),prior='')
             delivery={'current_local_time':now.isoformat(),'past_start':reminder['window_start']<=now,'past_window':bool(reminder['window_end'] and reminder['window_end']<=now)}
-            async for event in runtime.send('Delivery state:\n'+dumps(delivery)+'\nRecent conversation (chronological):\n'+dumps(list(reversed(recent)))+'\nReminder record:\n'+dumps(reminder)+'\nCurrent preferences:\n'+dumps(rules)):
+            async for event in runtime.send('Delivery state:\n'+dumps(delivery)+'\nRecent conversation (chronological):\n'+dumps(list(reversed(recent)))+'\nReminder record:\n'+dumps(reminder)+'\nCurrent preferences:\n'+dumps(rules)+'\n'+evidence):
                 if event.kind=='text':pending+=event.text
                 elif event.kind=='assistant_text':text.append(event.text);pending=''
         await asyncio.wait_for(consume(),90)

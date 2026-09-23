@@ -5,6 +5,7 @@ import AVFoundation
 @MainActor final class VoiceTests: XCTestCase {
     func testAdaptiveEndpointKeepsShortFragmentsOpen() {
         XCTAssertEqual(voicePause("Breakdown"), 2.4)
+        XCTAssertEqual(voicePause("Correct."), 1.0)
         XCTAssertEqual(voicePause("When you book"), 2.4)
         XCTAssertEqual(voicePause("What is the?"), 3.0)
         XCTAssertEqual(voicePause("This complete thought has enough words to hand off promptly"), 1.4)
