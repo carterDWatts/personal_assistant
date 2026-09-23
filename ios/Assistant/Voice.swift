@@ -362,6 +362,14 @@ private final class Capture: @unchecked Sendable {
         guard active, !muted else { return }
         endpoint?.cancel()
         let text = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
+        // These are floor-control commands, not user turns. Keep the recognizer
+        // open instead of sending a request that makes the assistant answer.
+        if keepListeningCommand(text) {
+            VoiceDiagnostics.record("keep_listening")
+            request?.endAudio()
+            listen()
+            return
+        }
         if !text.isEmpty { VoiceDiagnostics.record("utterance_submitted", ["since_sound": Date().timeIntervalSince(signalAt), "since_words": Date().timeIntervalSince(heardAt)]) }
         request?.endAudio()
         listen()

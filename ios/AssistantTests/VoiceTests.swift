@@ -3,6 +3,16 @@ import AVFoundation
 @testable import Assistant
 
 @MainActor final class VoiceTests: XCTestCase {
+    func testAdaptiveEndpointKeepsShortFragmentsOpen() {
+        XCTAssertEqual(voicePause("Breakdown"), 2.4)
+        XCTAssertEqual(voicePause("When you book"), 2.4)
+        XCTAssertEqual(voicePause("What is the?"), 3.0)
+        XCTAssertEqual(voicePause("This complete thought has enough words to hand off promptly"), 1.4)
+        XCTAssertTrue(keepListeningCommand("not done"))
+        XCTAssertTrue(keepListeningCommand("Keep listening."))
+        XCTAssertFalse(keepListeningCommand("keep listening to the radio"))
+    }
+
     func testVoiceSamplesPlayAndRestoreMicrophoneState() async throws {
         let voice = LiveVoice()
         let preview = VoicePreview()
