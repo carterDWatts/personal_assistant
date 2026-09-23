@@ -116,13 +116,23 @@ struct PlaybackInterruption {
 
 
 // Local timing only: no model call, and ASR punctuation cannot shorten the pause.
+// Very short fragments are commonly the beginning of a thought, so they get a
+// wider window while substantive utterances retain the low-latency handoff.
 func voicePause(_ text: String) -> TimeInterval {
     let words = text.lowercased().split(whereSeparator: { !$0.isLetter && !$0.isNumber }).map(String.init)
     let unfinished: Set<String> = ["and", "but", "because", "so", "if", "when", "to", "with", "about", "the", "a", "an", "of", "for", "that", "is", "are", "was", "would", "could", "should", "my", "your", "like", "also"]
     let phrase = words.suffix(2).joined(separator: " ")
-    if unfinished.contains(words.last ?? "") || ["i think", "i mean", "i want", "let me", "how quickly", "how long"].contains(phrase) { return 1.8 }
+    if keepListeningCommand(text) || unfinished.contains(words.last ?? "") || ["i think", "i mean", "i want", "let me", "how quickly", "how long"].contains(phrase) { return 3.0 }
+    if words.count <= 3 { return 2.4 }
+    if words.count <= 7 { return 2.0 }
     if words.count > 20 { return 1.65 }
-    return words.count > 7 ? 1.4 : 1.0
+    return 1.4
+}
+
+func keepListeningCommand(_ text: String) -> Bool {
+    let words = text.lowercased().split(whereSeparator: { !$0.isLetter && !$0.isNumber }).map(String.init)
+    let phrase = words.joined(separator: " ")
+    return ["not done", "i m not done", "im not done", "keep listening", "still talking"].contains(phrase)
 }
 
 // Apple's on-device recognizer can reset its partial text inside the same
