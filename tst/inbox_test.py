@@ -65,6 +65,6 @@ class inbox_test(MapTest):
         conv=Conversation(self.map,'test','codex')
         conv.record(new['conversation_id'],'user','Tell me more.')
         self.assertFalse(self.request('inbox_cancel',{'message_id':str(new['id'])})['cancelled'])
-        self.assertEqual(len(self.request('bootstrap')['history']),2)
+        self.assertEqual(len(self.request('bootstrap')['history'],),2)
         with self.assertRaisesRegex(psycopg.Error,'invalid_request'):
             self.request('inbox_cancel',{'message_id':str(original)})
