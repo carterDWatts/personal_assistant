@@ -39,7 +39,24 @@ enum Relay {
 
 struct AccountError: LocalizedError {
     let errorDescription: String?
-    init(_ text: String) { errorDescription = text }
+    let invalidatesSession: Bool
+    init(_ text: String, invalidatesSession: Bool = false) {
+        errorDescription = text
+        self.invalidatesSession = invalidatesSession
+    }
+
+    init(status: Int, body: [String: Any]) {
+        let code = body["error_code"] as? String ?? body["error"] as? String ?? ""
+        let revoked = ["refresh_token_not_found", "refresh_token_already_used", "session_expired",
+                       "session_not_found", "user_not_found", "user_banned", "invalid_grant"]
+        let message = body["msg"] as? String ?? body["error_description"] as? String ?? body["message"] as? String
+        if status == 402 {
+            self.init("Bunny Man’s server has reached its service limit. Access needs to be restored before you can connect. Signing in again won’t resolve this.")
+        } else {
+            self.init(message ?? "Sign-in is temporarily unavailable (\(status)). Try again shortly.",
+                      invalidatesSession: [400, 401, 403].contains(status) && revoked.contains(code))
+        }
+    }
 }
 
 /// The signed-in owner on this phone. Sign-in is a code sent to the account's email; the session lives in the Keychain.
@@ -135,9 +152,7 @@ struct AccountError: LocalizedError {
             let refreshed = try parse(await auth("token?grant_type=refresh_token", ["refresh_token": current.refreshToken]))
             session = refreshed
             return refreshed.accessToken
-        } catch let error as URLError {
-            throw error
-        } catch {
+        } catch let error as AccountError where error.invalidatesSession {
             session = nil
             throw AccountError("Sign in again to continue.")
         }
@@ -184,7 +199,7 @@ struct AccountError: LocalizedError {
         let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] ?? [:]
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
         guard (200..<300).contains(status) else {
-            throw AccountError(json["msg"] as? String ?? json["error_description"] as? String ?? "Sign-in failed (\(status)).")
+            throw AccountError(status: status, body: json)
         }
         return json
     }

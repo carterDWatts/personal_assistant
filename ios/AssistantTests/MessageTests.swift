@@ -2,6 +2,22 @@ import XCTest
 @testable import Assistant
 
 @MainActor final class MessageTests: XCTestCase {
+    func testServiceFailuresPreserveLogin() {
+        for status in [402, 429, 500, 502, 503] {
+            let error = AccountError(status: status, body: ["message": "Service unavailable"])
+            XCTAssertFalse(error.invalidatesSession)
+            XCTAssertFalse(error.localizedDescription.contains("Sign in again"))
+        }
+        XCTAssertTrue(AccountError(status: 402, body: [:]).localizedDescription.contains("service limit"))
+        XCTAssertFalse(AccountError(status: 401, body: ["message": "Invalid API key"]).invalidatesSession)
+        XCTAssertFalse(AccountError("The sign-in reply was incomplete.").invalidatesSession)
+        for code in ["refresh_token_not_found", "refresh_token_already_used", "session_expired", "session_not_found", "user_not_found", "user_banned"] {
+            XCTAssertTrue(AccountError(status: 400, body: ["error_code": code]).invalidatesSession)
+        }
+        XCTAssertTrue(AccountError(status: 400, body: ["error": "invalid_grant"]).invalidatesSession)
+        XCTAssertEqual(AccountError(status: 400, body: ["message": "Try a new link"]).localizedDescription, "Try a new link")
+    }
+
     func testFocusDisplayRestoresScreenSleepPolicy() {
         let original = UIApplication.shared.isIdleTimerDisabled
         defer { UIApplication.shared.isIdleTimerDisabled = original }
