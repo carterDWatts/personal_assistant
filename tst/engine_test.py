@@ -199,3 +199,72 @@ class runtime_recovery_test(MapTest):
             self.assertTrue(self.map.value('select exists(select 1 from memory.messages where id=%s)',(previous,)))
             await session.close()
         self.run_async(use())
+
+
+class silent_turn_test(unittest.IsolatedAsyncioTestCase):
+    async def finish_turn(self, events, runtime=None):
+        from types import SimpleNamespace
+        from unittest.mock import Mock
+        conv, io = Mock(), Mock()
+        runtime = runtime or FakeRuntime([events])
+        await engine.turn(runtime, conv, SimpleNamespace(), io, "segment", 1, "Don't respond")
+        io.end_turn.assert_called_once_with()
+        conv.set_runtime_session.assert_called_once_with("segment", runtime.session_id)
+        return conv, io
+
+    async def test_empty_and_whitespace_completions_do_not_invent_a_reply(self):
+        from engine.runtime import Event
+        for events in ([], [say("")], [say(""), say("")],
+                       [say(" \n")], [Event("text", text=" \n")]):
+            with self.subTest(events=events):
+                conv, io = await self.finish_turn(events)
+                conv.record.assert_not_called()
+                io.replace_text.assert_not_called()
+
+    async def test_empty_codex_agent_message_stays_silent(self):
+        from unittest.mock import AsyncMock
+        from engine.runtime.codex import CodexRuntime
+        runtime = CodexRuntime(executable="unused")
+        runtime.session_id = "thread"
+        runtime.request = AsyncMock(return_value={"turn": {"id": "turn"}})
+        runtime.events.put_nowait({"method": "item/completed", "params": {
+            "threadId": "thread", "turnId": "turn",
+            "item": {"type": "agentMessage", "text": ""}}})
+        runtime.events.put_nowait({"method": "turn/completed", "params": {
+            "threadId": "thread", "turn": {"id": "turn", "status": "completed"}}})
+        conv, io = await self.finish_turn([], runtime=runtime)
+        conv.record.assert_not_called()
+        io.replace_text.assert_not_called()
+
+    async def test_attachment_only_replies_keep_their_fallback_and_payload(self):
+        import json
+        from engine.runtime import Event
+        cases = [
+            ({"image": {"id": "image-1"}}, "Image", "images", "image-1"),
+            ({"needs_review": True, "draft": {"id": "draft-1"}},
+             "I’ve prepared the email for your review.", "email_drafts", "draft-1"),
+        ]
+        for receipt, expected, key, identifier in cases:
+            with self.subTest(key=key):
+                event = Event("tool_result", name="attachment",
+                              payload={"content": json.dumps(receipt)})
+                conv, io = await self.finish_turn([event, say("")])
+                args = conv.record.call_args.args
+                self.assertEqual(args[:3], ("segment", "assistant", expected))
+                self.assertEqual(args[3][key], [identifier])
+                self.assertFalse(args[3]["interrupted"])
+                io.replace_text.assert_called_once_with(expected)
+
+    async def test_real_text_and_unfinished_streams_are_preserved(self):
+        from engine.runtime import Event
+        cases = [
+            ([say(""), say("  Keep this formatting.  "), say("")], "  Keep this formatting.  "),
+            ([say("First."), say(""), say("Second.")], "First.\n\nSecond."),
+            ([Event("text", text="Still speaking.")], "Still speaking."),
+        ]
+        for events, expected in cases:
+            with self.subTest(expected=expected):
+                conv, io = await self.finish_turn(events)
+                self.assertEqual(conv.record.call_args.args[:3],
+                                 ("segment", "assistant", expected))
+                io.replace_text.assert_called_once_with(expected)
