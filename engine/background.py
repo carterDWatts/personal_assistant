@@ -230,7 +230,7 @@ async def gather_sources(url,host):
 
 def monitoring_alert(map_):
     """One message per monitoring interruption; retries do not create repeated alerts."""
-    stale=map_.value("select exists(select 1 from assistant.source_items where source='gmail' and processed_at is null and created_at<now()-interval '10 minutes') or exists(select 1 from assistant.source_cursors where source='gmail' and scanned_until<now()-interval '10 minutes')")
+    stale=map_.value("select exists(select 1 from assistant.source_items where source='gmail' and processed_at is null and available_at<>'infinity'::timestamptz and created_at<now()-interval '10 minutes') or exists(select 1 from assistant.source_cursors where source='gmail' and scanned_until<now()-interval '10 minutes')")
     with map_.conn.transaction():
         map_.execute("select pg_advisory_xact_lock(hashtextextended('mail-monitor-health',0))")
         prior=map_.row("select * from assistant.source_items where source='monitoring' and id='gmail'")

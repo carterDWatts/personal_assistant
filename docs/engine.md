@@ -56,7 +56,7 @@ against the same map. The Pi interface is planned.
 | Automatic developer | New chat evidence passes review eligibility | Astra inspects software defects and current source. A restricted PR or a review note; no automatic merge. |
 
 Memory, mail, nightly and attention use the configurable background runtime factory.
-Its Codex default is `gpt-5.5` with low effort; the Claude default is `haiku`.
+Its Codex default is `gpt-5.6-luna` with low effort; the Claude default is `haiku`.
 `ASSISTANT_MEMORY_OPENAI_MODEL` and `ASSISTANT_MEMORY_CLAUDE_MODEL` override them.
 Research/code jobs use their recorded provider and model. Automatic development
 jobs explicitly select `gpt-6-astra` with high effort. These are separate model

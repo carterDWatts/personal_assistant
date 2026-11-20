@@ -144,6 +144,15 @@ class background_test(MapTest):
         monitoring_alert(self.map)
         self.assertFalse(self.map.value("select notify from assistant.attention where source='monitoring'"))
 
+    def test_deliberately_deferred_mail_is_not_a_monitoring_failure(self):
+        from engine.background import monitoring_alert
+        self.map.execute("insert into assistant.source_items(source,id,created_at,available_at) values('gmail','deferred',now()-interval '1 day','infinity')")
+        monitoring_alert(self.map)
+        self.assertEqual(self.map.value("select count(*) from assistant.attention where source='monitoring'"),0)
+        self.map.execute("update assistant.source_items set available_at=now() where source='gmail'")
+        monitoring_alert(self.map)
+        self.assertEqual(self.map.value("select count(*) from assistant.attention where source='monitoring'"),1)
+
     def test_malformed_email_does_not_block_other_mail(self):
         self.map.execute("insert into assistant.source_items(source,id) values('gmail','bad'),('gmail','good')")
         classified={'id':'good','relevant':False,'notify':False,'remember':False,'title':'Routine','reason':'No action.','message':'No action.'}
