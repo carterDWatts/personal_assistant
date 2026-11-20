@@ -354,3 +354,18 @@ test('Google reconnect preserves existing permissions without requesting unrelat
   const required = JSON.parse(await unseal(connectedConfig,pending.verifier,`oauth:${pending.state_hash}`)).scopes;
   assert.ok(required.includes(calendarWrite));
 });
+
+test('device and location requests retain the authenticated owner and device', async () => {
+  for (const [action,operation,rpc] of [['device_command','claim','assistant_device'],['location_reminders','unscheduled','assistant_locations']]) {
+    let calls=0;
+    const run=handler(config,async (url,options)=>{
+      if (++calls===1) return Response.json({id:owner});
+      assert.equal(String(url),`${config.url}/rest/v1/rpc/${rpc}`);
+      const body=JSON.parse(String(options?.body));
+      assert.equal(body.p_user,owner);assert.equal(body.p_device,device);assert.equal(body.p_action,operation);
+      return Response.json({state:'ok'});
+    });
+    assert.equal((await run(request({action,device_id:device,user_id:'forged',args:{action:operation}}))).status,200);
+    assert.equal(calls,2);
+  }
+});

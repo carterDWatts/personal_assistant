@@ -340,6 +340,12 @@ final class Chat: ObservableObject {
             connectionPrompt = event["action"] as? String
             connectionPromptSatisfied = false
             refreshConnections()
+        case "device_command":
+            guard let id = event["request_id"] as? String, let args = event["command"] as? [String: Any] else { return }
+            Task {
+                let result = await Places.shared.run(args)
+                write(["type":"device_result", "request_id":id, "result":result])
+            }
         case "spotify_control":
             if ["play", "resume"].contains(event["action"] as? String ?? "") {
                 liveVoice.stop(); voice = false; speechBuffer = ""; voiceTurn.discardPending()

@@ -23,6 +23,7 @@ class CodexRuntime:
     name = "codex"
 
     def __init__(self, executable=None, model=None, effort=None, persistent=True):
+        self.web_search = False
         self.persistent = persistent
         self._temporary = None
         self.state = None
@@ -103,7 +104,7 @@ class CodexRuntime:
         await asyncio.to_thread(trim_logs, state)
         toolsets = state / "toolsets"
         toolsets.mkdir(exist_ok=True, mode=0o700)
-        signature = hashlib.sha256(json.dumps([system_prompt, [(t.name, t.description, t.schema) for t in tools]], sort_keys=True).encode()).hexdigest()
+        signature = hashlib.sha256(json.dumps([system_prompt, self.web_search, [(t.name, t.description, t.schema) for t in tools]], sort_keys=True).encode()).hexdigest()
         def manifest(session):
             return toolsets / (hashlib.sha256(session.encode()).hexdigest() + ".txt")
         # Codex cannot change dynamic tools on resume. Reseed through Session when they change.
@@ -120,7 +121,7 @@ class CodexRuntime:
         command = [self.executable, "app-server", "--stdio", "-c", 'forced_login_method="chatgpt"']
         for flag in disabled:
             command += ["-c", f"features.{flag}=false"]
-        command += ["-c", "features.skip_host_skill_discovery=true", "-c", 'web_search="disabled"']
+        command += ["-c", "features.skip_host_skill_discovery=true", "-c", 'web_search="live"' if self.web_search else 'web_search="disabled"']
         self.process = await asyncio.create_subprocess_exec(*command, env=environment, cwd=state,
             stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL, limit=24*1024*1024)
         self.reader = asyncio.create_task(self._read())
@@ -130,7 +131,7 @@ class CodexRuntime:
         if (account.get("account") or {}).get("type") != "chatgpt":
             raise RuntimeError("Sign in to Codex with your ChatGPT subscription first. API billing is disabled.")
         params = {"baseInstructions": system_prompt, "cwd": str(state), "approvalPolicy": "never", "sandbox": "read-only",
-                  "config": {"web_search": "disabled"}, "modelProvider": "openai"}
+                  "config": {"web_search": "live" if self.web_search else "disabled"}, "modelProvider": "openai"}
         if self.model:
             params["model"] = self.model
         if resume:
@@ -151,8 +152,10 @@ class CodexRuntime:
 
     async def restart(self, system_prompt, tools):
         previous=self.metrics
+        web_search=self.web_search
         await self.close()
         self.__init__(self.executable,self.model,self.effort,persistent=self.persistent)
+        self.web_search=web_search
         self.carried_metrics=previous
         self.metrics=Metrics(**previous.as_dict())
         await self.open(system_prompt,tools)

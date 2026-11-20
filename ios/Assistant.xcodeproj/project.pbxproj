@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		A10000000000000000000001 /* Places.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000002 /* Places.swift */; };
 		310EC6EBE9B09EF727DE5CC1 /* MoneyView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1F49948D4F964BF6A6C5C8AD /* MoneyView.swift */; };
 		C4E586B5FFB288BE2D47BF55 /* PomodoroState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 35C0FAB53864283A0346DBD5 /* PomodoroState.swift */; };
 		A71D6B4CCC0FB306BA97D99E /* Pomodoro.swift in Sources */ = {isa = PBXBuildFile; fileRef = B56144A28A5EC448C67B9B7C /* Pomodoro.swift */; };
@@ -79,6 +80,7 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		A10000000000000000000002 /* Places.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ../shared/Places.swift; sourceTree = SOURCE_ROOT; };
 		1F49948D4F964BF6A6C5C8AD /* MoneyView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MoneyView.swift; sourceTree = "<group>"; };
 		35C0FAB53864283A0346DBD5 /* PomodoroState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PomodoroState.swift; sourceTree = "<group>"; };
 		B56144A28A5EC448C67B9B7C /* Pomodoro.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Pomodoro.swift; sourceTree = "<group>"; };
@@ -242,6 +244,7 @@
 				C713842B995B63BEBCE8932C /* RelayTransport.swift */,
 				EAE1E5802A970225EF869C0B /* ReplyState.swift */,
 				8EF4E4DE9CC2F5DC4385BC65 /* Spotify.swift */,
+				A10000000000000000000002 /* Places.swift */,
 				19166F88EC58DDC6BF56BDD6 /* Transport.swift */,
 				2CF368B5C1B83543A7E505E0 /* Views.swift */,
 				0497070F1E94B926A14D5A01 /* Voice.swift */,
@@ -472,6 +475,7 @@
 				7E7862DFBFD553244702D495 /* RelayTransport.swift in Sources */,
 				FC1F09360584ADE341D2BD49 /* ReplyState.swift in Sources */,
 				48459D3A71D78D775DD0F949 /* Spotify.swift in Sources */,
+				A10000000000000000000001 /* Places.swift in Sources */,
 				A151CE5C07C3F6BF2A91069C /* SpotifyCommand.swift in Sources */,
 				20CB022D16C16345828B8930 /* Transport.swift in Sources */,
 				310EC6EBE9B09EF727DE5CC1 /* MoneyView.swift in Sources */,

@@ -52,6 +52,10 @@
 		<string>audio</string>
 		<string>processing</string>
 	</array>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>I use arrival and departure triggers only for the location reminders you set.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>I use your location when you ask for nearby places or directions.</string>
 	<key>UILaunchScreen</key>
 	<dict/>
 	<key>UISupportedInterfaceOrientations</key>

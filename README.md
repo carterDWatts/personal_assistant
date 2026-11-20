@@ -46,6 +46,8 @@ I can also hand off research or a code investigation while keeping the conversat
 
 I can ask it to draft an email and review the recipients and full message in the app. Sending requires a button press tied to that exact version; the model cannot approve its own draft. Photos work in both directions in chat, with private storage and visual input for both model runtimes.
 
+I can also look up places and routes through Apple Maps, work with connected documents and tasks, gather trip details, and watch published product prices. Location reminders use the phone’s notification system. These tools keep receipts and source timestamps; uncertain writes are not silently retried. The supported operations and remaining limits are in [Data connections](docs/connections.md).
+
 The phone streams Pocket TTS from the host. The Mac has local speech. My instance uses Google Calendar for events and keeps reminders separate, as I requested. Calendar providers and how commitments are organized should be choices each user can make through conversation; that customization is upcoming work.
 
 ## Developing the assistant

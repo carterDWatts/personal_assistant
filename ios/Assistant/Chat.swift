@@ -152,6 +152,12 @@ func plain(_ value: Any?) -> String {
                 }
                 alarms.problem = ""
             } catch { alarms.problem = "I couldn’t confirm the alarms on this phone. Tap to retry." }
+            do {
+                let locations = try await transport.reminderRequest("location_reminders", ["action":"sync"])
+                await Places.shared.sync(locations["reminders"] as? [[String: Any]] ?? []) { args in
+                    _ = try await self.transport.reminderRequest("location_reminders", args)
+                }
+            } catch { reminderStatus = "I couldn’t sync location reminders. I’ll retry when connected." }
         }
     }
     @Published var reminders: [ReminderItem] = []

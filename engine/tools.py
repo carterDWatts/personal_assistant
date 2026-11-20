@@ -397,15 +397,18 @@ class Tools:
             str(r['entity_id']) for r in facts(self.map, query)))[:12]
         return sources(self.map, query, ids, args.get('import_id'), args.get('offset', 0))
 
-    def read_specs(self, spotify_control=None):
+    def read_specs(self, spotify_control=None, device_command=None):
         from engine.reminders import Reminders
         from engine.jobs import Jobs
         from engine.images import Images
+        from engine.integrations.location_reminders import LocationReminders
+        from engine.integrations.watches import Watches
+        from engine.integrations.workspace_write import WorkspaceWrites
         from engine.integrations.email import Drafts
         from engine.development import Development
         from engine.reconciliation import Reconciliation
         from engine.integrations import read_specs
-        return [spec for spec in self.specs() if spec.name in READ_TOOLS | {'record_save','plan_add','plan_update','plan_merge'}] + read_specs(spotify_control) + Reminders(self).specs() + Reconciliation(self).conversation_specs() + Jobs(self).specs() + Development(self).specs() + Drafts(self).specs() + Images(self.map).specs()
+        return [spec for spec in self.specs() if spec.name in READ_TOOLS | {'record_save','plan_add','plan_update','plan_merge'}] + read_specs(spotify_control, device_command) + Reminders(self).specs() + Reconciliation(self).conversation_specs() + Jobs(self).specs() + Development(self).specs() + Drafts(self).specs() + WorkspaceWrites(self).specs() + Watches(self).specs() + LocationReminders(self,device_command).specs() + Images(self.map).specs()
 
     def specs(self):
         from engine.records import Records

@@ -60,7 +60,7 @@ class Dispatcher:
         with self.map.conn.transaction():
             self.map.execute('select user_id from assistant.owner for update')
             devices = self.map.rows("select p.device_id from assistant.push_devices p join assistant.devices d on d.id=p.device_id where p.enabled and d.revoked_at is null")
-            due = self.map.rows("select * from memory.reminders r where status='open' and next_notify_at<=now() and window_start<=now() and (kind='task' or (window_end>now() and not exists(select 1 from assistant.reminder_deliveries d where d.reminder_id=r.id and d.version=r.version))) order by next_notify_at for update skip locked limit 20")
+            due = self.map.rows("select * from memory.reminders r where status='open' and (location_trigger is null or window_end<=now()) and next_notify_at<=now() and window_start<=now() and (kind='task' or (window_end>now() and not exists(select 1 from assistant.reminder_deliveries d where d.reminder_id=r.id and d.version=r.version))) order by next_notify_at for update skip locked limit 20")
             for reminder in due:
                 self.map.execute('update assistant.reminder_deliveries set cancelled_at=now() where reminder_id=%s and sent_at is null and cancelled_at is null', (reminder['id'],))
                 for device in devices:

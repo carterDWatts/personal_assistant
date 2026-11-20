@@ -47,6 +47,7 @@ class Metrics:
 
 class Runtime(Protocol):
     name: str
+    web_search: bool
     session_id: str | None
 
     async def open(self, system_prompt: str, tools: list[ToolSpec], resume: str | None = None) -> None: ...

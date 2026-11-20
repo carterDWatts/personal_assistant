@@ -28,7 +28,7 @@ class Reminders:
         return [self.delivery(r) for r in rows]
 
     def delivery(self, row):
-        row['delivery'] = 'alarm' if row.get('alarm_at') else 'notification'
+        row['delivery'] = 'location' if row.get('location_trigger') else 'alarm' if row.get('alarm_at') else 'notification'
         row['alarm_ready'] = False
         row['alarm_note'] = 'Ordinary reminder notification only. No ringing timer or alarm is scheduled.'
         if row.get('alarm_at'):

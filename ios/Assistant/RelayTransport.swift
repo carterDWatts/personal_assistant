@@ -169,6 +169,25 @@ struct RelayError: LocalizedError {
                     }
                 } catch { emit(["type": "status", "text": "Spotify control could not connect."]) }
             }
+        case "device_command":
+            guard !replaying, payload["device_id"] as? String == account.deviceID,
+                  let command = payload["command_id"] as? String else { return }
+            let generation = playerGeneration
+            let turn = activeTurn
+            Task {
+                do {
+                    let claimed = try await call("device_command", ["action": "claim", "command_id": command])
+                    guard claimed["state"] as? String == "ready", let args = claimed["command"] as? [String: Any],
+                          playerGeneration == generation, activeTurn == turn, turn != nil else { return }
+
+                    let result = await Places.shared.run(args)
+                    // Only the receipt is retried. Never repeat the player command.
+                    for attempt in 0..<3 {
+                        do { _ = try await call("device_command", ["action": "finish", "command_id": command, "result": result]); break }
+                        catch { if attempt < 2 { try? await Task.sleep(for: .seconds(1)) } }
+                    }
+                } catch { emit(["type": "status", "text": "Maps could not connect. Please try again."]) }
+            }
         default:
             emit(payload)
         }

@@ -17,6 +17,7 @@ class ClaudeAgentSDKRuntime:
     name = "claude-agent-sdk"
 
     def __init__(self, model=None, effort=None, budget_usd=None, cwd=None):
+        self.web_search = False
         self.model = model or config.MODEL
         self.effort = effort or config.EFFORT
         self.budget_usd = config.SESSION_BUDGET_USD if budget_usd is None else budget_usd
@@ -35,10 +36,10 @@ class ClaudeAgentSDKRuntime:
             system_prompt=system_prompt,
             model=self.model,
             effort=self.effort,
-            tools=[],                                   # no built-in tools; the map is the only surface
+            tools=["WebSearch"] if self.web_search else [],  # no shell, files or browser mutations
             mcp_servers={SERVER: server},
             strict_mcp_config=True,                     # nothing from ~/.claude rides along
-            allowed_tools=[f"mcp__{SERVER}__{spec.name}" for spec in tools],
+            allowed_tools=[f"mcp__{SERVER}__{spec.name}" for spec in tools] + (["WebSearch"] if self.web_search else []),
             setting_sources=[],
             include_partial_messages=True,
             max_buffer_size=24*1024*1024,

@@ -141,9 +141,13 @@ class Host:
             runtime = load(choice['runtime'])(model=choice['model']) if choice else self.factory()
             self.model_id = model
             self.session = Session(self.map, runtime, self.stream, 'cloud',
-                                   auto_memory=False, before_tool=self.before_tool, spotify_control=self.spotify_control)
+                                   auto_memory=False, before_tool=self.before_tool, spotify_control=self.spotify_control, device_command=self.device_command)
             await self.session.open(mode, begin_morning=False)
             self.stream.timing('session_open_seconds', time.monotonic() - opened)
+
+    async def device_command(self, args):
+        from engine.integrations.places import phone_command
+        return await phone_command(self, args)
 
     async def spotify_control(self, args):
         from engine.integrations.spotify import phone_control
@@ -385,6 +389,7 @@ async def runtime_maintenance(host):
 async def main():
     from engine.integrations.email import run as send_mail
     from engine.background import gather_sources, classify_mail
+    from engine.integrations.watches import run as price_watches
     from engine.finance.sync import run as bank_sync
     from engine.notifications import run as notify
     from engine.jobs import run as run_jobs
@@ -414,6 +419,7 @@ async def main():
             'memory': memory_loop(relay_map.url, host),
             'runtime_maintenance': runtime_maintenance(host),
             'bank_sync': bank_sync(relay_map.url,host),
+            'price_watches': price_watches(relay_map.url,host),
         })
 
 

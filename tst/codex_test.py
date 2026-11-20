@@ -116,3 +116,11 @@ class codex_test(unittest.IsolatedAsyncioTestCase):
         await runtime.events.put({'method':'turn/completed','params':{'threadId':'thread','turn':{'id':'2','status':'completed'}}})
         async for _ in runtime.send('Next'):pass
         self.assertEqual(requests,['turn/start','turn/interrupt','turn/start'])
+
+    async def test_restart_preserves_search_policy(self):
+        from unittest.mock import AsyncMock,patch
+        runtime=CodexRuntime();runtime.web_search=True
+        with patch.object(CodexRuntime,'close',new_callable=AsyncMock),patch.object(CodexRuntime,'open',new_callable=AsyncMock):
+            await runtime.restart('system',[])
+        self.assertTrue(runtime.web_search)
+        self.assertFalse(CodexRuntime().web_search)

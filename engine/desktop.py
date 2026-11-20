@@ -78,6 +78,22 @@ async def main():
     jobs_task = None
     email_task = None
 
+    device_requests = {}
+    async def device_command(args):
+        from uuid import uuid4
+        request_id = str(uuid4())
+        future = asyncio.get_running_loop().create_future()
+        device_requests[request_id] = future
+        emit('device_command', request_id=request_id, command=args)
+        try:
+            result = await asyncio.wait_for(future, 90)
+            if result.get('error'):
+                from engine.tools import ToolError
+                raise ToolError(result['error'])
+            return result
+        finally:
+            device_requests.pop(request_id, None)
+
     async def connection_status():
         google_status, service_status = await asyncio.gather(asyncio.to_thread(google.status), asyncio.to_thread(services.status))
         return {**google_status, "services": service_status}
@@ -151,7 +167,7 @@ async def main():
             if mode:
                 old = session
                 await old.close()
-                session = Session(map_,load(old.runtime.name)(model=getattr(old.runtime,'model',None)),DesktopIO(),config.DEVICE,spotify_control=spotify_control)
+                session = Session(map_,load(old.runtime.name)(model=getattr(old.runtime,'model',None)),DesktopIO(),config.DEVICE,spotify_control=spotify_control,device_command=device_command)
                 await session.open(mode,begin_morning=False)
             from engine.notifications import discussion_context
             from engine.meetings import context as meeting_context
@@ -171,6 +187,11 @@ async def main():
             try:
                 message = json.loads(line)
                 action = message.get("type")
+                if action == "device_result":
+                    future = device_requests.get(message.get("request_id"))
+                    if future is not None and not future.done():
+                        future.set_result(message.get("result") or {})
+                    continue
                 if action == "ping":
                     emit("pong")
                     continue
@@ -252,7 +273,7 @@ async def main():
                         from engine.integrations.spotify_mac import control
                         emit('spotify_control', action=args['action'])
                         return await control(args)
-                    session = Session(map_, runtime, DesktopIO(), config.DEVICE, spotify_control=spotify_control)
+                    session = Session(map_, runtime, DesktopIO(), config.DEVICE, spotify_control=spotify_control,device_command=device_command)
                     clear = message.get("clear") is True
                     outbound_cursor = map_.value("select coalesce(max(message_id),0) from assistant.outbound")
                     emit("history", messages=[] if clear else session.conv.tail(100))
@@ -265,7 +286,7 @@ async def main():
                 elif action == "review" and session:
                     if active and not active.done():raise ValueError("Wait for the current reply")
                     await session.close()
-                    session = Session(map_, load(session.runtime.name)(), DesktopIO(), config.DEVICE, spotify_control=spotify_control)
+                    session = Session(map_, load(session.runtime.name)(), DesktopIO(), config.DEVICE, spotify_control=spotify_control,device_command=device_command)
                     await session.open('review', begin_morning=False)
                     active = asyncio.create_task(reply('Open a review of unfinished commitments and outcomes.',role='system'))
                 elif action == "send" and session:

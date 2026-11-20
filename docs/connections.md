@@ -6,11 +6,11 @@ The Mac app offers connection buttons in the conversation when a relevant tool n
 | --- | --- | --- |
 | Weather | Current estimates and forecasts | Automatic; Open-Meteo |
 | Google Calendar and Gmail | Calendar events, email search and message text; create, edit and delete events and recurring series, manage guests and reminders | Google sign-in |
-| Google Tasks | Task lists, outstanding and completed tasks | Separate Google permission |
-| Drive, Docs and Sheets | File search, Google Docs/plain text, spreadsheet cell ranges | Separate Google read permission |
+| Google Tasks | Read, create, update, complete and reopen tasks | Separate read/edit Google permissions |
+| Drive, Docs and Sheets | File search, document creation and revision-checked text edits, spreadsheet creation and bounded cell edits | Separate read/edit Google permissions |
 | Google Contacts | Names, contact details, organizations, birthdays | Separate Google read permission |
-| Todoist | Active tasks, due dates, deadlines | Token from Integrations → Developer |
-| Notion | Search page titles and read nested page blocks | Notion sign-in and page picker |
+| Todoist | Read, create, update, complete and reopen tasks | Token from Integrations → Developer |
+| Notion | Search/read pages, create child pages, append and replace paragraphs | Notion sign-in and page picker |
 | GitHub | Repositories, source files, issues, PR changes, commits and comments | Browser sign-in |
 | Supabase | Account projects, project status, schema types and deployed functions | Browser sign-in and organization approval |
 | Spotify | Find music and podcast episodes; play, pause, resume, skip and seek in Spotify | Spotify sign-in; installed app for local playback |
@@ -19,9 +19,9 @@ A failed connection does not replace an existing credential. The secure setup fi
 
 Calendar and event mutations use the Calendar changes grant. Creating, renaming or deleting a secondary calendar additionally requests calendar.calendars; existing event-only connections can upgrade in chat. Event edits and deletions require a current etag; recurrence scope is explicit so a single occurrence cannot silently become a whole-series change. Guest notifications default to all; suppression must be explicitly requested.
 
-Google scopes are `tasks.readonly`, `drive.readonly` and `contacts.readonly`. Drive read access includes spreadsheet reads. The developer Google Cloud project must enable Tasks, Drive, Sheets and People APIs; users only approve the requested Google permission. OAuth consent remains subject to the project's testing/verification settings.
+Google read scopes are `tasks.readonly`, `drive.readonly` and `contacts.readonly`. Drive read access includes spreadsheet reads. The developer Google Cloud project must enable Tasks, Drive, Docs, Sheets and People APIs; users only approve the requested Google permission. OAuth consent remains subject to the project's testing/verification settings.
 
-Todoist still uses guided token setup. Notion uses OAuth with a page picker. GitHub and Supabase use OAuth with PKCE, expiring credentials and automatic refresh. Tokens can have wider privileges at the provider; these ordinary account tools expose read operations. Owner-development tools have separate gates. Notion uses POST for its search endpoint, which does not modify pages. No additional paid inference service is involved.
+Todoist still uses guided token setup. Notion uses OAuth with a page picker. GitHub and Supabase use OAuth with PKCE, expiring credentials and automatic refresh. Tokens can have wider privileges at the provider; ordinary account tools expose only their implemented operations. Workspace editing has a separate operation journal; owner-development tools have separate gates. Notion uses POST for its search endpoint, which does not modify pages. No additional paid inference service is involved.
 
 ## Connection architecture
 
@@ -44,7 +44,7 @@ To add an integration, add its public definition, implement its tool module, reg
 
 Spotify audio plays in Spotify. The iPhone uses Spotify's official App Remote SDK; the Mac uses Spotify's installed scripting interface. An explicit device ID can target another Spotify Connect player. The assistant checks player state before claiming success. Phone commands belong to the requesting device and active turn, expire after 100 seconds, and can be claimed once. Reconnects never replay them. Account tokens stay in the existing encrypted credential store; native iPhone authorization stays in Keychain. Starting playback ends voice capture. Spotify's account, Premium and developer-mode restrictions still apply; opening the app alone does not prove playback started.
 
-GitHub, Supabase, Notion and Todoist are on-demand readers. Gmail is polled every two minutes and classified by a separate subscription worker, even during conversation. Failed items retry independently; classification decisions are retained, and a prolonged backlog produces one monitoring warning per incident. Reading a source does not import its entire account into memory. A cached excerpt is not current truth: tools must read again when a decision depends on current state. Search indexes can lag; pagination and nested blocks can contain more information. Google Tasks due dates are dates rather than appointment times. Notion searches titles only. Drive's text reader does not parse PDFs, images or binary attachments. GitHub comments, commits and code diffs use separate paginated reads.
+GitHub and Supabase are on-demand readers; Notion and Todoist also support explicit workspace edits. Gmail is polled every two minutes and classified by a separate subscription worker, even during conversation. Failed items retry independently; classification decisions are retained, and a prolonged backlog produces one monitoring warning per incident. Reading a source does not import its entire account into memory. A cached excerpt is not current truth: tools must read again when a decision depends on current state. Search indexes can lag; pagination and nested blocks can contain more information. Google Tasks due dates are dates rather than appointment times. Notion searches titles only. Drive's text reader does not parse PDFs, images or binary attachments. GitHub comments, commits and code diffs use separate paginated reads.
 
 On the phone, open Connections from the conversation menu. Google, GitHub, Supabase and Notion use the system sign-in sheet; Todoist uses a secure token form. Cloud credentials are encrypted with AES-GCM in private Supabase tables, bound to the owner and service, and decrypted only by the hosted worker. OAuth intents expire after ten minutes and can be redeemed once. Disconnect invalidates pending sign-ins and removes the stored credential. Mac Keychain connections remain local.
 
@@ -122,7 +122,7 @@ The model only has prepare/read tools. The client approves through a separate au
 
 ## Notion registration
 
-Create an OAuth connection in the Notion developer portal with Read content and these exact redirects:
+Create an OAuth connection in the Notion developer portal with Read content, Insert content and Update content and these exact redirects:
 
 - `https://koauvyfxewczcajnlrfp.supabase.co/functions/v1/assistant/notion/callback`
 - `http://127.0.0.1:8766/notion/callback`
@@ -154,3 +154,17 @@ Provision with `python scripts/cloud.py bank /private/path/plaid.json`, containi
 Run the optional live Sandbox regression with `BANK_SANDBOX_CONFIG=/private/path/plaid-sandbox.json scripts/test.sh`; it uses the disposable local test database, creates only a fake bank Item and removes it afterward. Real bank connections are exclusively user-controlled. The personal Trial has ten lifetime Production connections; deleting an Item does not restore a slot. Sandbox tests use none of them.
 
 Supabase database connections require certificate-verified TLS, including older Mac connection URLs. Bank tokens are encrypted separately from account and transaction records. Financial tool results are sent to the selected model and retained in conversation history; token encryption does not make those results local-only. The owner development tools and production database role remain administrative access, not a security boundary against the owner or a compromised host.
+
+## Everyday tools
+
+Maps run through the same native MapKit implementation on iPhone and Mac. Place search, driving/walking estimates and map links need no extra service account. Current location requires OS permission and is requested separately from named-place search. Results carry freshness; routes are estimates, not continuous tracking, business hours or reservation availability. The requesting app must be open to return a device command. Phone commands are owned by that device and active turn, expire, and are claimed once.
+
+Location reminders add an arrival/departure condition to an existing contextual reminder on iPhone. They need Always location access and notification permission. Native notifications can fire while the app is closed. Editing the task invalidates the old location trigger at the next sync; a receipt never completes the task. Removing or delivering the OS notification restores ordinary follow-up on reconnect. An explicit task deadline still allows follow-up even without arrival. Changes made elsewhere cannot retract an offline phone's already scheduled notification until it reconnects. Real-device background delivery still needs verification.
+
+`workspace_write.py` and `workspace_services.py` share a durable operation journal. Confirmed results replay without repeating the write. A lost response is marked uncertain and must be inspected, not blindly retried. Google Docs edits require the revision just read. Sheets checks a range fingerprint; Sheets and Notion do not offer an atomic compare-and-swap for these operations, so simultaneous external edits remain a limitation. New Google edit grants leave existing Calendar/Gmail credentials intact. Notion writes require insert/update permission in the developer registration and the user's shared pages.
+
+Foreground model sessions can use native web search with the existing subscription runtime. Source-page reading remains bounded and SSRF-protected. Background memory workers keep web search disabled. `travel_sources` collects calendar entries and booking email excerpts for a bounded trip window; it neither confirms a booking nor supplies live flight status.
+
+Product price watches read explicit structured offers from public HTTPS pages. They check hourly, alert once when a numeric threshold is met, and expire after 90 days. A missing/ambiguous offer is unknown, never a guessed price. Watches cannot read signed-in pricing, complete checkout or guarantee tax/shipping totals. Arithmetic, unit conversions and time-zone conversions are deterministic; currency conversion uses dated Frankfurter reference rates, not executable exchange quotes.
+
+Restaurant reservations, flight/hotel booking, purchases and arbitrary website form submission are not implemented. They need a supported provider connection and an exact-action review flow; a search result or link is not a completed transaction.

@@ -2,7 +2,7 @@ import { imageRequest } from './images.ts';
 import { connection, connectionActions } from './connections.ts';
 // Authentication is checked with Auth before the privileged RPC receives a user ID.
 export type Config = { url: string; publicUrl?: string; anonKey: string; serviceKey: string; identity?: { name: string }; credentialKey?: string; plaid?: {id?: string; secret?: string; environment: string}; oauthApps?: Record<string, {id?: string; secret?: string}>; };
-const actions = new Set(["reply_seen", "work_updates", "start_routine", "alarm_sync", "alarm_receipt", "inbox", "inbox_open", "inbox_cancel", "image", "email","register", "bootstrap", "submit", "cancel", "events", "revoke", "clear", "import_part", "imports", "push_register", "reminder_action", "reminders", "notification_message"]);
+const actions = new Set(["location_reminders", "device_command", "reply_seen", "work_updates", "start_routine", "alarm_sync", "alarm_receipt", "inbox", "inbox_open", "inbox_cancel", "image", "email","register", "bootstrap", "submit", "cancel", "events", "revoke", "clear", "import_part", "imports", "push_register", "reminder_action", "reminders", "notification_message"]);
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const headers = {
   "Access-Control-Allow-Origin": "*",
@@ -74,13 +74,17 @@ export async function execute(config: Config, userId: string, input: any, fetche
     try { return reply(await imageRequest(config,userId,input,fetcher)); }
     catch (error) { const code=error instanceof Error ? error.message : 'service_unavailable'; return reply({error:code},['account_denied','device_denied'].includes(code)?403:code==='invalid_request'?400:503); }
   }
+  const locations = input.action === 'location_reminders';
+  if (locations && !['sync','delivered','unscheduled'].includes(input.args?.action)) return reply({error:'invalid_request'},400);
+  const device = input.action === 'device_command';
+  if (device && !['claim','finish'].includes(input.args?.action)) return reply({error:'invalid_request'},400);
   const email = input.action === 'email';
   if (email && !['list','get','approve','discard'].includes(input.args?.operation)) return reply({error:'invalid_request'},400);
-  const response = await fetcher(`${config.url}/rest/v1/rpc/${email ? 'assistant_email' : 'assistant_client'}`, {
+  const response = await fetcher(`${config.url}/rest/v1/rpc/${locations ? 'assistant_locations' : device ? 'assistant_device' : email ? 'assistant_email' : 'assistant_client'}`, {
     method: "POST",
     headers: { "Content-Type": "application/json", apikey: config.serviceKey,
       authorization: `Bearer ${config.serviceKey}` },
-    body: JSON.stringify({ p_user: userId, p_device: input.device_id, p_action: email ? input.args.operation : input.action, p_args: input.args || {} }),
+    body: JSON.stringify({ p_user: userId, p_device: input.device_id, p_action: (device || locations) ? input.args.action : email ? input.args.operation : input.action, p_args: input.args || {} }),
     signal: AbortSignal.timeout(15_000),
   });
   const result = await response.json();

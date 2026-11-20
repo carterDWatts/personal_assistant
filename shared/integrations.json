@@ -18,7 +18,10 @@
         "tasks.read",
         "documents.read",
         "contacts.read",
-        "mail.draft_and_send"
+        "mail.draft_and_send",
+        "documents.write",
+        "spreadsheets.write",
+        "tasks.write"
       ],
       "grants": [
         {
@@ -84,6 +87,28 @@
           "scopes": [
             "https://www.googleapis.com/auth/gmail.send",
             "https://www.googleapis.com/auth/gmail.readonly"
+          ]
+        },
+        {
+          "id": "documents_write",
+          "action": "google_documents_write",
+          "slot": "google_documents_write",
+          "name": "Document and spreadsheet editing",
+          "description": "Create and edit documents and spreadsheets",
+          "scopes": [
+            "https://www.googleapis.com/auth/documents",
+            "https://www.googleapis.com/auth/spreadsheets",
+            "https://www.googleapis.com/auth/drive.file"
+          ]
+        },
+        {
+          "id": "tasks_write",
+          "action": "google_tasks_write",
+          "slot": "google_tasks_write",
+          "name": "Task editing",
+          "description": "Create, update and complete Google Tasks",
+          "scopes": [
+            "https://www.googleapis.com/auth/tasks"
           ]
         }
       ],
@@ -167,7 +192,10 @@
       "setupURL": "https://app.todoist.com/app/settings/integrations/developer",
       "instructions": "In Todoist, open Settings \u203a Integrations \u203a Developer and copy the API token. I can read active tasks, due dates and deadlines.",
       "capabilities": [
-        "tasks.read"
+        "tasks.read",
+        "tasks.create",
+        "tasks.update",
+        "tasks.complete"
       ],
       "apiBase": "https://api.todoist.com/api/v1/",
       "profile": "projects?limit=1",
@@ -187,7 +215,9 @@
       "instructions": "Sign in to Notion and choose the pages you want me to read.",
       "capabilities": [
         "pages.search",
-        "pages.read"
+        "pages.read",
+        "pages.create",
+        "pages.edit"
       ],
       "apiBase": "https://api.notion.com/v1/",
       "profile": "users/me",

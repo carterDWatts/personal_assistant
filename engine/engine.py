@@ -10,8 +10,9 @@ from engine import memory_worker
 
 
 class Session:
-    def __init__(self, map_, runtime, io, device, *, auto_memory=True, before_tool=None, spotify_control=None):
+    def __init__(self, map_, runtime, io, device, *, auto_memory=True, before_tool=None, spotify_control=None, device_command=None):
         self.map, self.runtime, self.io = map_, runtime, io
+        self.runtime.web_search = True
         self.conv = Conversation(map_, device, runtime.name)
         self.tools = Tools(map_, device)
         self.tools.runtime_name = runtime.name
@@ -24,6 +25,7 @@ class Session:
         self.auto_memory = auto_memory
         self.before_tool = before_tool
         self.spotify_control = spotify_control
+        self.device_command = device_command
         self.sent_snapshot = None
         self.context_revision = 0
         self.prepared = context.PreparedContext(map_)
@@ -44,7 +46,7 @@ class Session:
         if self.morning:
             kind=self.map.value('select agent from memory.conversations where id=%s',(self.routine_id,))
             system += "\n\n" + prompt('review' if kind=='review' else 'morning')
-        specs = self.tools.read_specs(self.spotify_control)
+        specs = self.tools.read_specs(self.spotify_control, self.device_command)
         if self.morning:
             from engine.routine import spec
             specs.append(spec(self.tools,self.routine_id))

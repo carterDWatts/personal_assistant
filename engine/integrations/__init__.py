@@ -1,7 +1,10 @@
 """External data tools shared by all assistant runtimes."""
 
 
-def read_specs(spotify_control=None):
+def read_specs(spotify_control=None, device_command=None):
+    from engine.integrations.travel import specs as travel_specs
+    from engine.integrations.places import specs as places_specs
+    from engine.integrations.utilities import specs as utility_specs
     from engine.integrations.discovery import specs as discovery_specs
     from engine.integrations.linkedin import specs as linkedin_specs
     from engine.integrations.web import specs as web_specs
@@ -12,7 +15,7 @@ def read_specs(spotify_control=None):
     from engine.integrations.google import calendar_events, calendar_create_event, mail_search, mail_read
     from engine.integrations.workspace import specs
     from engine.integrations.services import specs as service_specs
-    return discovery_specs() + linkedin_specs() + web_specs() + news_specs() + specs() + service_specs(spotify_control) + calendar_specs() + [ToolSpec("weather_forecast",
+    return travel_specs() + places_specs(device_command) + utility_specs() + discovery_specs() + linkedin_specs() + web_specs() + news_specs() + specs() + service_specs(spotify_control) + calendar_specs() + [ToolSpec("weather_forecast",
         "Get current weather estimates, hourly rain and wind for the next 24 hours, and a seven-day forecast. "
         "Use whenever weather matters to a question or plan. Supply the city and state/country from the conversation or memory. "
         "Returns the resolved location, units and freshness; requires no account.",
