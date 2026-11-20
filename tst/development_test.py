@@ -20,6 +20,13 @@ class development_test(TestCase):
     def test_disabled_installation_has_no_development_tools(self):
         with patch.dict(os.environ,{'ASSISTANT_DEVELOPER_OWNER':''}):self.assertEqual(self.dev.specs(),[])
 
+    def test_home_database_cannot_silently_query_the_archived_project(self):
+        self.map.url='postgresql://postgres@db:5432/assistant'
+        with patch('engine.development._request') as request:
+            with self.assertRaisesRegex(ToolError,'no longer uses'):
+                asyncio.run(self.dev.database_read({'query':'select 1'}))
+            request.assert_not_called()
+
     def test_paths_credentials_and_test_runner_are_protected(self):
         for files in ({'../secret.py':'x'},{'.github/workflows/test.yml':'x'},{'scripts/test.sh':'exit 0'},{'engine/key.py':'ghp_'+'a'*36}):
             with self.assertRaises(ToolError):validate_files(files)

@@ -86,6 +86,10 @@ class Development:
 
     async def database_read(self,args):
         _,project=self.scope()
+        from urllib.parse import urlsplit
+        target=urlsplit(self.map.url)
+        if project not in (target.hostname or '') and project not in (target.username or ''):
+            raise ToolError('This installation no longer uses the configured hosted database. Inspect the home database directly; do not diagnose the archived project.')
         return await asyncio.to_thread(_request,'supabase','projects/'+project+'/database/query/read-only',body={'query':args['query']})
 
     async def migrate(self,args):

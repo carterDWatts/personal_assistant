@@ -119,6 +119,9 @@ deleting private configuration, then run the Compose command above. Build the
 replacement image before replacing the running worker. Preserve the runtime volume:
 its refreshed subscription credentials take precedence over old environment seeds.
 Railway's GitHub source must stay disconnected after cutover.
+The owner's hosted-Supabase SQL tool is intentionally blocked when its project no
+longer matches the active database. Inspect or migrate the home database directly
+over SSH; the archived cloud project must not be mistaken for production.
 
 ## Backups
 
