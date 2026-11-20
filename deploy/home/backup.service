@@ -1,0 +1,12 @@
+[Unit]
+Description=Back up the personal assistant
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+User=carter
+WorkingDirectory=/home/carter/personal-assistant/deploy/home
+ExecStart=/bin/bash /home/carter/personal-assistant/deploy/home/backup.sh
+UMask=0077
+Nice=10

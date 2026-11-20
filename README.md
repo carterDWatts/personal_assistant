@@ -64,7 +64,7 @@ flowchart TB
     pr --> ci["GitHub Actions<br/>Database, Python and app checks"]
     ci --> review["Owner review"]
     review --> main["main"]
-    main --> host["Railway<br/>Backend deployment"]
+    main --> host["Home server<br/>Reviewed backend deployment"]
     request["Owner requests an app change"] --> workspace["Durable source workspace"]
     workspace --> submitted["Submitted PR<br/>Exact revision passes CI"]
     submitted --> scope["Code checks automatic shipping scope"]
@@ -87,7 +87,7 @@ not that the phone has installed it.
 
 ## Stack and verification
 
-SwiftUI on iOS and macOS, Python for the engine, Supabase/Postgres for memory and the relay, and a Railway worker defined in code. Model inference uses my existing subscriptions; this is currently a personal, single-owner deployment.
+SwiftUI on iOS and macOS, Python for the engine, and self-hosted Supabase/Postgres for memory, authentication and the relay. The worker and database run together on my home server, with deployment defined in Docker Compose. Model inference uses my existing subscriptions; this is currently a personal, single-owner deployment.
 
 The test suite covers temporal updates, concurrent writes, inference invalidation, clarification transactions, notification deduplication, reconnect behavior, and streamed replies. Xcode tests replay audio and verify microphone mute and voice previews without requiring repeated manual phone tests.
 
@@ -102,7 +102,8 @@ This creates a throwaway database, applies the migrations, and runs the SQL, Pyt
 - [Knowledge map](docs/knowledge-map.md): the schema and update semantics.
 - [Engine](docs/engine.md): sessions, context, tools, and runtime adapters.
 - [Owner development](docs/development.md): automatic Astra reviews, protected files, and the release path.
-- [Cloud deployment](docs/cloud.md): authentication, infrastructure, notifications, and the hosted worker.
+- [Home deployment](docs/home-server.md): authentication, infrastructure, backups, and client connections.
+- [Cloud deployment](docs/cloud.md): the earlier hosted setup.
 - [Client contract](docs/client-contract.md): phone/host communication.
 - [Connections](docs/connections.md): service integrations and setup.
 

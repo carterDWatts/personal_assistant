@@ -119,3 +119,25 @@ deleting private configuration, then run the Compose command above. Build the
 replacement image before replacing the running worker. Preserve the runtime volume:
 its refreshed subscription credentials take precedence over old environment seeds.
 Railway's GitHub source must stay disconnected after cutover.
+
+## Backups
+
+`backup.sh` saves the database, uploaded files, private configuration and refreshed
+ChatGPT login. It verifies the database archive and records file checksums before
+marking a backup complete. It retains completed daily backups for seven days;
+manual migration backups are never removed. Failed backups retain their hidden
+working directory for diagnosis. These archives contain secrets: keep them private
+and encrypt any copy sent off the machines you control.
+
+Adjust the user and paths in `backup.service` for another server, then install it:
+
+```sh
+sudo install -m 644 backup.service /etc/systemd/system/personal-assistant-backup.service
+sudo install -m 644 backup.timer /etc/systemd/system/personal-assistant-backup.timer
+sudo systemctl daemon-reload
+sudo systemctl enable --now personal-assistant-backup.timer
+sudo systemctl start personal-assistant-backup.service
+```
+
+The timer runs at 5 AM Pacific and catches up after downtime. A second copy on
+another machine is still needed to survive loss of the home server's disk.
