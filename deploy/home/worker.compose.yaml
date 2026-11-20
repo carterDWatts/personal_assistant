@@ -1,0 +1,26 @@
+# Add only at cutover, after stopping the Railway worker.
+services:
+  worker:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      db: {condition: service_healthy}
+      api: {condition: service_started}
+    env_file: .worker.env
+    environment:
+      ASSISTANT_DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD}@db:5432/assistant
+      ASSISTANT_SUPABASE_URL: http://api:8000
+      ASSISTANT_PUBLIC_URL: ${PUBLIC_URL}
+      ASSISTANT_STORAGE_KEY: ${SERVICE_ROLE_KEY}
+    volumes:
+      - runtime:/data
+    cpus: 2
+    mem_limit: 4g
+    logging:
+      driver: json-file
+      options: {max-size: "10m", max-file: "3"}
+
+volumes:
+  runtime:

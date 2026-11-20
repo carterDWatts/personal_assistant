@@ -38,6 +38,7 @@ class Storage:
             if raw: saved=json.loads(raw);key=saved['key'];url=saved['url']
         if not key or not url: raise ToolError('Image storage is not configured on this host.')
         self.key,self.url=key,url.rstrip('/')
+        self.public_url=os.environ.get('ASSISTANT_PUBLIC_URL', self.url).rstrip('/')
 
     def request(self,path,*,data=None,mime='application/json',raw=False):
         request=urllib.request.Request(self.url+'/storage/v1/'+path,data=data,
@@ -50,7 +51,7 @@ class Storage:
     def upload(self,path,data):self.request('object/chat-images/'+path,data=data,mime='image/jpeg')
     def read(self,path):return self.request('object/authenticated/chat-images/'+path,raw=True)
     def signed(self,path):
-        return self.url+'/storage/v1'+self.request('object/sign/chat-images/'+path,data=b'{"expiresIn":600}')['signedURL']
+        return self.public_url+'/storage/v1'+self.request('object/sign/chat-images/'+path,data=b'{"expiresIn":600}')['signedURL']
 
 
 class Images:

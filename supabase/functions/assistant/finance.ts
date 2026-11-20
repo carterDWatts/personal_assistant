@@ -1,4 +1,5 @@
 import type { Config } from './handler.ts';
+import { publicURL } from './urls.ts';
 import { hash, random, seal, unseal, store } from './connections.ts';
 
 async function plaid(config: Config, path: string, args: object, fetcher: typeof fetch) {
@@ -32,7 +33,7 @@ export async function startBank(config: Config, user: string, device: string, fe
     redirect_uri:'https://secure.plaid.com/oauth/redirect',
     language:'en',country_codes:['US'],...(access?{access_token:access}:{products:['transactions'],optional_products:['liabilities']}),
     hosted_link:{is_mobile_app:true,url_lifetime_seconds:600,
-      completion_redirect_uri:`${config.url}/functions/v1/assistant/plaid/callback?state=${state}`},
+      completion_redirect_uri:`${publicURL(config)}/functions/v1/assistant/plaid/callback?state=${state}`},
   },fetcher);
   if (!linked.link_token || !linked.hosted_link_url) throw new Error('connection_rejected');
   const intent=await store(config,user,device,'begin',{slot:'plaid',state_hash:stateHash,

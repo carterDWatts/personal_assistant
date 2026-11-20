@@ -21,6 +21,7 @@ from engine.voice.phrasing import phrase as chunk, spoken, trim_padding, protect
 class Storage:
     def __init__(self):
         self.url = os.environ['ASSISTANT_SUPABASE_URL'].rstrip('/')
+        self.public_url = os.environ.get('ASSISTANT_PUBLIC_URL', self.url).rstrip('/')
         self.key = os.environ['ASSISTANT_STORAGE_KEY']
 
     def request(self, path, method='POST', data=None, mime='application/json'):
@@ -32,7 +33,7 @@ class Storage:
     def upload(self, name, data):
         self.request('object/speech/' + name, data=data, mime='audio/mp4')
         result = self.request('object/sign/speech/' + name, data=b'{"expiresIn":600}')
-        return self.url + '/storage/v1' + result['signedURL']
+        return self.public_url + '/storage/v1' + result['signedURL']
 
     def remove(self, names):
         if names: self.request('object/speech', method='DELETE', data=json.dumps({'prefixes': names}).encode())

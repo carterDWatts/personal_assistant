@@ -1,5 +1,6 @@
 import { startBank, removeBank, bankStore } from './finance.ts';
 import type { Config } from './handler.ts';
+import { publicURL } from './urls.ts';
 
 import { integrations, grants, providers, oauthProviders, registration, configured } from './catalog.ts';
 
@@ -31,7 +32,7 @@ export async function store(config: Config, user: string | null, device: string 
   if (!response.ok) throw new Error(['account_denied','device_denied'].includes(result.message) ? result.message : 'invalid_request');
   return result;
 }
-const callbackURL = (config: Config) => `${config.url}/functions/v1/assistant/google/callback`;
+const callbackURL = (config: Config) => `${publicURL(config)}/functions/v1/assistant/google/callback`;
 function slot(provider: string, grant: string) {
   if (provider === 'google' && Object.hasOwn(grants,grant)) return grants[grant].slot;
   if (Object.hasOwn(providers,provider)) return provider;
@@ -138,7 +139,7 @@ export async function googleCallback(req: Request, config: Config, fetcher: type
 
 type AccountProvider = string;
 const accountConfig = registration;
-const accountCallbackURL = (config: Config, provider: AccountProvider) => `${config.url}/functions/v1/assistant/${provider}/callback`;
+const accountCallbackURL = (config: Config, provider: AccountProvider) => `${publicURL(config)}/functions/v1/assistant/${provider}/callback`;
 async function startAccount(config: Config, user: string, device: string, provider: AccountProvider, fetcher: typeof fetch) {
   const details=accountConfig(config,provider), state=random(), verifier=random(), stateHash=await hash(state);
   const intent=await store(config,user,device,'begin',{slot:provider,state_hash:stateHash,

@@ -1,4 +1,5 @@
 import type { Config } from './handler.ts';
+import { publicURL } from './urls.ts';
 
 export async function imageRequest(config: Config, user: string, input: any, fetcher: typeof fetch = fetch) {
   const args=input.args || {};
@@ -14,7 +15,7 @@ export async function imageRequest(config: Config, user: string, input: any, fet
     const row=await rpc('get',{id:args.id});
     const result=await fetcher(`${config.url}/storage/v1/object/sign/chat-images/${row.path}`,{method:'POST',headers,body:JSON.stringify({expiresIn:600}),signal:AbortSignal.timeout(15000)});
     if (!result.ok) throw new Error('service_unavailable');
-    return {...row,url:config.url+'/storage/v1'+(await result.json()).signedURL};
+    return {...row,url:publicURL(config)+'/storage/v1'+(await result.json()).signedURL};
   }
   if (args.operation!=='upload' || typeof args.data!=='string' || args.data.length>5333336 || !['image/jpeg','image/png','image/webp'].includes(args.mime)) throw new Error('invalid_request');
   let bytes: Uint8Array;

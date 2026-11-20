@@ -22,3 +22,6 @@ xcuserdata/
 *.mobileprovision
 *.xcarchive/
 *.ipa
+
+# Home-server exports contain private account and memory data.
+/backups/

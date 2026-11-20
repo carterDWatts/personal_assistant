@@ -1,5 +1,8 @@
 # Cloud worker
 
+The replacement home-server deployment is documented in [Home server](home-server.md).
+Its staging stack does not switch off this worker or change existing clients.
+
 One Railway worker runs the subscription runtime. Supabase holds the map, owner account, requests and replayable replies. Devices need the internet, not a running Mac. This deployment serves one owner; it is not ready for unrelated customer accounts.
 
 Railway project: `9b4aa82e-47a4-4325-9a42-b443f8cfb1a4` (`personal-assistant`). Service: `worker`. Supabase project: `koauvyfxewczcajnlrfp`.
