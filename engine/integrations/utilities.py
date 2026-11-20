@@ -34,7 +34,7 @@ def calculate(args):
                 if isinstance(node.op,ast.Mult):return a*b
                 if isinstance(node.op,ast.Div):return a/b
                 if isinstance(node.op,ast.Mod):return a%b
-                if isinstance(node.op,ast.Pow) and b==int(b) and abs(b)<=100:return a**int(b)
+                if isinstance(node.op,ast.Pow) and abs(b)<=100 and b==int(b):return a**int(b)
             raise ValueError()
         with localcontext() as ctx:
             ctx.prec=28;ctx.Emax=1000;ctx.Emin=-1000
@@ -72,7 +72,8 @@ def currency(args):
     from engine.integrations.web import open_public
     base=args['from_currency'].lower();quote=args['to_currency'].lower()
     if not all(re.fullmatch('[a-z]{3}',x) for x in (base,quote)):raise ToolError('Use three-letter currency codes.')
-    amount=Decimal(args['amount'])
+    try:amount=Decimal(args['amount'])
+    except ArithmeticError:raise ToolError('Use a decimal amount.') from None
     if not amount.is_finite() or abs(amount.adjusted())>100:raise ToolError('Use a finite amount.')
     if base==quote:return {'amount':str(amount),'currency':quote.upper(),'rate':'1'}
     with open_public(f'https://api.frankfurter.dev/v2/rate/{base}/{quote}',https_only=True) as (_,response):

@@ -36,10 +36,14 @@ async def phone_command(host, args):
                 raise ToolError('This device request is no longer active.')
             host.relay.emit(row['user_id'], host.active, {'type': 'device_command', 'command_id': str(command), 'device_id': str(row['device_id'])})
     await host.call(submit)
-    deadline = time.monotonic() + 100
+    started = time.monotonic()
+    deadline = started + 100
     try:
         while time.monotonic() < deadline:
-            result = await host.call(host.relay.map.value, 'select result from assistant.device_commands where id=%s', (command,))
+            row = await host.call(host.relay.map.row, 'select result,claimed_at from assistant.device_commands where id=%s', (command,))
+            if row is None or (row['claimed_at'] is None and time.monotonic()-started>5):
+                raise ToolError('Open the updated Bunny Man app on this phone, then try again. It has not accepted the device request.')
+            result = row['result']
             if result is not None:
                 if result.get('error'):
                     raise ToolError(result['error'])

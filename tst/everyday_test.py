@@ -12,7 +12,7 @@ from tst.spotify_test import spotify_delivery_test
 class utility_test(unittest.TestCase):
     def test_arithmetic_is_decimal_and_cannot_execute_code(self):
         self.assertEqual(utilities.calculate({'expression':'0.1+0.2'})['result'],'0.3')
-        for text in ["__import__('os').system('id')",'9**999999999','1/0','float("inf")','[1]*1000000']:
+        for text in ["__import__('os').system('id')",'9**999999999','9**1e999999999','1/0','float("inf")','[1]*1000000']:
             with self.assertRaises(ToolError):utilities.calculate({'expression':text})
     def test_units_and_dst(self):
         self.assertEqual(utilities.convert({'value':'32','from_unit':'f','to_unit':'c'})['value'],'0.00')
