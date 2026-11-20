@@ -58,5 +58,11 @@
 	<array>
 		<string>UIInterfaceOrientationPortrait</string>
 	</array>
+	<key>AssistantServerURL</key>
+	<string>https://valley.taild9e9fa.ts.net:10000</string>
+	<key>AssistantPublicKey</key>
+	<string>eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjogImFub24iLCAiaXNzIjogInN1cGFiYXNlIiwgImlhdCI6IDE3OTUyMDUzNjksICJleHAiOiAyMTEwNTY1MzY5fQ.dfVLR_7Ty86xUWeOqYPXNlZPw0yATuhH9KiILvpMFbk</string> <!-- Public anon key; owner sign-in is still required. gitleaks:allow -->
+	<key>AssistantSignInProvider</key>
+	<string>google</string>
 </dict>
 </plist>

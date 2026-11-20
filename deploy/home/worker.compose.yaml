@@ -1,6 +1,7 @@
 # Add only at cutover, after stopping the Railway worker.
 services:
   worker:
+    image: personal-assistant-worker:home
     build:
       context: ../..
       dockerfile: Dockerfile

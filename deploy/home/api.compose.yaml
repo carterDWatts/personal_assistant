@@ -11,20 +11,26 @@ services:
     image: supabase/gotrue:v2.197.0@sha256:1736a63078f5922b198c4cbe50f80ab9a2d3b54fe8b7b6cfb2e9dc5dbbc12c6b
     depends_on:
       db: {condition: service_healthy}
+    env_file:
+      - path: .auth.env
+        required: false
     environment:
       GOTRUE_API_HOST: 0.0.0.0
       GOTRUE_API_PORT: 9999
-      API_EXTERNAL_URL: ${PUBLIC_URL:?Set the public HTTPS address}/auth/v1
+      API_EXTERNAL_URL: ${PUBLIC_URL:?Set the public HTTPS address}
       GOTRUE_DB_DRIVER: postgres
       GOTRUE_DB_DATABASE_URL: postgres://supabase_auth_admin:${POSTGRES_PASSWORD}@db:5432/assistant
       GOTRUE_SITE_URL: personal-assistant://auth/callback
-      GOTRUE_URI_ALLOW_LIST: personal-assistant://auth/callback
+      GOTRUE_URI_ALLOW_LIST: ${AUTH_REDIRECTS:-personal-assistant://auth/callback}
       GOTRUE_DISABLE_SIGNUP: "true"
       GOTRUE_JWT_SECRET: ${JWT_SECRET:?Generate private signing keys}
       GOTRUE_JWT_AUD: authenticated
       GOTRUE_JWT_ADMIN_ROLES: service_role
       GOTRUE_JWT_DEFAULT_GROUP_NAME: authenticated
       GOTRUE_JWT_EXP: 3600
+      GOTRUE_JWT_ISSUER: ${PUBLIC_URL}/auth/v1
+      GOTRUE_EXTERNAL_GOOGLE_ENABLED: ${GOOGLE_LOGIN_ENABLED:-false}
+      GOTRUE_EXTERNAL_GOOGLE_REDIRECT_URI: ${PUBLIC_URL}/auth/v1/callback
       # Fail closed until an actual mail transport is configured.
       GOTRUE_EXTERNAL_EMAIL_ENABLED: ${EMAIL_LOGIN_ENABLED:-false}
       GOTRUE_MAILER_AUTOCONFIRM: "false"

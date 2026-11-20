@@ -7,6 +7,20 @@ from engine.desktop import load_settings
 
 
 class desktop_test(unittest.TestCase):
+    def test_private_settings_override_legacy_profile_but_not_environment(self):
+        import json
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            settings = root / '.config/personal-assistant/settings.json'
+            settings.parent.mkdir(parents=True)
+            settings.write_text(json.dumps({'ASSISTANT_DATABASE_URL': 'home', 'ASSISTANT_MODEL': 'file', 'UNRELATED_SECRET': 'ignored'}))
+            (root / '.zshrc').write_text("export ASSISTANT_DATABASE_URL='old'\n")
+            with patch('engine.desktop.Path.home', return_value=root), patch.dict(os.environ, {'ASSISTANT_MODEL': 'explicit'}, clear=True):
+                load_settings()
+                self.assertEqual(os.environ['ASSISTANT_DATABASE_URL'], 'home')
+                self.assertEqual(os.environ['ASSISTANT_MODEL'], 'explicit')
+                self.assertNotIn('UNRELATED_SECRET', os.environ)
+
     def test_settings_are_literal_and_do_not_execute_shell(self):
         with tempfile.TemporaryDirectory() as directory:
             root=Path(directory)

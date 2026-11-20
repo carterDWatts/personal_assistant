@@ -374,10 +374,11 @@ struct SignInView: View {
             Spacer()
             Mark(palette: palette).frame(width: 64, height: 64)
             Text(AssistantIdentity.name).font(.largeTitle.weight(.semibold)).foregroundStyle(palette.ink)
-            Text(sent ? "Open the email on this phone and tap the link. It brings you back here signed in."
+            Text(Relay.googleSignIn ? "Sign in with your Google account to continue."
+                      : sent ? "Open the email on this phone and tap the link. It brings you back here signed in."
                       : "Sign in with the address on the account. A link will be emailed to you.")
                 .font(.callout).foregroundStyle(palette.muted)
-            if !sent {
+            if !sent && !Relay.googleSignIn {
                 TextField("Email", text: $email).keyboardType(.emailAddress).textContentType(.emailAddress)
                     .textInputAutocapitalization(.never).autocorrectionDisabled()
                     .font(.body).foregroundStyle(palette.ink).tint(palette.accent)
@@ -385,11 +386,11 @@ struct SignInView: View {
             }
             if !account.problem.isEmpty { Text(account.problem).font(.caption).foregroundStyle(Color.orange) }
             HStack {
-                if sent { Button("Use another address") { sent = false; account.problem = "" }.foregroundStyle(palette.muted) }
+                if sent && !Relay.googleSignIn { Button("Use another address") { sent = false; account.problem = "" }.foregroundStyle(palette.muted) }
                 Spacer()
-                Button { Task { await send() } } label: { Text(sent ? "Send again" : "Send link").padding(.horizontal, 10) }
+                Button { Task { await send() } } label: { Text(Relay.googleSignIn ? "Continue with Google" : sent ? "Send again" : "Send link").padding(.horizontal, 10) }
                     .buttonStyle(SquareButton(palette: palette, prominent: true))
-                    .disabled(working || !email.contains("@"))
+                    .disabled(working || (!Relay.googleSignIn && !email.contains("@")))
             }
             Spacer()
         }
@@ -404,6 +405,10 @@ struct SignInView: View {
         defer { working = false }
         let address = email.trimmingCharacters(in: .whitespaces)
         do {
+            if Relay.googleSignIn {
+                try await account.signInWithGoogle()
+                return
+            }
             try await account.requestLink(email: address)
             UserDefaults.standard.set(address, forKey: "email")
             sent = true

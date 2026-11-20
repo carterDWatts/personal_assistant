@@ -9,7 +9,16 @@ from pathlib import Path
 
 def load_settings():
     # Finder does not inherit terminal exports. Parse literal settings, never execute shell code.
-    allowed = {"ASSISTANT_DATABASE_URL", "ASSISTANT_TEST_DATABASE_URL", "ASSISTANT_TIMEZONE", "ASSISTANT_MODEL", "ASSISTANT_OPENAI_MODEL"}
+    allowed = {"ASSISTANT_DATABASE_URL", "ASSISTANT_TEST_DATABASE_URL", "ASSISTANT_TIMEZONE", "ASSISTANT_MODEL", "ASSISTANT_OPENAI_MODEL",
+               "ASSISTANT_SUPABASE_URL", "ASSISTANT_PUBLIC_URL", "ASSISTANT_STORAGE_KEY"}
+    settings = Path.home() / ".config/personal-assistant/settings.json"
+    if settings.exists():
+        values = json.loads(settings.read_text())
+        if not isinstance(values, dict) or any(not isinstance(value, str) for value in values.values()):
+            raise ValueError("Assistant settings must contain string values.")
+        for key, value in values.items():
+            if key in allowed:
+                os.environ.setdefault(key, value)
     path = Path.home() / ".zshrc"
     if path.exists():
         for line in path.read_text().splitlines():

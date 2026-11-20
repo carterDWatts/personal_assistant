@@ -22,7 +22,7 @@ docker compose up -d --wait db
 ```
 
 Keys are generated locally and preserved on subsequent runs. Do not reuse sample
-JWTs from an upstream Docker example. `.env`, `.connectors.env` and `.worker.env`
+JWTs from an upstream Docker example. `.env`, `.auth.env`, `.connectors.env` and `.worker.env`
 are ignored. Use a generated hexadecimal database password so URI escaping is
 unambiguous.
 
@@ -58,6 +58,10 @@ not replace other services' existing Serve/Funnel listeners.
 - Configure a working Auth sign-in transport. Email login is disabled by default;
   the local stack does not include Supabase's hosted mail delivery. Never enable
   automatic email confirmation as a workaround.
+  Google sign-in uses `GOOGLE_LOGIN_ENABLED=true` in `.env` and
+  `GOTRUE_EXTERNAL_GOOGLE_CLIENT_ID` / `GOTRUE_EXTERNAL_GOOGLE_SECRET` in `.auth.env`.
+  Register `${PUBLIC_URL}/auth/v1/callback` with Google. Keep signup disabled and
+  verify that signing in resolves to the imported owner, not a new account.
 - Transfer the existing connector encryption key, OAuth registrations, APNs key
   and subscription credentials privately. Preserve the connector key exactly:
   changing it makes the imported tokens unreadable. Put gateway OAuth settings
@@ -90,5 +94,28 @@ Railway would fork the memory. Back up the local database, storage volume, signi
 configuration and runtime credentials regularly, including an encrypted copy on
 another machine.
 
-Current staging does not change the apps or expose a public listener. Auth delivery,
-credential transfer, storage export and the final worker cutover remain required.
+## Clients and updates
+
+The iPhone reads `AssistantServerURL`, `AssistantPublicKey` and
+`AssistantSignInProvider` from its Info.plist. The key is deliberately public and
+has the `anon` role; it cannot authorize the owner's data. The gateway verifies
+the signed-in user and registered device before running privileged operations.
+When the server changes, the phone refreshes its imported session before using it.
+If that session is no longer valid, it offers Google sign-in.
+
+After verifying the restored database, configure the Mac:
+
+```sh
+python3 deploy/home/connect-mac.py user@home-server
+```
+
+This stores private settings in `~/.config/personal-assistant/settings.json` and
+installs a reconnecting SSH tunnel on localhost:55434. Explicit environment
+variables still take precedence; old `.zshrc` exports are only a fallback.
+Restart the Mac app after changing its connection. Its test database stays separate.
+
+For server updates, copy tracked source files into `~/personal-assistant` without
+deleting private configuration, then run the Compose command above. Build the
+replacement image before replacing the running worker. Preserve the runtime volume:
+its refreshed subscription credentials take precedence over old environment seeds.
+Railway's GitHub source must stay disconnected after cutover.

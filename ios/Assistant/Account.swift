@@ -33,8 +33,11 @@ enum Keychain {
 enum Relay {
     // Keep live event reads near the database; HTTP fallback uses automatic routing.
     static let region = "us-east-1"
-    static let url = URL(string: "https://koauvyfxewczcajnlrfp.supabase.co")!
-    static let key = "sb_publishable_Xdsr05lmo4XjfYRiT3qnBQ_r0CGUqiI"
+    static let url = URL(string: Bundle.main.object(forInfoDictionaryKey: "AssistantServerURL") as? String
+                         ?? "https://koauvyfxewczcajnlrfp.supabase.co")!
+    static let key = Bundle.main.object(forInfoDictionaryKey: "AssistantPublicKey") as? String
+        ?? "sb_publishable_Xdsr05lmo4XjfYRiT3qnBQ_r0CGUqiI"
+    static let googleSignIn = Bundle.main.object(forInfoDictionaryKey: "AssistantSignInProvider") as? String == "google"
 }
 
 struct AccountError: LocalizedError {
@@ -59,7 +62,7 @@ struct AccountError: LocalizedError {
     }
 }
 
-/// The signed-in owner on this phone. Sign-in is a code sent to the account's email; the session lives in the Keychain.
+/// The signed-in owner on this phone. The session and PKCE verifier live in the Keychain.
 @MainActor final class Account: ObservableObject {
     static let shared = Account()
 
@@ -75,6 +78,7 @@ struct AccountError: LocalizedError {
     private struct Session: Codable {
         var accessToken, refreshToken: String
         var expiresAt: Date
+        var serverURL: String?
     }
 
     private init() {
@@ -112,14 +116,30 @@ struct AccountError: LocalizedError {
     }
 
     func requestLink(email: String) async throws {
+        let challenge = try newChallenge()
+        let redirect = Self.callback.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? Self.callback
+        _ = try await auth("otp?redirect_to=" + redirect,
+                           ["email": email, "create_user": false, "code_challenge": challenge, "code_challenge_method": "s256"])
+    }
+
+    private func newChallenge() throws -> String {
         var bytes = [UInt8](repeating: 0, count: 48)
         guard SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes) == errSecSuccess else { throw AccountError("Couldn’t start sign-in.") }
         let verifier = base64url(Data(bytes))
         let challenge = base64url(Data(SHA256.hash(data: Data(verifier.utf8))))
         self.verifier = verifier
-        let redirect = Self.callback.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? Self.callback
-        _ = try await auth("otp?redirect_to=" + redirect,
-                           ["email": email, "create_user": false, "code_challenge": challenge, "code_challenge_method": "s256"])
+        return challenge
+    }
+
+    func signInWithGoogle() async throws {
+        var url = URLComponents(url: Relay.url.appendingPathComponent("auth/v1/authorize"), resolvingAgainstBaseURL: false)!
+        url.queryItems = [URLQueryItem(name: "provider", value: "google"),
+                          URLQueryItem(name: "redirect_to", value: Self.callback),
+                          URLQueryItem(name: "code_challenge", value: try newChallenge()),
+                          URLQueryItem(name: "code_challenge_method", value: "s256")]
+        let callback = try await WebAuth.shared.run(url.url!)
+        await open(callback)
+        if !problem.isEmpty { throw AccountError(problem) }
     }
 
     /// The link lands here, on a running app or one launched by it. The code is exchanged with Auth; the link alone proves nothing.
@@ -147,7 +167,7 @@ struct AccountError: LocalizedError {
     /// A token good for at least another minute, refreshed here when it is not.
     func accessToken() async throws -> String {
         guard let current = session else { throw AccountError("Sign in to continue.") }
-        if current.expiresAt.timeIntervalSinceNow > 60 { return current.accessToken }
+        if current.serverURL == Relay.url.absoluteString && current.expiresAt.timeIntervalSinceNow > 60 { return current.accessToken }
         do {
             let refreshed = try parse(await auth("token?grant_type=refresh_token", ["refresh_token": current.refreshToken]))
             session = refreshed
@@ -184,7 +204,8 @@ struct AccountError: LocalizedError {
             throw AccountError("The sign-in reply was incomplete.")
         }
         let expires = (json["expires_in"] as? NSNumber)?.doubleValue ?? 3600
-        return Session(accessToken: access, refreshToken: refresh, expiresAt: Date().addingTimeInterval(expires))
+        return Session(accessToken: access, refreshToken: refresh, expiresAt: Date().addingTimeInterval(expires),
+                       serverURL: Relay.url.absoluteString)
     }
 
     private func auth(_ path: String, _ body: [String: Any]) async throws -> [String: Any] {
